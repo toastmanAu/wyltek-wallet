@@ -30,6 +30,7 @@ sealed class Screen(val route: String, val label: String) {
     data object Settings : Screen("settings", "Settings")
     data object Skins : Screen("skins", "Skins")
     data object PasskeySettings : Screen("passkey-settings", "Passkeys")
+    data object WatchOnly : Screen("watch-only", "Watch-Only")
     data object Send : Screen("send", "Send")
     data object Receive : Screen("receive", "Receive")
     data object InternalTransfer : Screen("internal-transfer", "Transfer")
@@ -121,6 +122,7 @@ fun AppNavigation() {
                 SettingsScreen(
                     onSkins = { navController.navigate(Screen.Skins.route) },
                     onPasskeys = { navController.navigate(Screen.PasskeySettings.route) },
+                    onWatchOnly = { navController.navigate(Screen.WatchOnly.route) },
                     viewModel = viewModel
                 )
             }
@@ -129,6 +131,9 @@ fun AppNavigation() {
             }
             composable(Screen.PasskeySettings.route) {
                 PasskeySettingsScreen(viewModel = viewModel)
+            }
+            composable(Screen.WatchOnly.route) {
+                WatchOnlyScreen(viewModel = viewModel)
             }
             composable(Screen.Send.route) {
                 SendScreen(

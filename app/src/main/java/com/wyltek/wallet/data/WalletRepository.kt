@@ -18,6 +18,7 @@ import com.wyltek.wallet.core.native.*
 import com.wyltek.wallet.core.passkey.JoyIDIntegration
 import com.wyltek.wallet.core.passkey.PasskeyManager
 import com.wyltek.wallet.core.skin.SkinManager
+import com.wyltek.wallet.core.watchonly.WatchOnlyManager
 import java.util.UUID
 
 class WalletRepository(context: Context) {
@@ -32,6 +33,7 @@ class WalletRepository(context: Context) {
     private val skinManager = SkinManager(context)
     private val passkeyManager = PasskeyManager(context)
     private val joyIdIntegration = JoyIDIntegration(context)
+    private val watchOnlyManager = WatchOnlyManager(context)
 
     init {
         chainManager.addProvider(
@@ -49,6 +51,7 @@ class WalletRepository(context: Context) {
     fun getSkinManager(): SkinManager = skinManager
     fun getPasskeyManager(): PasskeyManager = passkeyManager
     fun getJoyIDIntegration(): JoyIDIntegration = joyIdIntegration
+    fun getWatchOnlyManager(): WatchOnlyManager = watchOnlyManager
 
     fun setActiveRpc(name: String) {
         chainManager.setActiveProvider(name)

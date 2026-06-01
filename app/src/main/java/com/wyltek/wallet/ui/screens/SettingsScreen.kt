@@ -16,6 +16,7 @@ import com.wyltek.wallet.data.WalletViewModel
 fun SettingsScreen(
     onSkins: () -> Unit = {},
     onPasskeys: () -> Unit = {},
+    onWatchOnly: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -80,6 +81,12 @@ fun SettingsScreen(
             }
 
             SettingsSection(title = "Advanced") {
+                SettingsItem(
+                    icon = Icons.Default.Visibility,
+                    title = "Watch-Only Wallets",
+                    subtitle = "${uiState.watchOnlyAccounts.size} accounts",
+                    onClick = onWatchOnly
+                )
                 SettingsItem(
                     icon = Icons.Default.Code,
                     title = "Network",

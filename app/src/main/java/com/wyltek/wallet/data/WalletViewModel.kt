@@ -16,6 +16,7 @@ import com.wyltek.wallet.core.passkey.JoyIDAccount
 import com.wyltek.wallet.core.passkey.PasskeyCredential
 import com.wyltek.wallet.core.skin.ThemeConfig
 import com.wyltek.wallet.core.skin.ThemePresets
+import com.wyltek.wallet.core.watchonly.WatchOnlyAccount
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,7 +53,8 @@ data class WalletUiState(
     val currentTheme: ThemeConfig? = null,
     val customThemes: List<ThemeConfig> = emptyList(),
     val passkeyCredentials: List<PasskeyCredential> = emptyList(),
-    val joyIdAccounts: List<JoyIDAccount> = emptyList()
+    val joyIdAccounts: List<JoyIDAccount> = emptyList(),
+    val watchOnlyAccounts: List<WatchOnlyAccount> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -64,6 +66,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val skinManager = repository.getSkinManager()
     private val passkeyManager = repository.getPasskeyManager()
     private val joyIdIntegration = repository.getJoyIDIntegration()
+    private val watchOnlyManager = repository.getWatchOnlyManager()
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -77,7 +80,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             currentTheme = skinManager.getCurrentTheme(),
             customThemes = skinManager.getCustomThemes(),
             passkeyCredentials = passkeyManager.getAllCredentials(),
-            joyIdAccounts = passkeyManager.getAllJoyIDAccounts()
+            joyIdAccounts = passkeyManager.getAllJoyIDAccounts(),
+            watchOnlyAccounts = watchOnlyManager.getAllAccounts()
         )
         refreshListings()
         refreshMessaging()
@@ -507,6 +511,27 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun getJoyIDSignURL(message: String, callbackUrl: String): String {
         return joyIdIntegration.buildJoyIDSignMessageURL(message, callbackUrl)
+    }
+
+    fun importWatchOnlyAccount(name: String, xpub: String, path: String) {
+        val account = watchOnlyManager.importXpub(name, xpub, path)
+        _uiState.value = _uiState.value.copy(
+            watchOnlyAccounts = watchOnlyManager.getAllAccounts()
+        )
+    }
+
+    fun deleteWatchOnlyAccount(id: String) {
+        watchOnlyManager.deleteAccount(id)
+        _uiState.value = _uiState.value.copy(
+            watchOnlyAccounts = watchOnlyManager.getAllAccounts()
+        )
+    }
+
+    fun refreshWatchOnlyAddresses(id: String) {
+        watchOnlyManager.refreshAddresses(id)
+        _uiState.value = _uiState.value.copy(
+            watchOnlyAccounts = watchOnlyManager.getAllAccounts()
+        )
     }
 
     override fun onCleared() {
