@@ -58,6 +58,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation(project(":wallet-core"))
+    implementation("net.java.dev.jna:jna:5.12.0@aar")
 
     // Compose
     implementation("androidx.compose.ui:ui")
