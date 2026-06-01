@@ -3,6 +3,8 @@ package com.wyltek.wallet.data
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.wyltek.wallet.core.assets.AssetInfo
+import com.wyltek.wallet.core.assets.AssetType
 import com.wyltek.wallet.core.chain.CellsCapacity
 import com.wyltek.wallet.core.chain.HeaderInfo
 import com.wyltek.wallet.core.chain.TxStatus
@@ -29,7 +31,13 @@ data class WalletUiState(
     val lastTxHash: String? = null,
     val lastTxStatus: TxStatus? = null,
     val addressCopied: Boolean = false,
-    val activeRpc: String? = null
+    val activeRpc: String? = null,
+    val allAssets: List<AssetInfo> = emptyList(),
+    val sporeAssets: List<AssetInfo> = emptyList(),
+    val cotaAssets: List<AssetInfo> = emptyList(),
+    val ckbfsAssets: List<AssetInfo> = emptyList(),
+    val selectedAsset: AssetInfo? = null,
+    val isScanningAssets: Boolean = false
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -103,12 +111,49 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun refreshAssets() {
+        val account = _uiState.value.currentAccount ?: return
+        val lockScript = account.addresses.firstOrNull()?.lockScript ?: return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isScanningAssets = true)
+
+            when (val result = repository.scanAssets(lockScript)) {
+                is WalletResult.Success -> {
+                    val assets = result.data
+                    _uiState.value = _uiState.value.copy(
+                        allAssets = assets,
+                        sporeAssets = assets.filter { it.type == AssetType.SPORE },
+                        cotaAssets = assets.filter { it.type == AssetType.COTA },
+                        ckbfsAssets = assets.filter { it.type == AssetType.CKBFS },
+                        isScanningAssets = false
+                    )
+                }
+                is WalletResult.Error -> {
+                    _uiState.value = _uiState.value.copy(
+                        isScanningAssets = false,
+                        error = result.message
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectAsset(asset: AssetInfo) {
+        _uiState.value = _uiState.value.copy(selectedAsset = asset)
+    }
+
+    fun clearSelectedAsset() {
+        _uiState.value = _uiState.value.copy(selectedAsset = null)
+    }
+
     fun startAutoSync(intervalMs: Long = 30_000L) {
         stopAutoSync()
         syncJob = viewModelScope.launch {
             while (true) {
                 syncTipHeader()
                 refreshBalance()
+                refreshAssets()
                 delay(intervalMs)
             }
         }
@@ -170,6 +215,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     fun selectAccount(account: WalletAccount) {
         _uiState.value = _uiState.value.copy(currentAccount = account)
         refreshBalance()
+        refreshAssets()
     }
 
     fun buildTransaction(toAddress: String, amount: ULong) {

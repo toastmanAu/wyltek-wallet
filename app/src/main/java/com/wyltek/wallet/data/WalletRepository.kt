@@ -2,6 +2,8 @@ package com.wyltek.wallet.data
 
 import android.content.Context
 import com.wyltek.wallet.core.account.AccountManager
+import com.wyltek.wallet.core.assets.AssetInfo
+import com.wyltek.wallet.core.assets.AssetScanner
 import com.wyltek.wallet.core.chain.CellsCapacity
 import com.wyltek.wallet.core.chain.ChainManager
 import com.wyltek.wallet.core.chain.HeaderInfo
@@ -17,6 +19,7 @@ class WalletRepository(context: Context) {
     private val accountManager = AccountManager()
     private val seedVault = SeedVault(context)
     private val chainManager = ChainManager()
+    private val assetScanner = AssetScanner(chainManager)
 
     init {
         chainManager.addProvider(
@@ -82,6 +85,15 @@ class WalletRepository(context: Context) {
             WalletResult.Success(status)
         } catch (e: Exception) {
             WalletResult.Error("Status fetch failed: ${e.message}")
+        }
+    }
+
+    suspend fun scanAssets(lockScript: LockScript): WalletResult<List<AssetInfo>> {
+        return try {
+            val assets = assetScanner.scanAll(lockScript)
+            WalletResult.Success(assets)
+        } catch (e: Exception) {
+            WalletResult.Error("Asset scan failed: ${e.message}")
         }
     }
 

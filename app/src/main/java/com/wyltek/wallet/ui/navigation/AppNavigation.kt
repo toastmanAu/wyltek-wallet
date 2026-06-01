@@ -103,7 +103,7 @@ fun AppNavigation() {
                 )
             }
             composable(Screen.Assets.route) {
-                AssetsScreen()
+                AssetsScreen(viewModel = viewModel)
             }
             composable(Screen.Messages.route) {
                 MessagesScreen()
