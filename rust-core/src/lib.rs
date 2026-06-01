@@ -10,10 +10,10 @@ pub mod hashing;
 
 pub use mnemonic::{MnemonicResult, generate_mnemonic, validate_mnemonic, mnemonic_to_seed};
 pub use keys::{KeyPair, generate_secp256k1_keypair, public_key_to_ckb_address, public_key_to_pq_address};
-pub use pq_keys::{PQKeyPair, generate_mldsa65_keypair, mldsa65_from_seed, pq_lock_args};
+pub use pq_keys::{PQKeyPair, generate_mldsa65_keypair, mldsa65_from_seed, mldsa65_sign, mldsa65_verify, pq_lock_args};
 pub use address::{AddressInfo, decode_address, encode_address, validate_address};
 pub use transaction::{TransactionRequest, TxInput, TxOutput, BuiltTransaction, build_transaction};
-pub use signing::{sign_transaction, sign_message};
+pub use signing::{sign_transaction, sign_message, verify_signature};
 pub use hashing::{blake2b_256, ckb_hash};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]

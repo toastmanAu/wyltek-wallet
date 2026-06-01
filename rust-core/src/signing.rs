@@ -1,6 +1,8 @@
 use crate::WalletError;
 use secp256k1::{SecretKey, Secp256k1, Message};
 use blake2b_ref::Blake2bBuilder;
+use fips204::ml_dsa_65;
+use fips204::traits::{SerDes, Signer, Verifier};
 
 fn ckb_blake2b(data: &[u8]) -> [u8; 32] {
     let mut hasher = Blake2bBuilder::new(32)
@@ -22,9 +24,7 @@ pub fn sign_transaction(
 
     match algorithm.as_str() {
         "secp256k1" => sign_secp256k1(raw_tx, private_key_hex),
-        "mldsa65" => {
-            Err(WalletError::CryptoError("ML-DSA-65 signing requires runtime key loading — implement via JNI callback".into()))
-        }
+        "mldsa65" => sign_mldsa65(raw_tx, private_key_hex),
         _ => Err(WalletError::InvalidInput(format!("Unsupported signing algorithm: {}", algorithm))),
     }
 }
@@ -43,6 +43,21 @@ fn sign_secp256k1(raw_tx: Vec<u8>, private_key_hex: String) -> Result<String, Wa
     result.push(recovery_id.to_i32() as u8);
 
     Ok(hex::encode(result))
+}
+
+fn sign_mldsa65(raw_tx: Vec<u8>, private_key_hex: String) -> Result<String, WalletError> {
+    let sk_bytes = hex::decode(&private_key_hex)?;
+
+    let sk_array: [u8; 4032] = sk_bytes.try_into()
+        .map_err(|_| WalletError::InvalidInput("Invalid ML-DSA-65 private key length".into()))?;
+
+    let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_array)
+        .map_err(|e| WalletError::CryptoError(format!("Invalid ML-DSA-65 private key: {}", e)))?;
+
+    let sig = sk.try_sign(&raw_tx, &[])
+        .map_err(|e| WalletError::CryptoError(format!("ML-DSA-65 signing failed: {}", e)))?;
+
+    Ok(hex::encode(sig))
 }
 
 #[uniffi::export]
@@ -70,7 +85,66 @@ pub fn sign_message(
             Ok(hex::encode(result))
         }
         "mldsa65" => {
-            Err(WalletError::CryptoError("ML-DSA-65 message signing requires runtime key loading — implement via JNI callback".into()))
+            let sk_bytes = hex::decode(&private_key_hex)?;
+
+            let sk_array: [u8; 4032] = sk_bytes.try_into()
+                .map_err(|_| WalletError::InvalidInput("Invalid ML-DSA-65 private key length".into()))?;
+
+            let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_array)
+                .map_err(|e| WalletError::CryptoError(format!("Invalid ML-DSA-65 private key: {}", e)))?;
+
+            let sig = sk.try_sign(&message, &[])
+                .map_err(|e| WalletError::CryptoError(format!("ML-DSA-65 signing failed: {}", e)))?;
+
+            Ok(hex::encode(sig))
+        }
+        _ => Err(WalletError::InvalidInput(format!("Unsupported algorithm: {}", algorithm))),
+    }
+}
+
+#[uniffi::export]
+pub fn verify_signature(
+    message_hex: String,
+    signature_hex: String,
+    public_key_hex: String,
+    algorithm: String,
+) -> Result<bool, WalletError> {
+    let message = hex::decode(&message_hex)?;
+
+    match algorithm.as_str() {
+        "secp256k1" => {
+            let sig_bytes = hex::decode(&signature_hex)?;
+            if sig_bytes.len() != 65 {
+                return Err(WalletError::InvalidInput("Invalid secp256k1 signature length".into()));
+            }
+
+            let pk_bytes = hex::decode(&public_key_hex)?;
+            let secp = Secp256k1::new();
+            let pk = secp256k1::PublicKey::from_slice(&pk_bytes)?;
+
+            let hash = ckb_blake2b(&message);
+            let msg = Message::from_digest(hash);
+
+            let recovery_id = secp256k1::ecdsa::RecoveryId::from_i32(sig_bytes[64] as i32)
+                .map_err(|e| WalletError::CryptoError(format!("Invalid recovery id: {}", e)))?;
+            let signature = secp256k1::ecdsa::RecoverableSignature::from_compact(&sig_bytes[..65], recovery_id)?;
+
+            let recovered = secp.recover_ecdsa(&msg, &signature)?;
+            Ok(recovered == pk)
+        }
+        "mldsa65" => {
+            let pk_bytes = hex::decode(&public_key_hex)?;
+            let pk_array: [u8; 1952] = pk_bytes.try_into()
+                .map_err(|_| WalletError::InvalidInput("Invalid ML-DSA-65 public key length".into()))?;
+
+            let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_array)
+                .map_err(|e| WalletError::CryptoError(format!("Invalid ML-DSA-65 public key: {}", e)))?;
+
+            let sig_bytes = hex::decode(&signature_hex)?;
+            let sig_array: [u8; 3309] = sig_bytes.try_into()
+                .map_err(|_| WalletError::InvalidInput("Invalid ML-DSA-65 signature length".into()))?;
+
+            Ok(pk.verify(&message, &sig_array, &[]))
         }
         _ => Err(WalletError::InvalidInput(format!("Unsupported algorithm: {}", algorithm))),
     }

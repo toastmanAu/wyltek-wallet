@@ -663,11 +663,17 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_sign(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_verify(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_pq_lock_args(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_message(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_transaction(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_verify_signature(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_build_transaction(
     ): Short
@@ -712,12 +718,18 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_wyltekwalletcore_fn_func_mldsa65_from_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_wyltekwalletcore_fn_func_mldsa65_sign(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_wyltekwalletcore_fn_func_mldsa65_verify(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_wyltekwalletcore_fn_func_pq_lock_args(`publicKeyHex`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_wyltekwalletcore_fn_func_sign_message(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_wyltekwalletcore_fn_func_sign_transaction(`rawTxHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_wyltekwalletcore_fn_func_verify_signature(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_wyltekwalletcore_fn_func_build_transaction(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_wyltekwalletcore_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -881,6 +893,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 65027.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_sign() != 9642.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_verify() != 50642.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_wyltekwalletcore_checksum_func_pq_lock_args() != 10651.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -888,6 +906,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_transaction() != 41836.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_verify_signature() != 44663.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_build_transaction() != 20828.toShort()) {
@@ -1771,6 +1792,28 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     }
     
 
+    @Throws(WalletException::class) fun `mldsa65Sign`(`messageHex`: kotlin.String, `privateKeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_mldsa65_sign(
+    
+        FfiConverterString.lower(`messageHex`),FfiConverterString.lower(`privateKeyHex`),_status)
+}
+    )
+    }
+    
+
+    @Throws(WalletException::class) fun `mldsa65Verify`(`messageHex`: kotlin.String, `signatureHex`: kotlin.String, `publicKeyHex`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_mldsa65_verify(
+    
+        FfiConverterString.lower(`messageHex`),FfiConverterString.lower(`signatureHex`),FfiConverterString.lower(`publicKeyHex`),_status)
+}
+    )
+    }
+    
+
     @Throws(WalletException::class) fun `pqLockArgs`(`publicKeyHex`: kotlin.String, `algorithmId`: kotlin.UByte): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(WalletException) { _status ->
@@ -1799,6 +1842,17 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_transaction(
     
         FfiConverterString.lower(`rawTxHex`),FfiConverterString.lower(`privateKeyHex`),FfiConverterString.lower(`algorithm`),_status)
+}
+    )
+    }
+    
+
+    @Throws(WalletException::class) fun `verifySignature`(`messageHex`: kotlin.String, `signatureHex`: kotlin.String, `publicKeyHex`: kotlin.String, `algorithm`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_verify_signature(
+    
+        FfiConverterString.lower(`messageHex`),FfiConverterString.lower(`signatureHex`),FfiConverterString.lower(`publicKeyHex`),FfiConverterString.lower(`algorithm`),_status)
 }
     )
     }

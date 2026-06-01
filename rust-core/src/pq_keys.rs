@@ -1,12 +1,7 @@
 use crate::WalletError;
 use blake2b_ref::Blake2bBuilder;
-use rand::SeedableRng;
-
-#[derive(uniffi::Record)]
-pub struct PQKeyPair {
-    pub public_key_hex: String,
-    pub private_key_hex: String,
-}
+use fips204::ml_dsa_65;
+use fips204::traits::{KeyGen, SerDes, Signer, Verifier};
 
 fn ckb_blake2b(data: &[u8]) -> [u8; 32] {
     let mut hasher = Blake2bBuilder::new(32)
@@ -18,16 +13,20 @@ fn ckb_blake2b(data: &[u8]) -> [u8; 32] {
     out
 }
 
+#[derive(uniffi::Record)]
+pub struct PQKeyPair {
+    pub public_key_hex: String,
+    pub private_key_hex: String,
+}
+
 #[uniffi::export]
 pub fn generate_mldsa65_keypair() -> Result<PQKeyPair, WalletError> {
-    let mut pk = vec![0u8; 1952];
-    let mut sk = vec![0u8; 4032];
-    rand::Rng::fill(&mut rand::thread_rng(), &mut pk[..]);
-    rand::Rng::fill(&mut rand::thread_rng(), &mut sk[..]);
+    let (pk, sk) = ml_dsa_65::KG::try_keygen()
+        .map_err(|e| WalletError::CryptoError(format!("ML-DSA-65 keygen failed: {}", e)))?;
 
     Ok(PQKeyPair {
-        public_key_hex: hex::encode(&pk),
-        private_key_hex: hex::encode(&sk),
+        public_key_hex: hex::encode(pk.into_bytes()),
+        private_key_hex: hex::encode(sk.into_bytes()),
     })
 }
 
@@ -38,23 +37,57 @@ pub fn mldsa65_from_seed(seed_hex: String) -> Result<PQKeyPair, WalletError> {
         return Err(WalletError::InvalidInput("Seed must be 32 bytes".into()));
     }
 
-    use hkdf::Hkdf;
-    use sha2::Sha256;
-    let hk = Hkdf::<Sha256>::new(None, &seed_bytes);
-    let mut derived_seed = [0u8; 32];
-    hk.expand(b"mldsa65-keygen", &mut derived_seed)
-        .map_err(|e| WalletError::CryptoError(format!("HKDF expand failed: {}", e)))?;
+    let mut xi = [0u8; 32];
+    xi.copy_from_slice(&seed_bytes);
 
-    let mut pk = vec![0u8; 1952];
-    let mut sk = vec![0u8; 4032];
-    let mut rng = rand::rngs::StdRng::from_seed(derived_seed);
-    rand::Rng::fill(&mut rng, &mut pk[..]);
-    rand::Rng::fill(&mut rng, &mut sk[..]);
+    let (pk, sk) = ml_dsa_65::KG::keygen_from_seed(&xi);
 
     Ok(PQKeyPair {
-        public_key_hex: hex::encode(&pk),
-        private_key_hex: hex::encode(&sk),
+        public_key_hex: hex::encode(pk.into_bytes()),
+        private_key_hex: hex::encode(sk.into_bytes()),
     })
+}
+
+#[uniffi::export]
+pub fn mldsa65_sign(
+    message_hex: String,
+    private_key_hex: String,
+) -> Result<String, WalletError> {
+    let message = hex::decode(&message_hex)?;
+    let sk_bytes = hex::decode(&private_key_hex)?;
+
+    let sk_array: [u8; 4032] = sk_bytes.try_into()
+        .map_err(|_| WalletError::InvalidInput("Invalid private key length".into()))?;
+
+    let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_array)
+        .map_err(|e| WalletError::CryptoError(format!("Invalid private key: {}", e)))?;
+
+    let sig = sk.try_sign(&message, &[])
+        .map_err(|e| WalletError::CryptoError(format!("ML-DSA-65 signing failed: {}", e)))?;
+
+    Ok(hex::encode(sig))
+}
+
+#[uniffi::export]
+pub fn mldsa65_verify(
+    message_hex: String,
+    signature_hex: String,
+    public_key_hex: String,
+) -> Result<bool, WalletError> {
+    let message = hex::decode(&message_hex)?;
+    let sig_bytes = hex::decode(&signature_hex)?;
+    let pk_bytes = hex::decode(&public_key_hex)?;
+
+    let pk_array: [u8; 1952] = pk_bytes.try_into()
+        .map_err(|_| WalletError::InvalidInput("Invalid public key length".into()))?;
+
+    let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_array)
+        .map_err(|e| WalletError::CryptoError(format!("Invalid public key: {}", e)))?;
+
+    let sig_array: [u8; 3309] = sig_bytes.try_into()
+        .map_err(|_| WalletError::InvalidInput("Invalid signature length".into()))?;
+
+    Ok(pk.verify(&message, &sig_array, &[]))
 }
 
 #[uniffi::export]
