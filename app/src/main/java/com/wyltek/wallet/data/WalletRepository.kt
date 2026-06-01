@@ -4,6 +4,7 @@ import android.content.Context
 import com.wyltek.wallet.core.account.AccountManager
 import com.wyltek.wallet.core.assets.AssetInfo
 import com.wyltek.wallet.core.assets.AssetScanner
+import com.wyltek.wallet.core.assets.ListingService
 import com.wyltek.wallet.core.chain.CellsCapacity
 import com.wyltek.wallet.core.chain.ChainManager
 import com.wyltek.wallet.core.chain.HeaderInfo
@@ -20,6 +21,7 @@ class WalletRepository(context: Context) {
     private val seedVault = SeedVault(context)
     private val chainManager = ChainManager()
     private val assetScanner = AssetScanner(chainManager)
+    private val listingService = ListingService(chainManager)
 
     init {
         chainManager.addProvider(
@@ -30,6 +32,8 @@ class WalletRepository(context: Context) {
             )
         )
     }
+
+    fun getListingService(): ListingService = listingService
 
     fun setActiveRpc(name: String) {
         chainManager.setActiveProvider(name)
@@ -279,6 +283,62 @@ class WalletRepository(context: Context) {
     fun getAllAccounts(): List<WalletAccount> = accountManager.getAllAccounts()
 
     fun getAccount(id: String): WalletAccount? = accountManager.getAccount(id)
+
+    suspend fun listAssetForSale(
+        asset: AssetInfo,
+        price: ULong,
+        royaltyPercent: UInt,
+        expiryBlock: ULong?
+    ): WalletResult<String> {
+        return try {
+            val listing = listingService.listForSale(asset, price, royaltyPercent, expiryBlock)
+                ?: return WalletResult.Error("Failed to create listing")
+            WalletResult.Success(listing.id)
+        } catch (e: Exception) {
+            WalletResult.Error("Listing failed: ${e.message}")
+        }
+    }
+
+    suspend fun cancelListing(listingId: String): WalletResult<Boolean> {
+        return try {
+            val success = listingService.cancelListing(listingId)
+            if (success) {
+                WalletResult.Success(true)
+            } else {
+                WalletResult.Error("Failed to cancel listing")
+            }
+        } catch (e: Exception) {
+            WalletResult.Error("Cancel failed: ${e.message}")
+        }
+    }
+
+    suspend fun buyAsset(listingId: String): WalletResult<String> {
+        return try {
+            val listing = listingService.getListing(listingId)
+                ?: return WalletResult.Error("Listing not found")
+
+            val currentAccount = accountManager.getAllAccounts().firstOrNull()
+                ?: return WalletResult.Error("No wallet available")
+
+            val buyerLock = currentAccount.addresses.firstOrNull()?.lockScript
+                ?: return WalletResult.Error("No lock script available")
+
+            val cells = chainManager.getCellsByLock(buyerLock)
+            if (cells.isEmpty()) {
+                return WalletResult.Error("No cells available for payment")
+            }
+
+            val tx = listingService.buyAsset(listingId, buyerLock, cells)
+                ?: return WalletResult.Error("Failed to build transaction")
+
+            val txHash = chainManager.sendTransaction(tx)
+                ?: return WalletResult.Error("Transaction broadcast failed")
+
+            WalletResult.Success(txHash)
+        } catch (e: Exception) {
+            WalletResult.Error("Buy failed: ${e.message}")
+        }
+    }
 }
 
 sealed class WalletResult<out T> {

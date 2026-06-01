@@ -24,3 +24,11 @@ val InfoBlue = Color(0xFF2196F3)
 // Card colors
 val CardBackground = Color(0xFF1E1E32)
 val CardBorder = Color(0xFF333355)
+
+// Marketplace colors
+val CyberBlue = Color(0xFF00BFFF)
+val CyberGray = Color(0xFF666666)
+val CyberText = Color(0xFFE0E0E0)
+val CyberYellow = Color(0xFFFFD700)
+val NeonGreen = Color(0xFF00FF00)
+val NeonPink = Color(0xFFFF69B4)

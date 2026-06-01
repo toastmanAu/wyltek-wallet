@@ -5,6 +5,7 @@ import com.wyltek.wallet.core.chain.CkbRpcClient
 import com.wyltek.wallet.core.chain.RpcProfile
 import com.wyltek.wallet.core.model.*
 import kotlinx.serialization.json.*
+import java.util.UUID
 
 data class AssetInfo(
     val outPoint: OutPoint,
@@ -32,6 +33,116 @@ enum class AssetType {
     COTA,
     CKBFS,
     UNKNOWN
+}
+
+data class Listing(
+    val id: String,
+    val asset: AssetInfo,
+    val price: ULong,
+    val royaltyPercent: UInt,
+    val sellerLock: LockScript,
+    val expiryBlock: ULong?,
+    val createdAt: Long,
+    val status: ListingStatus
+)
+
+enum class ListingStatus {
+    ACTIVE,
+    SOLD,
+    CANCELLED,
+    EXPIRED
+}
+
+class ListingService(private val chainManager: ChainManager) {
+
+    private val listings = mutableMapOf<String, Listing>()
+
+    suspend fun listForSale(
+        asset: AssetInfo,
+        price: ULong,
+        royaltyPercent: UInt,
+        expiryBlock: ULong?
+    ): Listing? {
+        val listingId = UUID.randomUUID().toString()
+
+        val listing = Listing(
+            id = listingId,
+            asset = asset,
+            price = price,
+            royaltyPercent = royaltyPercent,
+            sellerLock = asset.ownerLock,
+            expiryBlock = expiryBlock,
+            createdAt = System.currentTimeMillis(),
+            status = ListingStatus.ACTIVE
+        )
+
+        listings[listingId] = listing
+        return listing
+    }
+
+    suspend fun cancelListing(listingId: String): Boolean {
+        val listing = listings[listingId] ?: return false
+        listings[listingId] = listing.copy(status = ListingStatus.CANCELLED)
+        return true
+    }
+
+    suspend fun buyAsset(
+        listingId: String,
+        buyerLock: LockScript,
+        paymentUtxos: List<Utxo>
+    ): Transaction? {
+        val listing = listings[listingId] ?: return null
+        if (listing.status != ListingStatus.ACTIVE) return null
+
+        val totalPayment = paymentUtxos.sumOf { it.capacity }
+        if (totalPayment < listing.price) return null
+
+        val royaltyAmount = listing.price * listing.royaltyPercent.toULong() / 100uL
+        val sellerAmount = listing.price - royaltyAmount
+
+        listings[listingId] = listing.copy(status = ListingStatus.SOLD)
+
+        return Transaction(
+            version = 0u,
+            cellDeps = emptyList(),
+            headerDeps = emptyList(),
+            inputs = paymentUtxos.map { utxo ->
+                CellInput(
+                    previousOutput = OutPoint(
+                        txHash = utxo.outPoint.txHash,
+                        index = utxo.outPoint.index
+                    ),
+                    since = 0u
+                )
+            },
+            outputs = listOf(
+                CellOutput(
+                    capacity = sellerAmount,
+                    lock = listing.sellerLock
+                ),
+                CellOutput(
+                    capacity = listing.asset.capacity,
+                    lock = buyerLock
+                )
+            ),
+            outputsData = listOf("0x", "0x"),
+            witnesses = emptyList()
+        )
+    }
+
+    fun getActiveListings(): List<Listing> {
+        return listings.values.filter { it.status == ListingStatus.ACTIVE }
+    }
+
+    fun getListingsBySeller(sellerLock: LockScript): List<Listing> {
+        return listings.values.filter {
+            it.sellerLock == sellerLock && it.status == ListingStatus.ACTIVE
+        }
+    }
+
+    fun getListing(listingId: String): Listing? {
+        return listings[listingId]
+    }
 }
 
 class AssetScanner(private val chainManager: ChainManager) {
@@ -246,28 +357,5 @@ class AssetScanner(private val chainManager: ChainManager) {
 
     private fun bytesToHex(bytes: ByteArray): String {
         return bytes.joinToString("") { "%02x".format(it) }
-    }
-}
-
-class ListingService {
-
-    suspend fun listForSale(
-        asset: AssetInfo,
-        price: ULong,
-        royaltyPercent: UInt,
-        expiryBlock: ULong?
-    ): String? {
-        TODO("Implement LSDL listing")
-    }
-
-    suspend fun cancelListing(outPoint: OutPoint): Boolean {
-        TODO("Implement LSDL delisting")
-    }
-
-    suspend fun buyAsset(
-        listingOutPoint: OutPoint,
-        paymentUtxos: List<Utxo>
-    ): Transaction? {
-        TODO("Implement LSDL purchase")
     }
 }

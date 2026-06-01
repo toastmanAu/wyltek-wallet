@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import com.wyltek.wallet.data.WalletViewModel
 sealed class Screen(val route: String, val label: String) {
     data object Home : Screen("home", "Home")
     data object Assets : Screen("assets", "Assets")
+    data object Marketplace : Screen("marketplace", "Market")
     data object Messages : Screen("messages", "Messages")
     data object Settings : Screen("settings", "Settings")
     data object Send : Screen("send", "Send")
@@ -36,6 +38,7 @@ sealed class Screen(val route: String, val label: String) {
 private val bottomBarScreens = listOf(
     Screen.Home,
     Screen.Assets,
+    Screen.Marketplace,
     Screen.Messages,
     Screen.Settings
 )
@@ -63,6 +66,7 @@ fun AppNavigation() {
                                     imageVector = when (screen) {
                                         Screen.Home -> Icons.Default.Home
                                         Screen.Assets -> Icons.Default.Image
+                                        Screen.Marketplace -> Icons.Default.Store
                                         Screen.Messages -> Icons.Default.Mail
                                         Screen.Settings -> Icons.Default.Settings
                                         else -> Icons.Default.Home
@@ -104,6 +108,9 @@ fun AppNavigation() {
             }
             composable(Screen.Assets.route) {
                 AssetsScreen(viewModel = viewModel)
+            }
+            composable(Screen.Marketplace.route) {
+                MarketplaceScreen(viewModel = viewModel)
             }
             composable(Screen.Messages.route) {
                 MessagesScreen()

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wyltek.wallet.core.assets.AssetInfo
 import com.wyltek.wallet.core.assets.AssetType
+import com.wyltek.wallet.core.assets.Listing
 import com.wyltek.wallet.core.chain.CellsCapacity
 import com.wyltek.wallet.core.chain.HeaderInfo
 import com.wyltek.wallet.core.chain.TxStatus
@@ -37,12 +38,15 @@ data class WalletUiState(
     val cotaAssets: List<AssetInfo> = emptyList(),
     val ckbfsAssets: List<AssetInfo> = emptyList(),
     val selectedAsset: AssetInfo? = null,
-    val isScanningAssets: Boolean = false
+    val isScanningAssets: Boolean = false,
+    val activeListings: List<Listing> = emptyList(),
+    val myListings: List<Listing> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = WalletRepository(application)
+    private val listingService = repository.getListingService()
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -52,6 +56,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     init {
         loadAccounts()
         _uiState.value = _uiState.value.copy(activeRpc = repository.getActiveRpcName())
+        refreshListings()
     }
 
     private fun loadAccounts() {
@@ -265,6 +270,69 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun getCurrentAddress(): String {
         return _uiState.value.currentAccount?.addresses?.firstOrNull()?.bech32m ?: ""
+    }
+
+    fun listAssetForSale(
+        asset: AssetInfo,
+        price: ULong,
+        royaltyPercent: UInt,
+        expiryBlock: ULong?
+    ) {
+        viewModelScope.launch {
+            when (val result = repository.listAssetForSale(asset, price, royaltyPercent, expiryBlock)) {
+                is WalletResult.Success -> {
+                    refreshListings()
+                    _uiState.value = _uiState.value.copy(error = null)
+                }
+                is WalletResult.Error -> {
+                    _uiState.value = _uiState.value.copy(error = result.message)
+                }
+            }
+        }
+    }
+
+    fun cancelListing(listingId: String) {
+        viewModelScope.launch {
+            when (val result = repository.cancelListing(listingId)) {
+                is WalletResult.Success -> {
+                    refreshListings()
+                    _uiState.value = _uiState.value.copy(error = null)
+                }
+                is WalletResult.Error -> {
+                    _uiState.value = _uiState.value.copy(error = result.message)
+                }
+            }
+        }
+    }
+
+    fun buyAsset(listingId: String) {
+        viewModelScope.launch {
+            when (val result = repository.buyAsset(listingId)) {
+                is WalletResult.Success -> {
+                    refreshListings()
+                    refreshBalance()
+                    _uiState.value = _uiState.value.copy(error = null)
+                }
+                is WalletResult.Error -> {
+                    _uiState.value = _uiState.value.copy(error = result.message)
+                }
+            }
+        }
+    }
+
+    private fun refreshListings() {
+        val activeListings = listingService.getActiveListings()
+        val currentLock = _uiState.value.currentAccount?.addresses?.firstOrNull()?.lockScript
+        val myListings = if (currentLock != null) {
+            listingService.getListingsBySeller(currentLock)
+        } else {
+            emptyList()
+        }
+
+        _uiState.value = _uiState.value.copy(
+            activeListings = activeListings,
+            myListings = myListings
+        )
     }
 
     override fun onCleared() {
