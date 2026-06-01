@@ -28,6 +28,7 @@ sealed class Screen(val route: String, val label: String) {
     data object Marketplace : Screen("marketplace", "Market")
     data object Messages : Screen("messages", "Messages")
     data object Settings : Screen("settings", "Settings")
+    data object Skins : Screen("skins", "Skins")
     data object Send : Screen("send", "Send")
     data object Receive : Screen("receive", "Receive")
     data object InternalTransfer : Screen("internal-transfer", "Transfer")
@@ -116,7 +117,13 @@ fun AppNavigation() {
                 MessagesScreen(viewModel = viewModel)
             }
             composable(Screen.Settings.route) {
-                SettingsScreen(viewModel = viewModel)
+                SettingsScreen(
+                    onSkins = { navController.navigate(Screen.Skins.route) },
+                    viewModel = viewModel
+                )
+            }
+            composable(Screen.Skins.route) {
+                SkinsScreen(viewModel = viewModel)
             }
             composable(Screen.Send.route) {
                 SendScreen(

@@ -15,6 +15,7 @@ import com.wyltek.wallet.core.messaging.ContactBook
 import com.wyltek.wallet.core.messaging.MessagingService
 import com.wyltek.wallet.core.model.*
 import com.wyltek.wallet.core.native.*
+import com.wyltek.wallet.core.skin.SkinManager
 import java.util.UUID
 
 class WalletRepository(context: Context) {
@@ -26,6 +27,7 @@ class WalletRepository(context: Context) {
     private val listingService = ListingService(chainManager)
     private val messagingService = MessagingService()
     private val contactBook = ContactBook(context)
+    private val skinManager = SkinManager(context)
 
     init {
         chainManager.addProvider(
@@ -40,6 +42,7 @@ class WalletRepository(context: Context) {
     fun getListingService(): ListingService = listingService
     fun getMessagingService(): MessagingService = messagingService
     fun getContactBook(): ContactBook = contactBook
+    fun getSkinManager(): SkinManager = skinManager
 
     fun setActiveRpc(name: String) {
         chainManager.setActiveProvider(name)

@@ -13,7 +13,10 @@ import com.wyltek.wallet.data.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: WalletViewModel) {
+fun SettingsScreen(
+    onSkins: () -> Unit = {},
+    viewModel: WalletViewModel
+) {
     val uiState by viewModel.uiState.collectAsState()
     var showRpcDialog by remember { mutableStateOf(false) }
 
@@ -63,12 +66,14 @@ fun SettingsScreen(viewModel: WalletViewModel) {
                 SettingsItem(
                     icon = Icons.Default.Palette,
                     title = "Theme",
-                    subtitle = "Cyberpunk"
+                    subtitle = uiState.currentTheme?.name ?: "Cyberpunk",
+                    onClick = onSkins
                 )
                 SettingsItem(
                     icon = Icons.Default.Image,
                     title = "Custom Skin",
-                    subtitle = "Default"
+                    subtitle = "Default",
+                    onClick = onSkins
                 )
             }
 

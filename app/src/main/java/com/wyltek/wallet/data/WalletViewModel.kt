@@ -12,6 +12,8 @@ import com.wyltek.wallet.core.chain.TxStatus
 import com.wyltek.wallet.core.messaging.ContactProfile
 import com.wyltek.wallet.core.messaging.Conversation
 import com.wyltek.wallet.core.model.*
+import com.wyltek.wallet.core.skin.ThemeConfig
+import com.wyltek.wallet.core.skin.ThemePresets
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +46,9 @@ data class WalletUiState(
     val activeListings: List<Listing> = emptyList(),
     val myListings: List<Listing> = emptyList(),
     val contacts: List<ContactProfile> = emptyList(),
-    val conversations: List<Conversation> = emptyList()
+    val conversations: List<Conversation> = emptyList(),
+    val currentTheme: ThemeConfig? = null,
+    val customThemes: List<ThemeConfig> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -53,6 +57,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val listingService = repository.getListingService()
     private val messagingService = repository.getMessagingService()
     private val contactBook = repository.getContactBook()
+    private val skinManager = repository.getSkinManager()
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -61,7 +66,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         loadAccounts()
-        _uiState.value = _uiState.value.copy(activeRpc = repository.getActiveRpcName())
+        _uiState.value = _uiState.value.copy(
+            activeRpc = repository.getActiveRpcName(),
+            currentTheme = skinManager.getCurrentTheme(),
+            customThemes = skinManager.getCustomThemes()
+        )
         refreshListings()
         refreshMessaging()
     }
@@ -412,6 +421,50 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.value = _uiState.value.copy(error = "Failed to scan notifications: ${e.message}")
             }
         }
+    }
+
+    fun setTheme(theme: ThemeConfig) {
+        skinManager.setTheme(theme)
+        _uiState.value = _uiState.value.copy(currentTheme = theme)
+    }
+
+    fun saveCustomTheme(theme: ThemeConfig) {
+        skinManager.saveCustomTheme(theme)
+        _uiState.value = _uiState.value.copy(
+            customThemes = skinManager.getCustomThemes()
+        )
+    }
+
+    fun removeCustomTheme(themeName: String) {
+        skinManager.removeCustomTheme(themeName)
+        _uiState.value = _uiState.value.copy(
+            customThemes = skinManager.getCustomThemes()
+        )
+    }
+
+    fun exportThemeJson(theme: ThemeConfig): String {
+        return skinManager.exportThemeJson(theme)
+    }
+
+    fun importTheme(jsonString: String) {
+        val theme = skinManager.importThemeJson(jsonString)
+        if (theme != null) {
+            skinManager.saveCustomTheme(theme)
+            _uiState.value = _uiState.value.copy(
+                customThemes = skinManager.getCustomThemes()
+            )
+        }
+    }
+
+    fun updatePanelBackground(panelName: String, imageUri: String) {
+        val currentTheme = _uiState.value.currentTheme ?: return
+        val panelBackground = com.wyltek.wallet.core.skin.PanelBackground(
+            imageUri = imageUri
+        )
+        skinManager.updatePanelBackground(panelName, panelBackground)
+        _uiState.value = _uiState.value.copy(
+            currentTheme = skinManager.getCurrentTheme()
+        )
     }
 
     override fun onCleared() {
