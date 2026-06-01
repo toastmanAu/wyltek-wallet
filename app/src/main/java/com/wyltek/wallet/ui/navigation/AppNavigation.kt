@@ -98,6 +98,7 @@ fun AppNavigation() {
                     onReceive = { navController.navigate(Screen.Receive.route) },
                     onInternalTransfer = { navController.navigate(Screen.InternalTransfer.route) },
                     onCreateWallet = { navController.navigate(Screen.WalletCreate.route) },
+                    onSettings = { navController.navigate(Screen.Settings.route) },
                     viewModel = viewModel
                 )
             }
@@ -108,7 +109,7 @@ fun AppNavigation() {
                 MessagesScreen()
             }
             composable(Screen.Settings.route) {
-                SettingsScreen()
+                SettingsScreen(viewModel = viewModel)
             }
             composable(Screen.Send.route) {
                 SendScreen(

@@ -1,5 +1,6 @@
 package com.wyltek.wallet.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -8,10 +9,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.ui.theme.*
+import com.wyltek.wallet.data.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(viewModel: WalletViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    var showRpcDialog by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Settings") },
@@ -26,12 +31,18 @@ fun SettingsScreen() {
                 SettingsItem(
                     icon = Icons.Default.Cloud,
                     title = "RPC Provider",
-                    subtitle = "Public RPC"
+                    subtitle = uiState.activeRpc ?: "Not configured",
+                    onClick = { showRpcDialog = true }
                 )
                 SettingsItem(
                     icon = Icons.Default.Storage,
                     title = "Light Client",
                     subtitle = "Not running"
+                )
+                SettingsItem(
+                    icon = Icons.Default.Sync,
+                    title = "Tip Block",
+                    subtitle = if (uiState.isConnected) "#${uiState.tipBlockNumber}" else "Disconnected"
                 )
             }
 
@@ -75,6 +86,78 @@ fun SettingsScreen() {
             }
         }
     }
+
+    if (showRpcDialog) {
+        RpcSelectionDialog(
+            currentRpc = uiState.activeRpc,
+            onDismiss = { showRpcDialog = false },
+            onSelect = { rpc ->
+                viewModel.setActiveRpc(rpc)
+                showRpcDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun RpcSelectionDialog(
+    currentRpc: String?,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select RPC Provider") },
+        text = {
+            Column {
+                RpcOption(
+                    name = "CKB Testnet (public)",
+                    url = "https://testnet.ckbapp.dev",
+                    isSelected = currentRpc == "CKB Testnet (public)",
+                    onClick = onSelect
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Private RPC endpoints can be added in a future update.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+private fun RpcOption(
+    name: String,
+    url: String,
+    isSelected: Boolean,
+    onClick: (String) -> Unit
+) {
+    Card(
+        onClick = { onClick(name) },
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) NeonCyan.copy(alpha = 0.1f) else DarkSurfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isSelected) NeonCyan else TextPrimary
+            )
+            Text(
+                text = url,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+        }
+    }
 }
 
 @Composable
@@ -95,7 +178,8 @@ private fun SettingsSection(
 private fun SettingsItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
-    subtitle: String
+    subtitle: String,
+    onClick: () -> Unit = {}
 ) {
     ListItem(
         headlineContent = { Text(title) },
@@ -107,6 +191,7 @@ private fun SettingsItem(
                 tint = NeonCyan
             )
         },
+        modifier = Modifier.clickable(onClick = onClick),
         colors = ListItemDefaults.colors(containerColor = DarkSurfaceVariant)
     )
 }

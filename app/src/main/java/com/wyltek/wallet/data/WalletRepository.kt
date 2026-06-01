@@ -2,6 +2,11 @@ package com.wyltek.wallet.data
 
 import android.content.Context
 import com.wyltek.wallet.core.account.AccountManager
+import com.wyltek.wallet.core.chain.CellsCapacity
+import com.wyltek.wallet.core.chain.ChainManager
+import com.wyltek.wallet.core.chain.HeaderInfo
+import com.wyltek.wallet.core.chain.RpcProfile
+import com.wyltek.wallet.core.chain.TxStatus
 import com.wyltek.wallet.core.keystore.SeedVault
 import com.wyltek.wallet.core.model.*
 import com.wyltek.wallet.core.native.*
@@ -11,6 +16,74 @@ class WalletRepository(context: Context) {
 
     private val accountManager = AccountManager()
     private val seedVault = SeedVault(context)
+    private val chainManager = ChainManager()
+
+    init {
+        chainManager.addProvider(
+            RpcProfile(
+                name = "CKB Testnet (public)",
+                url = "https://testnet.ckbapp.dev",
+                isPrivate = false
+            )
+        )
+    }
+
+    fun setActiveRpc(name: String) {
+        chainManager.setActiveProvider(name)
+    }
+
+    fun getActiveRpcName(): String? = chainManager.getActiveProvider()?.name
+
+    fun getAvailableRpcs(): List<String> = chainManager.getAllProviders().map { it.name }
+
+    suspend fun refreshBalance(lockScript: LockScript): WalletResult<CellsCapacity> {
+        return try {
+            val capacity = chainManager.getCellsCapacity(lockScript)
+                ?: return WalletResult.Error("Failed to fetch balance")
+            WalletResult.Success(capacity)
+        } catch (e: Exception) {
+            WalletResult.Error("Balance fetch failed: ${e.message}")
+        }
+    }
+
+    suspend fun getTipHeader(): WalletResult<HeaderInfo> {
+        return try {
+            val header = chainManager.getTipHeader()
+                ?: return WalletResult.Error("Failed to fetch tip header")
+            WalletResult.Success(header)
+        } catch (e: Exception) {
+            WalletResult.Error("Header fetch failed: ${e.message}")
+        }
+    }
+
+    suspend fun getCells(lockScript: LockScript): WalletResult<List<Utxo>> {
+        return try {
+            val cells = chainManager.getCellsByLock(lockScript)
+            WalletResult.Success(cells)
+        } catch (e: Exception) {
+            WalletResult.Error("Cell fetch failed: ${e.message}")
+        }
+    }
+
+    suspend fun sendTransaction(transaction: Transaction): WalletResult<String> {
+        return try {
+            val txHash = chainManager.sendTransaction(transaction)
+                ?: return WalletResult.Error("Transaction broadcast failed")
+            WalletResult.Success(txHash)
+        } catch (e: Exception) {
+            WalletResult.Error("Transaction send failed: ${e.message}")
+        }
+    }
+
+    suspend fun getTransactionStatus(txHash: String): WalletResult<TxStatus> {
+        return try {
+            val status = chainManager.getActiveProvider()?.getTransactionStatus(txHash)
+                ?: return WalletResult.Error("Failed to fetch tx status")
+            WalletResult.Success(status)
+        } catch (e: Exception) {
+            WalletResult.Error("Status fetch failed: ${e.message}")
+        }
+    }
 
     fun createWallet(
         name: String,
