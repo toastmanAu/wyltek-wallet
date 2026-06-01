@@ -8,13 +8,25 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.ui.theme.*
+import com.wyltek.wallet.data.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WalletImportScreen(onBack: () -> Unit = {}) {
+fun WalletImportScreen(
+    onBack: () -> Unit = {},
+    viewModel: WalletViewModel
+) {
+    var walletName by remember { mutableStateOf("") }
     var importInput by remember { mutableStateOf("") }
     var selectedMethod by remember { mutableIntStateOf(0) }
-    val methods = listOf("Mnemonic Phrase", "Address", "Raw Lock Script", "Keystore File")
+    val methods = listOf("Mnemonic Phrase", "Address", "Raw Lock Script")
+    val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(uiState.currentAccount) {
+        if (uiState.currentAccount != null && uiState.error == null) {
+            onBack()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -29,6 +41,17 @@ fun WalletImportScreen(onBack: () -> Unit = {}) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }
+        )
+
+        OutlinedTextField(
+            value = walletName,
+            onValueChange = { walletName = it },
+            label = { Text("Wallet Name") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NeonCyan,
+                unfocusedBorderColor = CardBorder
+            )
         )
 
         Text(
@@ -60,8 +83,7 @@ fun WalletImportScreen(onBack: () -> Unit = {}) {
                 when (selectedMethod) {
                     0 -> "Enter 12/18/24 word mnemonic"
                     1 -> "Enter CKB address"
-                    2 -> "Enter raw lock script (JSON)"
-                    else -> "Select keystore file"
+                    else -> "Enter raw lock script (JSON)"
                 }
             )},
             modifier = Modifier.fillMaxWidth(),
@@ -72,15 +94,39 @@ fun WalletImportScreen(onBack: () -> Unit = {}) {
             )
         )
 
+        uiState.error?.let { error ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.1f))
+            ) {
+                Text(
+                    text = error,
+                    modifier = Modifier.padding(12.dp),
+                    color = ErrorRed,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.weight(1f))
 
         Button(
-            onClick = { /* TODO */ },
+            onClick = {
+                if (selectedMethod == 0 && walletName.isNotBlank() && importInput.isNotBlank()) {
+                    viewModel.importWallet(walletName, importInput)
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
-            enabled = importInput.isNotBlank()
+            enabled = walletName.isNotBlank() && importInput.isNotBlank() && !uiState.isLoading
         ) {
-            Text("Import Wallet", color = DarkBackground)
+            if (uiState.isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = DarkBackground
+                )
+            } else {
+                Text("Import Wallet", color = DarkBackground)
+            }
         }
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -18,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.wyltek.wallet.ui.screens.*
+import com.wyltek.wallet.data.WalletViewModel
 
 sealed class Screen(val route: String, val label: String) {
     data object Home : Screen("home", "Home")
@@ -44,6 +46,7 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    val viewModel: WalletViewModel = viewModel()
 
     val showBottomBar = bottomBarScreens.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true
@@ -94,7 +97,8 @@ fun AppNavigation() {
                     onSend = { navController.navigate(Screen.Send.route) },
                     onReceive = { navController.navigate(Screen.Receive.route) },
                     onInternalTransfer = { navController.navigate(Screen.InternalTransfer.route) },
-                    onCreateWallet = { navController.navigate(Screen.WalletCreate.route) }
+                    onCreateWallet = { navController.navigate(Screen.WalletCreate.route) },
+                    viewModel = viewModel
                 )
             }
             composable(Screen.Assets.route) {
@@ -107,19 +111,31 @@ fun AppNavigation() {
                 SettingsScreen()
             }
             composable(Screen.Send.route) {
-                SendScreen(onBack = { navController.popBackStack() })
+                SendScreen(
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
             }
             composable(Screen.Receive.route) {
-                ReceiveScreen(onBack = { navController.popBackStack() })
+                ReceiveScreen(
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
             }
             composable(Screen.InternalTransfer.route) {
                 InternalTransferScreen(onBack = { navController.popBackStack() })
             }
             composable(Screen.WalletCreate.route) {
-                WalletCreateScreen(onBack = { navController.popBackStack() })
+                WalletCreateScreen(
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
             }
             composable(Screen.WalletImport.route) {
-                WalletImportScreen(onBack = { navController.popBackStack() })
+                WalletImportScreen(
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
             }
         }
     }

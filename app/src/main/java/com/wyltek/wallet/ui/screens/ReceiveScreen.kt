@@ -7,13 +7,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.ui.theme.*
+import com.wyltek.wallet.data.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReceiveScreen(onBack: () -> Unit = {}) {
+fun ReceiveScreen(
+    onBack: () -> Unit = {},
+    viewModel: WalletViewModel
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val address = viewModel.getCurrentAddress()
+    val clipboardManager = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -44,10 +55,23 @@ fun ReceiveScreen(onBack: () -> Unit = {}) {
                     color = TextSecondary
                 )
                 Text(
-                    text = "ckt1qyqrdse4... (create wallet to generate)",
+                    text = if (address.isNotBlank()) address else "Create a wallet first",
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
-                    color = TextPrimary
+                    color = if (address.isNotBlank()) TextPrimary else TextSecondary
+                )
+            }
+        }
+
+        if (copied) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.1f))
+            ) {
+                Text(
+                    text = "Address copied to clipboard",
+                    modifier = Modifier.padding(12.dp),
+                    color = SuccessGreen,
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
@@ -55,9 +79,15 @@ fun ReceiveScreen(onBack: () -> Unit = {}) {
         Spacer(modifier = Modifier.weight(1f))
 
         OutlinedButton(
-            onClick = { /* TODO: copy to clipboard */ },
+            onClick = {
+                if (address.isNotBlank()) {
+                    clipboardManager.setText(AnnotatedString(address))
+                    copied = true
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan)
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
+            enabled = address.isNotBlank()
         ) {
             Text("Copy Address")
         }

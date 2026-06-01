@@ -1,0 +1,202 @@
+package com.wyltek.wallet.data
+
+import android.content.Context
+import com.wyltek.wallet.core.account.AccountManager
+import com.wyltek.wallet.core.keystore.SeedVault
+import com.wyltek.wallet.core.model.*
+import com.wyltek.wallet.core.native.*
+import java.util.UUID
+
+class WalletRepository(context: Context) {
+
+    private val accountManager = AccountManager()
+    private val seedVault = SeedVault(context)
+
+    fun createWallet(
+        name: String,
+        type: AccountType,
+        network: NetworkType = NetworkType.TESTNET
+    ): WalletResult<WalletAccount> {
+        return try {
+            val mnemonicResult = generateMnemonic(24u)
+            val seedHex = mnemonicResult.seedHex
+
+            val keyPair = generateSecp256k1Keypair(
+                seedHex, "m/44'/302'/0'/0/0"
+            )
+
+            val networkStr = when (network) {
+                NetworkType.MAINNET -> "mainnet"
+                NetworkType.TESTNET -> "testnet"
+                NetworkType.DEVNET -> "devnet"
+            }
+
+            val address = publicKeyToCkbAddress(
+                keyPair.publicKeyHex, networkStr
+            )
+
+            val addressInfo = try {
+                decodeAddress(address)
+            } catch (e: Exception) {
+                null
+            }
+
+            val ckbAddress = CkbAddress(
+                bech32m = address,
+                lockScript = LockScript(
+                    codeHash = addressInfo?.lockCodeHash ?: "",
+                    hashType = addressInfo?.lockHashType ?: "type",
+                    args = addressInfo?.lockArgs ?: ""
+                ),
+                network = network,
+                formatVersion = when (addressInfo?.formatVersion) {
+                    "ckb2021" -> AddressFormatVersion.CKB2021
+                    "deprecated-short" -> AddressFormatVersion.DEPRECATEDShort
+                    else -> AddressFormatVersion.CKB2021
+                }
+            )
+
+            val walletId = UUID.randomUUID().toString()
+            val account = WalletAccount(
+                id = walletId,
+                name = name,
+                type = type,
+                network = network,
+                addresses = listOf(ckbAddress),
+                createdAt = System.currentTimeMillis()
+            )
+
+            seedVault.storeSeed(walletId, seedHex)
+
+            WalletResult.Success(account)
+        } catch (e: Exception) {
+            WalletResult.Error("Failed to create wallet: ${e.message}")
+        }
+    }
+
+    fun importWallet(
+        name: String,
+        mnemonic: String,
+        network: NetworkType = NetworkType.TESTNET
+    ): WalletResult<WalletAccount> {
+        return try {
+            if (!validateMnemonic(mnemonic)) {
+                return WalletResult.Error("Invalid mnemonic phrase")
+            }
+
+            val seedHex = mnemonicToSeed(mnemonic, "")
+
+            val keyPair = generateSecp256k1Keypair(
+                seedHex, "m/44'/302'/0'/0/0"
+            )
+
+            val networkStr = when (network) {
+                NetworkType.MAINNET -> "mainnet"
+                NetworkType.TESTNET -> "testnet"
+                NetworkType.DEVNET -> "devnet"
+            }
+
+            val address = publicKeyToCkbAddress(
+                keyPair.publicKeyHex, networkStr
+            )
+
+            val addressInfo = try {
+                decodeAddress(address)
+            } catch (e: Exception) {
+                null
+            }
+
+            val ckbAddress = CkbAddress(
+                bech32m = address,
+                lockScript = LockScript(
+                    codeHash = addressInfo?.lockCodeHash ?: "",
+                    hashType = addressInfo?.lockHashType ?: "type",
+                    args = addressInfo?.lockArgs ?: ""
+                ),
+                network = network,
+                formatVersion = AddressFormatVersion.CKB2021
+            )
+
+            val walletId = UUID.randomUUID().toString()
+            val account = WalletAccount(
+                id = walletId,
+                name = name,
+                type = AccountType.CLASSIC,
+                network = network,
+                addresses = listOf(ckbAddress),
+                createdAt = System.currentTimeMillis()
+            )
+
+            seedVault.storeSeed(walletId, seedHex)
+
+            WalletResult.Success(account)
+        } catch (e: Exception) {
+            WalletResult.Error("Import failed: ${e.message}")
+        }
+    }
+
+    fun validateAddress(address: String): Boolean {
+        return try {
+            decodeAddress(address)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun buildTransaction(
+        fromAddress: String,
+        toAddress: String,
+        amount: ULong,
+        feeRate: ULong = 1000u
+    ): WalletResult<String> {
+        return try {
+            val toInfo = decodeAddress(toAddress)
+
+            val request = TransactionRequest(
+                inputs = listOf(
+                    TxInput(
+                        txHash = "0".repeat(64),
+                        index = 0u,
+                        since = 0u
+                    )
+                ),
+                outputs = listOf(
+                    TxOutput(
+                        capacity = amount,
+                        lockCodeHash = toInfo.lockCodeHash,
+                        lockHashType = toInfo.lockHashType,
+                        lockArgs = toInfo.lockArgs,
+                        typeCodeHash = "",
+                        typeHashType = "",
+                        typeArgs = ""
+                    )
+                ),
+                feeRate = feeRate
+            )
+
+            val built = buildTransaction(request)
+            WalletResult.Success(built.txHashHex)
+        } catch (e: Exception) {
+            WalletResult.Error("Transaction build failed: ${e.message}")
+        }
+    }
+
+    fun getWalletSeed(walletId: String): String? {
+        return seedVault.loadSeed(walletId)
+    }
+
+    fun deleteWallet(walletId: String): Boolean {
+        seedVault.deleteSeed(walletId)
+        return accountManager.deleteAccount(walletId)
+    }
+
+    fun getAllAccounts(): List<WalletAccount> = accountManager.getAllAccounts()
+
+    fun getAccount(id: String): WalletAccount? = accountManager.getAccount(id)
+}
+
+sealed class WalletResult<out T> {
+    data class Success<T>(val data: T) : WalletResult<T>()
+    data class Error(val message: String) : WalletResult<Nothing>()
+}

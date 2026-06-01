@@ -8,12 +8,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.ui.theme.*
+import com.wyltek.wallet.data.WalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SendScreen(onBack: () -> Unit = {}) {
+fun SendScreen(
+    onBack: () -> Unit = {},
+    viewModel: WalletViewModel
+) {
     var recipientAddress by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    val uiState by viewModel.uiState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -52,14 +57,53 @@ fun SendScreen(onBack: () -> Unit = {}) {
             )
         )
 
+        uiState.error?.let { error ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.1f))
+            ) {
+                Text(
+                    text = error,
+                    modifier = Modifier.padding(12.dp),
+                    color = ErrorRed,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        uiState.lastTxHash?.let { txHash ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.1f))
+            ) {
+                Text(
+                    text = "Transaction built: $txHash",
+                    modifier = Modifier.padding(12.dp),
+                    color = SuccessGreen,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.weight(1f))
 
         Button(
-            onClick = { /* TODO */ },
+            onClick = {
+                val amountLong = amount.toULongOrNull()
+                if (amountLong != null && recipientAddress.isNotBlank()) {
+                    viewModel.buildTransaction(recipientAddress, amountLong)
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = NeonCyan)
+            colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
+            enabled = amount.isNotBlank() && recipientAddress.isNotBlank() && !uiState.isLoading
         ) {
-            Text("Review Transaction", color = DarkBackground)
+            if (uiState.isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = DarkBackground
+                )
+            } else {
+                Text("Review Transaction", color = DarkBackground)
+            }
         }
     }
 }

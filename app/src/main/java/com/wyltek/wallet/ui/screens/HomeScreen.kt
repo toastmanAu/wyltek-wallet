@@ -10,16 +10,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.wyltek.wallet.core.model.AccountType
 import com.wyltek.wallet.ui.theme.*
+import com.wyltek.wallet.data.WalletViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onSend: () -> Unit = {},
     onReceive: () -> Unit = {},
     onInternalTransfer: () -> Unit = {},
-    onCreateWallet: () -> Unit = {}
+    onCreateWallet: () -> Unit = {},
+    viewModel: WalletViewModel
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -46,41 +50,51 @@ fun HomeScreen(
                     color = TextSecondary
                 )
                 Text(
-                    text = "0.00 CKB",
+                    text = uiState.balance,
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = "No wallets yet",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
+                uiState.currentAccount?.let { account ->
+                    Text(
+                        text = "${account.name} · ${account.type.name}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                } ?: run {
+                    Text(
+                        text = "No wallets yet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            ActionButton(
-                modifier = Modifier.weight(1f),
-                icon = Icons.AutoMirrored.Filled.Send,
-                label = "Send",
-                onClick = onSend
-            )
-            ActionButton(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.QrCode,
-                label = "Receive",
-                onClick = onReceive
-            )
-            ActionButton(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.SwapHoriz,
-                label = "Transfer",
-                onClick = onInternalTransfer
-            )
+        if (uiState.currentAccount != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    label = "Send",
+                    onClick = onSend
+                )
+                ActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.QrCode,
+                    label = "Receive",
+                    onClick = onReceive
+                )
+                ActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.SwapHoriz,
+                    label = "Transfer",
+                    onClick = onInternalTransfer
+                )
+            }
         }
 
         Spacer(modifier = Modifier.weight(1f))
