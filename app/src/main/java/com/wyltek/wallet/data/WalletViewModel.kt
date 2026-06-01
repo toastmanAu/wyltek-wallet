@@ -12,6 +12,8 @@ import com.wyltek.wallet.core.chain.TxStatus
 import com.wyltek.wallet.core.messaging.ContactProfile
 import com.wyltek.wallet.core.messaging.Conversation
 import com.wyltek.wallet.core.model.*
+import com.wyltek.wallet.core.passkey.JoyIDAccount
+import com.wyltek.wallet.core.passkey.PasskeyCredential
 import com.wyltek.wallet.core.skin.ThemeConfig
 import com.wyltek.wallet.core.skin.ThemePresets
 import kotlinx.coroutines.Job
@@ -48,7 +50,9 @@ data class WalletUiState(
     val contacts: List<ContactProfile> = emptyList(),
     val conversations: List<Conversation> = emptyList(),
     val currentTheme: ThemeConfig? = null,
-    val customThemes: List<ThemeConfig> = emptyList()
+    val customThemes: List<ThemeConfig> = emptyList(),
+    val passkeyCredentials: List<PasskeyCredential> = emptyList(),
+    val joyIdAccounts: List<JoyIDAccount> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,6 +62,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val messagingService = repository.getMessagingService()
     private val contactBook = repository.getContactBook()
     private val skinManager = repository.getSkinManager()
+    private val passkeyManager = repository.getPasskeyManager()
+    private val joyIdIntegration = repository.getJoyIDIntegration()
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -69,7 +75,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(
             activeRpc = repository.getActiveRpcName(),
             currentTheme = skinManager.getCurrentTheme(),
-            customThemes = skinManager.getCustomThemes()
+            customThemes = skinManager.getCustomThemes(),
+            passkeyCredentials = passkeyManager.getAllCredentials(),
+            joyIdAccounts = passkeyManager.getAllJoyIDAccounts()
         )
         refreshListings()
         refreshMessaging()
@@ -465,6 +473,40 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(
             currentTheme = skinManager.getCurrentTheme()
         )
+    }
+
+    fun createPasskey(name: String) {
+        val address = _uiState.value.currentAccount?.addresses?.firstOrNull()?.bech32m ?: return
+
+        val passkey = passkeyManager.createCredential(name, address)
+        _uiState.value = _uiState.value.copy(
+            passkeyCredentials = passkeyManager.getAllCredentials()
+        )
+    }
+
+    fun deletePasskey(id: String) {
+        passkeyManager.deleteCredential(id)
+        _uiState.value = _uiState.value.copy(
+            passkeyCredentials = passkeyManager.getAllCredentials()
+        )
+    }
+
+    fun linkJoyIDAccount(address: String, pubkeyHash: String, name: String?) {
+        passkeyManager.linkJoyIDAccount(address, pubkeyHash, name)
+        _uiState.value = _uiState.value.copy(
+            joyIdAccounts = passkeyManager.getAllJoyIDAccounts()
+        )
+    }
+
+    fun unlinkJoyIDAccount(address: String) {
+        passkeyManager.unlinkJoyIDAccount(address)
+        _uiState.value = _uiState.value.copy(
+            joyIdAccounts = passkeyManager.getAllJoyIDAccounts()
+        )
+    }
+
+    fun getJoyIDSignURL(message: String, callbackUrl: String): String {
+        return joyIdIntegration.buildJoyIDSignMessageURL(message, callbackUrl)
     }
 
     override fun onCleared() {

@@ -15,6 +15,7 @@ import com.wyltek.wallet.data.WalletViewModel
 @Composable
 fun SettingsScreen(
     onSkins: () -> Unit = {},
+    onPasskeys: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -57,8 +58,9 @@ fun SettingsScreen(
                 )
                 SettingsItem(
                     icon = Icons.Default.Key,
-                    title = "Passkey",
-                    subtitle = "Not configured"
+                    title = "Passkeys & JoyID",
+                    subtitle = "${uiState.passkeyCredentials.size} passkeys, ${uiState.joyIdAccounts.size} JoyID accounts",
+                    onClick = onPasskeys
                 )
             }
 

@@ -15,6 +15,8 @@ import com.wyltek.wallet.core.messaging.ContactBook
 import com.wyltek.wallet.core.messaging.MessagingService
 import com.wyltek.wallet.core.model.*
 import com.wyltek.wallet.core.native.*
+import com.wyltek.wallet.core.passkey.JoyIDIntegration
+import com.wyltek.wallet.core.passkey.PasskeyManager
 import com.wyltek.wallet.core.skin.SkinManager
 import java.util.UUID
 
@@ -28,6 +30,8 @@ class WalletRepository(context: Context) {
     private val messagingService = MessagingService()
     private val contactBook = ContactBook(context)
     private val skinManager = SkinManager(context)
+    private val passkeyManager = PasskeyManager(context)
+    private val joyIdIntegration = JoyIDIntegration(context)
 
     init {
         chainManager.addProvider(
@@ -43,6 +47,8 @@ class WalletRepository(context: Context) {
     fun getMessagingService(): MessagingService = messagingService
     fun getContactBook(): ContactBook = contactBook
     fun getSkinManager(): SkinManager = skinManager
+    fun getPasskeyManager(): PasskeyManager = passkeyManager
+    fun getJoyIDIntegration(): JoyIDIntegration = joyIdIntegration
 
     fun setActiveRpc(name: String) {
         chainManager.setActiveProvider(name)

@@ -29,6 +29,7 @@ sealed class Screen(val route: String, val label: String) {
     data object Messages : Screen("messages", "Messages")
     data object Settings : Screen("settings", "Settings")
     data object Skins : Screen("skins", "Skins")
+    data object PasskeySettings : Screen("passkey-settings", "Passkeys")
     data object Send : Screen("send", "Send")
     data object Receive : Screen("receive", "Receive")
     data object InternalTransfer : Screen("internal-transfer", "Transfer")
@@ -119,11 +120,15 @@ fun AppNavigation() {
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     onSkins = { navController.navigate(Screen.Skins.route) },
+                    onPasskeys = { navController.navigate(Screen.PasskeySettings.route) },
                     viewModel = viewModel
                 )
             }
             composable(Screen.Skins.route) {
                 SkinsScreen(viewModel = viewModel)
+            }
+            composable(Screen.PasskeySettings.route) {
+                PasskeySettingsScreen(viewModel = viewModel)
             }
             composable(Screen.Send.route) {
                 SendScreen(
