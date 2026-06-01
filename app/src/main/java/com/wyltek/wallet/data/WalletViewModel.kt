@@ -9,6 +9,8 @@ import com.wyltek.wallet.core.assets.Listing
 import com.wyltek.wallet.core.chain.CellsCapacity
 import com.wyltek.wallet.core.chain.HeaderInfo
 import com.wyltek.wallet.core.chain.TxStatus
+import com.wyltek.wallet.core.messaging.ContactProfile
+import com.wyltek.wallet.core.messaging.Conversation
 import com.wyltek.wallet.core.model.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,13 +42,17 @@ data class WalletUiState(
     val selectedAsset: AssetInfo? = null,
     val isScanningAssets: Boolean = false,
     val activeListings: List<Listing> = emptyList(),
-    val myListings: List<Listing> = emptyList()
+    val myListings: List<Listing> = emptyList(),
+    val contacts: List<ContactProfile> = emptyList(),
+    val conversations: List<Conversation> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = WalletRepository(application)
     private val listingService = repository.getListingService()
+    private val messagingService = repository.getMessagingService()
+    private val contactBook = repository.getContactBook()
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -57,6 +63,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         loadAccounts()
         _uiState.value = _uiState.value.copy(activeRpc = repository.getActiveRpcName())
         refreshListings()
+        refreshMessaging()
     }
 
     private fun loadAccounts() {
@@ -333,6 +340,78 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             activeListings = activeListings,
             myListings = myListings
         )
+    }
+
+    fun addContact(address: String, name: String) {
+        val contact = ContactProfile(
+            address = address,
+            name = name,
+            publicKey = null,
+            discovered = false
+        )
+        contactBook.addContact(contact)
+        refreshMessaging()
+    }
+
+    fun removeContact(address: String) {
+        contactBook.removeContact(address)
+        refreshMessaging()
+    }
+
+    fun createConversation(address: String) {
+        val ownerAddress = _uiState.value.currentAccount?.addresses?.firstOrNull()?.bech32m ?: return
+        val contact = contactBook.getContact(address)
+        val conversation = Conversation(
+            contactAddress = address,
+            contactName = contact?.name,
+            messages = emptyList(),
+            lastMessage = null,
+            unreadCount = 0
+        )
+
+        val currentConversations = _uiState.value.conversations.toMutableList()
+        if (currentConversations.none { it.contactAddress == address }) {
+            currentConversations.add(0, conversation)
+            _uiState.value = _uiState.value.copy(conversations = currentConversations)
+        }
+    }
+
+    fun sendMessage(toAddress: String, content: ByteArray) {
+        val ownerAddress = _uiState.value.currentAccount?.addresses?.firstOrNull()?.bech32m ?: return
+
+        viewModelScope.launch {
+            try {
+                messagingService.sendMessage(ownerAddress, toAddress, content)
+                refreshMessaging()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = "Failed to send message: ${e.message}")
+            }
+        }
+    }
+
+    fun refreshMessaging() {
+        val ownerAddress = _uiState.value.currentAccount?.addresses?.firstOrNull()?.bech32m ?: return
+
+        val contacts = contactBook.getAllContacts()
+        val conversations = messagingService.getConversations(ownerAddress)
+
+        _uiState.value = _uiState.value.copy(
+            contacts = contacts,
+            conversations = conversations
+        )
+    }
+
+    fun scanNotifications() {
+        val ownerAddress = _uiState.value.currentAccount?.addresses?.firstOrNull()?.bech32m ?: return
+
+        viewModelScope.launch {
+            try {
+                messagingService.scanNotifications(ownerAddress)
+                refreshMessaging()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = "Failed to scan notifications: ${e.message}")
+            }
+        }
     }
 
     override fun onCleared() {

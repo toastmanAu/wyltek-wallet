@@ -113,7 +113,7 @@ fun AppNavigation() {
                 MarketplaceScreen(viewModel = viewModel)
             }
             composable(Screen.Messages.route) {
-                MessagesScreen()
+                MessagesScreen(viewModel = viewModel)
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(viewModel = viewModel)

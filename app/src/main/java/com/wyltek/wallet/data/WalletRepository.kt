@@ -11,6 +11,8 @@ import com.wyltek.wallet.core.chain.HeaderInfo
 import com.wyltek.wallet.core.chain.RpcProfile
 import com.wyltek.wallet.core.chain.TxStatus
 import com.wyltek.wallet.core.keystore.SeedVault
+import com.wyltek.wallet.core.messaging.ContactBook
+import com.wyltek.wallet.core.messaging.MessagingService
 import com.wyltek.wallet.core.model.*
 import com.wyltek.wallet.core.native.*
 import java.util.UUID
@@ -22,6 +24,8 @@ class WalletRepository(context: Context) {
     private val chainManager = ChainManager()
     private val assetScanner = AssetScanner(chainManager)
     private val listingService = ListingService(chainManager)
+    private val messagingService = MessagingService()
+    private val contactBook = ContactBook(context)
 
     init {
         chainManager.addProvider(
@@ -34,6 +38,8 @@ class WalletRepository(context: Context) {
     }
 
     fun getListingService(): ListingService = listingService
+    fun getMessagingService(): MessagingService = messagingService
+    fun getContactBook(): ContactBook = contactBook
 
     fun setActiveRpc(name: String) {
         chainManager.setActiveProvider(name)
