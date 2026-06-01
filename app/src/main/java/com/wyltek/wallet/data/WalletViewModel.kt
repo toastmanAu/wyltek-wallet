@@ -8,6 +8,7 @@ import com.wyltek.wallet.core.assets.AssetType
 import com.wyltek.wallet.core.assets.Listing
 import com.wyltek.wallet.core.chain.CellsCapacity
 import com.wyltek.wallet.core.chain.HeaderInfo
+import com.wyltek.wallet.core.chain.RpcHealthStatus
 import com.wyltek.wallet.core.chain.TxStatus
 import com.wyltek.wallet.core.messaging.ContactProfile
 import com.wyltek.wallet.core.messaging.Conversation
@@ -56,7 +57,8 @@ data class WalletUiState(
     val passkeyCredentials: List<PasskeyCredential> = emptyList(),
     val joyIdAccounts: List<JoyIDAccount> = emptyList(),
     val watchOnlyAccounts: List<WatchOnlyAccount> = emptyList(),
-    val securityInfo: SecurityInfo? = null
+    val securityInfo: SecurityInfo? = null,
+    val rpcHealthStatuses: List<RpcHealthStatus> = emptyList()
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -551,6 +553,20 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(
             securityInfo = strongBoxManager.getSecurityInfo()
         )
+    }
+
+    fun refreshRpcHealth() {
+        viewModelScope.launch {
+            val chainManager = repository.getChainManager()
+            val providers = chainManager.getAllProviders()
+
+            val statuses = providers.map { provider ->
+                val status = chainManager.checkProviderHealth(provider)
+                status
+            }
+
+            _uiState.value = _uiState.value.copy(rpcHealthStatuses = statuses)
+        }
     }
 
     fun wrapPrivateKey(privateKey: ByteArray): ByteArray? {

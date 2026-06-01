@@ -174,9 +174,12 @@ class RpcProfile(
 class ChainManager {
     private val providers = mutableListOf<ChainProvider>()
     private var activeProvider: ChainProvider? = null
+    private val healthChecker = RpcHealthChecker()
+    private val providerUrls = mutableMapOf<String, String>()
 
-    fun addProvider(provider: ChainProvider) {
+    fun addProvider(provider: ChainProvider, url: String = "") {
         providers.add(provider)
+        providerUrls[provider.name] = url
         if (activeProvider == null) {
             activeProvider = provider
         }
@@ -190,19 +193,77 @@ class ChainManager {
 
     fun getAllProviders(): List<ChainProvider> = providers.toList()
 
+    fun getHealthChecker(): RpcHealthChecker = healthChecker
+
+    suspend fun checkProviderHealth(provider: ChainProvider): RpcHealthStatus {
+        val url = providerUrls[provider.name] ?: ""
+        return healthChecker.checkHealth(provider, url)
+    }
+
+    suspend fun failover(): Boolean {
+        val current = activeProvider?.name ?: return false
+
+        if (!healthChecker.shouldFailover(current)) {
+            return false
+        }
+
+        val healthyProvider = healthChecker.getHealthiestProvider(
+            providers.map { it to (providerUrls[it.name] ?: "") }
+        )
+
+        if (healthyProvider != null && healthyProvider.name != current) {
+            activeProvider = healthyProvider
+            return true
+        }
+
+        return false
+    }
+
     suspend fun getCellsByLock(lockScript: LockScript): List<Utxo> {
-        return activeProvider?.getCellsByLock(lockScript) ?: emptyList()
+        return try {
+            activeProvider?.getCellsByLock(lockScript) ?: emptyList()
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.getCellsByLock(lockScript) ?: emptyList()
+            } else {
+                emptyList()
+            }
+        }
     }
 
     suspend fun getCellsCapacity(lockScript: LockScript): CellsCapacity? {
-        return activeProvider?.getCellsCapacity(lockScript)
+        return try {
+            activeProvider?.getCellsCapacity(lockScript)
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.getCellsCapacity(lockScript)
+            } else {
+                null
+            }
+        }
     }
 
     suspend fun getTipHeader(): HeaderInfo? {
-        return activeProvider?.getTipHeader()
+        return try {
+            activeProvider?.getTipHeader()
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.getTipHeader()
+            } else {
+                null
+            }
+        }
     }
 
     suspend fun sendTransaction(transaction: Transaction): String? {
-        return activeProvider?.sendTransaction(transaction)
+        return try {
+            activeProvider?.sendTransaction(transaction)
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.sendTransaction(transaction)
+            } else {
+                null
+            }
+        }
     }
 }

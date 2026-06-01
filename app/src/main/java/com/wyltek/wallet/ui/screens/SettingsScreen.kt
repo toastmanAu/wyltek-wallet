@@ -18,6 +18,7 @@ fun SettingsScreen(
     onPasskeys: () -> Unit = {},
     onWatchOnly: () -> Unit = {},
     onSecurity: () -> Unit = {},
+    onRpcHealth: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -39,6 +40,12 @@ fun SettingsScreen(
                     title = "RPC Provider",
                     subtitle = uiState.activeRpc ?: "Not configured",
                     onClick = { showRpcDialog = true }
+                )
+                SettingsItem(
+                    icon = Icons.Default.MonitorHeart,
+                    title = "RPC Health",
+                    subtitle = "${uiState.rpcHealthStatuses.size} providers monitored",
+                    onClick = onRpcHealth
                 )
                 SettingsItem(
                     icon = Icons.Default.Storage,

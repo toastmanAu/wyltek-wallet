@@ -32,6 +32,7 @@ sealed class Screen(val route: String, val label: String) {
     data object PasskeySettings : Screen("passkey-settings", "Passkeys")
     data object WatchOnly : Screen("watch-only", "Watch-Only")
     data object Security : Screen("security", "Security")
+    data object RpcHealth : Screen("rpc-health", "RPC Health")
     data object Send : Screen("send", "Send")
     data object Receive : Screen("receive", "Receive")
     data object InternalTransfer : Screen("internal-transfer", "Transfer")
@@ -125,6 +126,7 @@ fun AppNavigation() {
                     onPasskeys = { navController.navigate(Screen.PasskeySettings.route) },
                     onWatchOnly = { navController.navigate(Screen.WatchOnly.route) },
                     onSecurity = { navController.navigate(Screen.Security.route) },
+                    onRpcHealth = { navController.navigate(Screen.RpcHealth.route) },
                     viewModel = viewModel
                 )
             }
@@ -139,6 +141,9 @@ fun AppNavigation() {
             }
             composable(Screen.Security.route) {
                 SecuritySettingsScreen(viewModel = viewModel)
+            }
+            composable(Screen.RpcHealth.route) {
+                RpcHealthScreen(viewModel = viewModel)
             }
             composable(Screen.Send.route) {
                 SendScreen(

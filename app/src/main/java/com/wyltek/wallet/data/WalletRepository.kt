@@ -55,6 +55,7 @@ class WalletRepository(context: Context) {
     fun getJoyIDIntegration(): JoyIDIntegration = joyIdIntegration
     fun getWatchOnlyManager(): WatchOnlyManager = watchOnlyManager
     fun getStrongBoxManager(): StrongBoxManager = strongBoxManager
+    fun getChainManager(): ChainManager = chainManager
 
     fun setActiveRpc(name: String) {
         chainManager.setActiveProvider(name)
