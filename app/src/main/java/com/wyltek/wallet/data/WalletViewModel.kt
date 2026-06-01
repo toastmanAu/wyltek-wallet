@@ -14,6 +14,7 @@ import com.wyltek.wallet.core.messaging.Conversation
 import com.wyltek.wallet.core.model.*
 import com.wyltek.wallet.core.passkey.JoyIDAccount
 import com.wyltek.wallet.core.passkey.PasskeyCredential
+import com.wyltek.wallet.core.security.SecurityInfo
 import com.wyltek.wallet.core.skin.ThemeConfig
 import com.wyltek.wallet.core.skin.ThemePresets
 import com.wyltek.wallet.core.watchonly.WatchOnlyAccount
@@ -54,7 +55,8 @@ data class WalletUiState(
     val customThemes: List<ThemeConfig> = emptyList(),
     val passkeyCredentials: List<PasskeyCredential> = emptyList(),
     val joyIdAccounts: List<JoyIDAccount> = emptyList(),
-    val watchOnlyAccounts: List<WatchOnlyAccount> = emptyList()
+    val watchOnlyAccounts: List<WatchOnlyAccount> = emptyList(),
+    val securityInfo: SecurityInfo? = null
 )
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -67,6 +69,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val passkeyManager = repository.getPasskeyManager()
     private val joyIdIntegration = repository.getJoyIDIntegration()
     private val watchOnlyManager = repository.getWatchOnlyManager()
+    private val strongBoxManager = repository.getStrongBoxManager()
 
     private val _uiState = MutableStateFlow(WalletUiState())
     val uiState: StateFlow<WalletUiState> = _uiState.asStateFlow()
@@ -81,7 +84,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             customThemes = skinManager.getCustomThemes(),
             passkeyCredentials = passkeyManager.getAllCredentials(),
             joyIdAccounts = passkeyManager.getAllJoyIDAccounts(),
-            watchOnlyAccounts = watchOnlyManager.getAllAccounts()
+            watchOnlyAccounts = watchOnlyManager.getAllAccounts(),
+            securityInfo = strongBoxManager.getSecurityInfo()
         )
         refreshListings()
         refreshMessaging()
@@ -532,6 +536,29 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(
             watchOnlyAccounts = watchOnlyManager.getAllAccounts()
         )
+    }
+
+    fun enableStrongBox() {
+        val success = strongBoxManager.createStrongBoxKey()
+        _uiState.value = _uiState.value.copy(
+            securityInfo = strongBoxManager.getSecurityInfo(),
+            error = if (!success) "Failed to enable StrongBox" else null
+        )
+    }
+
+    fun disableStrongBox() {
+        strongBoxManager.deleteKey()
+        _uiState.value = _uiState.value.copy(
+            securityInfo = strongBoxManager.getSecurityInfo()
+        )
+    }
+
+    fun wrapPrivateKey(privateKey: ByteArray): ByteArray? {
+        return strongBoxManager.wrapPrivateKey(privateKey)
+    }
+
+    fun unwrapPrivateKey(wrappedKey: ByteArray): ByteArray? {
+        return strongBoxManager.unwrapPrivateKey(wrappedKey)
     }
 
     override fun onCleared() {

@@ -17,6 +17,7 @@ fun SettingsScreen(
     onSkins: () -> Unit = {},
     onPasskeys: () -> Unit = {},
     onWatchOnly: () -> Unit = {},
+    onSecurity: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -52,6 +53,12 @@ fun SettingsScreen(
             }
 
             SettingsSection(title = "Security") {
+                SettingsItem(
+                    icon = Icons.Default.Security,
+                    title = "StrongBox",
+                    subtitle = if (uiState.securityInfo?.strongBoxEnabled == true) "Enabled" else "Disabled",
+                    onClick = onSecurity
+                )
                 SettingsItem(
                     icon = Icons.Default.Lock,
                     title = "Biometric Lock",
