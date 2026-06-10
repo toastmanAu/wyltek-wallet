@@ -24,6 +24,8 @@ import com.wyltek.wallet.core.skin.PanelZone
 import com.wyltek.wallet.core.skin.ThemeConfig
 import com.wyltek.wallet.data.WalletViewModel
 import com.wyltek.wallet.data.WalletUiState
+import com.wyltek.wallet.ui.security.BiometricResult
+import com.wyltek.wallet.ui.security.rememberBiometricAuth
 import com.wyltek.wallet.ui.theme.*
 
 private val backgroundResMap = mapOf(
@@ -761,13 +763,35 @@ private fun ExportAccountDialog(
     onDismiss: () -> Unit,
     textColor: Color
 ) {
-    // Seed is materialized only when the user explicitly reveals it, and is
-    // dropped when the dialog leaves composition. Until passkey/biometric
-    // re-auth is wired in, the explicit reveal gate is our weakest acceptable
-    // bar — see TODO below.
+    // Seed is materialized only after BiometricPrompt success, and dropped
+    // when the dialog leaves composition.
     var seedHex by remember { mutableStateOf<String?>(null) }
+    var authError by remember { mutableStateOf<String?>(null) }
     DisposableEffect(Unit) {
-        onDispose { seedHex = null }
+        onDispose {
+            seedHex = null
+            authError = null
+        }
+    }
+
+    val biometric = rememberBiometricAuth()
+
+    val revealAfterAuth: () -> Unit = {
+        authError = null
+        biometric.authenticate(
+            title = "Confirm export",
+            subtitle = "Authenticate to reveal your seed phrase",
+            description = "Anyone with this phrase can drain your account."
+        ) { result ->
+            when (result) {
+                is BiometricResult.Success -> { seedHex = loadSeed() }
+                is BiometricResult.Cancelled -> { /* silent: user backed out */ }
+                is BiometricResult.Error -> { authError = result.message }
+                is BiometricResult.Unavailable -> {
+                    authError = "Set up a device PIN, password, or biometric to enable export."
+                }
+            }
+        }
     }
 
     AlertDialog(
@@ -803,11 +827,15 @@ private fun ExportAccountDialog(
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        // TODO(security): gate this behind BiometricPrompt /
-                        // device-credential re-auth once the biometric library
-                        // is added (requires app dep + MainActivity refactor).
+                        authError?.let {
+                            Text(
+                                text = it,
+                                color = ErrorRed,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         Button(
-                            onClick = { seedHex = loadSeed() },
+                            onClick = revealAfterAuth,
                             colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
                             modifier = Modifier.fillMaxWidth()
                         ) {
