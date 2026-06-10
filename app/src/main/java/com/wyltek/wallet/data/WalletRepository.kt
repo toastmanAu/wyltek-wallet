@@ -588,40 +588,7 @@ class WalletRepository(context: Context) {
             val seedHex = mnemonicResult.seedHex
             val mnemonicPhrase = mnemonicResult.mnemonic
 
-            val keyPair = generateSecp256k1Keypair(
-                seedHex, "m/44'/302'/0'/0/0"
-            )
-
-            val networkStr = when (network) {
-                NetworkType.MAINNET -> "mainnet"
-                NetworkType.TESTNET -> "testnet"
-                NetworkType.DEVNET -> "devnet"
-            }
-
-            val address = publicKeyToCkbAddress(
-                keyPair.publicKeyHex, networkStr
-            )
-
-            val addressInfo = try {
-                decodeAddress(address)
-            } catch (e: Exception) {
-                null
-            }
-
-            val ckbAddress = CkbAddress(
-                bech32m = address,
-                lockScript = LockScript(
-                    codeHash = addressInfo?.lockCodeHash ?: "",
-                    hashType = addressInfo?.lockHashType ?: "type",
-                    args = addressInfo?.lockArgs ?: ""
-                ),
-                network = network,
-                formatVersion = when (addressInfo?.formatVersion) {
-                    "ckb2021" -> AddressFormatVersion.CKB2021
-                    "deprecated-short" -> AddressFormatVersion.DEPRECATEDShort
-                    else -> AddressFormatVersion.CKB2021
-                }
-            )
+            val addresses = buildAddressesForType(seedHex, type, network)
 
             val walletId = UUID.randomUUID().toString()
             val account = WalletAccount(
@@ -629,7 +596,7 @@ class WalletRepository(context: Context) {
                 name = name,
                 type = type,
                 network = network,
-                addresses = listOf(ckbAddress),
+                addresses = addresses,
                 createdAt = System.currentTimeMillis()
             )
 
@@ -654,37 +621,7 @@ class WalletRepository(context: Context) {
             }
 
             val seedHex = mnemonicToSeed(mnemonic, "")
-
-            val keyPair = generateSecp256k1Keypair(
-                seedHex, "m/44'/302'/0'/0/0"
-            )
-
-            val networkStr = when (network) {
-                NetworkType.MAINNET -> "mainnet"
-                NetworkType.TESTNET -> "testnet"
-                NetworkType.DEVNET -> "devnet"
-            }
-
-            val address = publicKeyToCkbAddress(
-                keyPair.publicKeyHex, networkStr
-            )
-
-            val addressInfo = try {
-                decodeAddress(address)
-            } catch (e: Exception) {
-                null
-            }
-
-            val ckbAddress = CkbAddress(
-                bech32m = address,
-                lockScript = LockScript(
-                    codeHash = addressInfo?.lockCodeHash ?: "",
-                    hashType = addressInfo?.lockHashType ?: "type",
-                    args = addressInfo?.lockArgs ?: ""
-                ),
-                network = network,
-                formatVersion = AddressFormatVersion.CKB2021
-            )
+            val addresses = buildAddressesForType(seedHex, type, network)
 
             val walletId = UUID.randomUUID().toString()
             val account = WalletAccount(
@@ -692,7 +629,7 @@ class WalletRepository(context: Context) {
                 name = name,
                 type = type,
                 network = network,
-                addresses = listOf(ckbAddress),
+                addresses = addresses,
                 createdAt = System.currentTimeMillis()
             )
 
@@ -718,41 +655,7 @@ class WalletRepository(context: Context) {
     ): WalletResult<WalletAccount> {
         return try {
             val seedHex = mnemonicToSeed(mnemonic, "")
-
-            val keyPair = generateSecp256k1Keypair(
-                seedHex, "m/44'/302'/0'/0/0"
-            )
-
-            val networkStr = when (network) {
-                NetworkType.MAINNET -> "mainnet"
-                NetworkType.TESTNET -> "testnet"
-                NetworkType.DEVNET -> "devnet"
-            }
-
-            val address = publicKeyToCkbAddress(
-                keyPair.publicKeyHex, networkStr
-            )
-
-            val addressInfo = try {
-                decodeAddress(address)
-            } catch (e: Exception) {
-                null
-            }
-
-            val ckbAddress = CkbAddress(
-                bech32m = address,
-                lockScript = LockScript(
-                    codeHash = addressInfo?.lockCodeHash ?: "",
-                    hashType = addressInfo?.lockHashType ?: "type",
-                    args = addressInfo?.lockArgs ?: ""
-                ),
-                network = network,
-                formatVersion = when (addressInfo?.formatVersion) {
-                    "ckb2021" -> AddressFormatVersion.CKB2021
-                    "deprecated-short" -> AddressFormatVersion.DEPRECATEDShort
-                    else -> AddressFormatVersion.CKB2021
-                }
-            )
+            val addresses = buildAddressesForType(seedHex, type, network)
 
             val walletId = UUID.randomUUID().toString()
             val account = WalletAccount(
@@ -760,7 +663,7 @@ class WalletRepository(context: Context) {
                 name = name,
                 type = type,
                 network = network,
-                addresses = listOf(ckbAddress),
+                addresses = addresses,
                 createdAt = System.currentTimeMillis()
             )
 
@@ -786,17 +689,22 @@ class WalletRepository(context: Context) {
         fromAccount: WalletAccount,
         toAddress: String,
         amount: ULong,
-        feeRate: ULong = 1000u
+        feeRate: ULong = 1000u,
+        fromCkbAddress: CkbAddress? = null
     ): WalletResult<String> {
         return try {
             val seed = seedVault.loadSeed(fromAccount.id)
                 ?: return WalletResult.Error("Seed not found")
 
-            val keyPair = generateSecp256k1Keypair(seed, "m/44'/302'/0'/0/0")
-
-            val fromAddress = fromAccount.addresses.firstOrNull()?.bech32m
+            val from = fromCkbAddress
+                ?: fromAccount.addresses.firstOrNull()
                 ?: return WalletResult.Error("No from address")
-            val fromInfo = decodeAddress(fromAddress)
+            val signCtx = resolveSigningContext(seed, from, fromAccount.network)
+                ?: return WalletResult.Error(
+                    "PQ lock not deployed on ${fromAccount.network} — set NetworkConfig.mldsa65 to the testnet deployment."
+                )
+
+            val fromInfo = decodeAddress(from.bech32m)
             val toInfo = decodeAddress(toAddress)
 
             val lockScript = LockScript(
@@ -810,28 +718,22 @@ class WalletRepository(context: Context) {
                 return WalletResult.Error("No available cells to spend")
             }
 
-            // Sort cells by capacity ascending for simple selection
             val sortedCells = cells.sortedBy { it.capacity }
+            val minCellCapacity = 81_0000_0000uL
+            val feeEstimate = 1000uL
 
-            val minCellCapacity = 81_0000_0000uL // 81 CKB in shannons
-            val feeEstimate = 1000uL // generous fixed fee estimate
-
-            // Select inputs
             val selected = mutableListOf<Utxo>()
             var selectedCapacity = 0uL
             for (cell in sortedCells) {
                 selected.add(cell)
                 selectedCapacity += cell.capacity
-                if (selectedCapacity >= amount + feeEstimate + minCellCapacity) {
-                    break
-                }
+                if (selectedCapacity >= amount + feeEstimate + minCellCapacity) break
             }
 
             if (selectedCapacity < amount + feeEstimate) {
                 return WalletResult.Error("Insufficient balance")
             }
 
-            // Determine if we need change output
             val needsChange = selectedCapacity >= amount + feeEstimate + minCellCapacity
             val outputs = mutableListOf(
                 TxOutput(
@@ -839,10 +741,7 @@ class WalletRepository(context: Context) {
                     lockCodeHash = toInfo.lockCodeHash,
                     lockHashType = toInfo.lockHashType,
                     lockArgs = toInfo.lockArgs,
-                    typeCodeHash = "",
-                    typeHashType = "",
-                    typeArgs = "",
-                    data = ""
+                    typeCodeHash = "", typeHashType = "", typeArgs = "", data = ""
                 )
             )
 
@@ -853,22 +752,10 @@ class WalletRepository(context: Context) {
                         lockCodeHash = fromInfo.lockCodeHash,
                         lockHashType = fromInfo.lockHashType,
                         lockArgs = fromInfo.lockArgs,
-                        typeCodeHash = "",
-                        typeHashType = "",
-                        typeArgs = "",
-                        data = ""
+                        typeCodeHash = "", typeHashType = "", typeArgs = "", data = ""
                     )
                 )
             }
-
-            val networkConfig = NetworkConfig.forNetwork(fromAccount.network)
-            val cellDeps = listOf(
-                TxCellDep(
-                    txHash = networkConfig.secp256k1DepGroupTxHash,
-                    index = networkConfig.secp256k1DepGroupIndex,
-                    depType = 1u
-                )
-            )
 
             val request = TransactionRequest(
                 inputs = selected.map {
@@ -880,35 +767,25 @@ class WalletRepository(context: Context) {
                     )
                 },
                 outputs = outputs,
-                cellDeps = cellDeps,
+                cellDeps = signCtx.cellDeps,
                 feeRate = feeRate
             )
 
             val built = buildTransaction(request)
+            val witness0 = signCtx.signWitness0(built, selected.size)
 
-            // Create witness placeholders: first witness is 65-byte sig placeholder,
-            // rest are empty (all inputs share same lock script)
-            val witnessPlaceholders = List(selected.size) { index ->
-                if (index == 0) "0x" + "00".repeat(65) else "0x"
-            }
-
-            val signature = signCkbSecp256k1(
-                built.txHashHex,
-                witnessPlaceholders,
-                keyPair.privateKeyHex
-            )
-
-            // Build RPC JSON with snake_case and hex strings
             val txJson = buildJsonObject {
                 put("version", "0x0")
                 put("cell_deps", buildJsonArray {
-                    add(buildJsonObject {
-                        put("out_point", buildJsonObject {
-                            put("tx_hash", networkConfig.secp256k1DepGroupTxHash)
-                            put("index", "0x${networkConfig.secp256k1DepGroupIndex.toString(16)}")
+                    for (dep in signCtx.cellDepsForJson) {
+                        add(buildJsonObject {
+                            put("out_point", buildJsonObject {
+                                put("tx_hash", dep.txHash)
+                                put("index", "0x${dep.index.toString(16)}")
+                            })
+                            put("dep_type", dep.depType)
                         })
-                        put("dep_type", "dep_group")
-                    })
+                    }
                 })
                 put("header_deps", buildJsonArray {})
                 put("inputs", buildJsonArray {
@@ -947,10 +824,8 @@ class WalletRepository(context: Context) {
                     }
                 })
                 put("witnesses", buildJsonArray {
-                    add("0x$signature")
-                    for (i in 1 until selected.size) {
-                        add("0x")
-                    }
+                    add(witness0)
+                    for (i in 1 until selected.size) add("0x")
                 })
             }
 
@@ -968,15 +843,31 @@ class WalletRepository(context: Context) {
         tokenTypeScript: LockScript,
         toAddress: String,
         amount: java.math.BigInteger,
-        feeRate: ULong = 1000u
+        feeRate: ULong = 1000u,
+        fromCkbAddress: CkbAddress? = null
     ): WalletResult<String> {
         return try {
             val seed = seedVault.loadSeed(fromAccount.id)
                 ?: return WalletResult.Error("Seed not found")
             val keyPair = generateSecp256k1Keypair(seed, "m/44'/302'/0'/0/0")
 
-            val fromAddress = fromAccount.addresses.firstOrNull()?.bech32m
+            val from = fromCkbAddress ?: fromAccount.addresses.firstOrNull()
                 ?: return WalletResult.Error("No from address")
+
+            // sUDT sends from a PQ sub-account are not yet wired — the dual
+            // cell-dep (secp + sudt) path and ML-DSA witness construction are
+            // a separate refactor. Refuse explicitly rather than silently
+            // signing with the wrong key.
+            val mldsa = NetworkConfig.forNetwork(fromAccount.network).mldsa65
+            if (mldsa != null && !mldsa.isPlaceholder() &&
+                from.lockScript.codeHash.equals(mldsa.codeHash, ignoreCase = true)) {
+                return WalletResult.Error(
+                    "Token sends from PQ sub-accounts are not yet supported. " +
+                        "Switch to the Classic sub-account in the send picker."
+                )
+            }
+
+            val fromAddress = from.bech32m
             val fromInfo = decodeAddress(fromAddress)
             val toInfo = decodeAddress(toAddress)
 
@@ -1292,6 +1183,166 @@ class WalletRepository(context: Context) {
         }
         return bytes
     }
+
+    // ---- Address-builder helpers ----------------------------------------
+
+    private fun networkStr(network: NetworkType): String = when (network) {
+        NetworkType.MAINNET -> "mainnet"
+        NetworkType.TESTNET -> "testnet"
+        NetworkType.DEVNET -> "devnet"
+    }
+
+    private fun buildClassicAddress(seedHex: String, network: NetworkType): CkbAddress {
+        val keyPair = generateSecp256k1Keypair(seedHex, "m/44'/302'/0'/0/0")
+        val bech32m = publicKeyToCkbAddress(keyPair.publicKeyHex, networkStr(network))
+        val info = try { decodeAddress(bech32m) } catch (_: Exception) { null }
+        return CkbAddress(
+            bech32m = bech32m,
+            lockScript = LockScript(
+                codeHash = info?.lockCodeHash ?: "",
+                hashType = info?.lockHashType ?: "type",
+                args = info?.lockArgs ?: ""
+            ),
+            network = network,
+            formatVersion = AddressFormatVersion.CKB2021
+        )
+    }
+
+    /**
+     * Build a CKB address locked by ckb-mldsa-lock, derived deterministically
+     * from the same seed as the classic key. Returns null if the network has
+     * no ML-DSA-65 lock configured or the deployment is still a placeholder.
+     */
+    private fun buildPqAddress(seedHex: String, network: NetworkType): CkbAddress? {
+        val mldsa = NetworkConfig.forNetwork(network).mldsa65 ?: return null
+        if (mldsa.isPlaceholder()) return null
+        val pqKey = mldsa65FromSeed(seedHex)
+        val args = "0x" + pqLockArgs(pqKey.publicKeyHex, mldsa.algorithmFlag)
+        val bech32m = encodeAddress(mldsa.codeHash, mldsa.hashType, args, networkStr(network))
+        return CkbAddress(
+            bech32m = bech32m,
+            lockScript = LockScript(
+                codeHash = mldsa.codeHash,
+                hashType = mldsa.hashType,
+                args = args
+            ),
+            network = network,
+            formatVersion = AddressFormatVersion.CKB2021
+        )
+    }
+
+    // ---- Signing dispatch ------------------------------------------------
+
+    /**
+     * dep_type field as it appears in the JSON-RPC tx envelope.
+     */
+    private data class JsonCellDep(val txHash: String, val index: UInt, val depType: String)
+
+    /**
+     * Captured signing context — algorithm-specific dep selection, witness
+     * placeholder sizing, and final witness construction. Returned by
+     * [resolveSigningContext]. Null result = network has no PQ deployment and
+     * the address is PQ (caller surfaces a clear error).
+     */
+    private class SigningContext(
+        val cellDeps: List<TxCellDep>,
+        val cellDepsForJson: List<JsonCellDep>,
+        val signWitness0: (built: BuiltTransaction, inputCount: Int) -> String
+    )
+
+    private fun resolveSigningContext(
+        seedHex: String,
+        from: CkbAddress,
+        network: NetworkType
+    ): SigningContext? {
+        val cfg = NetworkConfig.forNetwork(network)
+        val mldsa = cfg.mldsa65
+        val codeHash = from.lockScript.codeHash.lowercase()
+        val isPq = mldsa != null && !mldsa.isPlaceholder() &&
+            codeHash == mldsa.codeHash.lowercase()
+
+        return if (isPq) {
+            // ML-DSA-65 path. NOTE(integration): the on-chain ckb-mldsa-lock
+            // contract expects a specific witness/sighash protocol. The
+            // current implementation uses sign_transaction(raw_tx, sk, "mldsa65")
+            // as a working scaffold — verify against the deployed contract's
+            // verifier code path before broadcasting on testnet.
+            val pqKey = mldsa65FromSeed(seedHex)
+            val mldsaCfg = mldsa!! // non-null when isPq is true
+            SigningContext(
+                cellDeps = listOf(
+                    TxCellDep(
+                        txHash = mldsaCfg.cellDepTxHash,
+                        index = mldsaCfg.cellDepIndex,
+                        depType = if (mldsaCfg.cellDepType == "dep_group") 1.toUByte() else 0.toUByte()
+                    )
+                ),
+                cellDepsForJson = listOf(
+                    JsonCellDep(mldsaCfg.cellDepTxHash, mldsaCfg.cellDepIndex, mldsaCfg.cellDepType)
+                ),
+                signWitness0 = { built, _ ->
+                    val sig = signTransaction(built.rawTransactionHex, pqKey.privateKeyHex, "mldsa65")
+                    "0x$sig"
+                }
+            )
+        } else if (codeHash == "0x0000000000000000000000000000000000000000000000000000000000000000" && from.bech32m.isNotBlank()) {
+            // Empty codeHash means decodeAddress failed silently during account
+            // creation — refuse to sign.
+            null
+        } else {
+            // Classic secp256k1 path.
+            val keyPair = generateSecp256k1Keypair(seedHex, "m/44'/302'/0'/0/0")
+            SigningContext(
+                cellDeps = listOf(
+                    TxCellDep(
+                        txHash = cfg.secp256k1DepGroupTxHash,
+                        index = cfg.secp256k1DepGroupIndex,
+                        depType = 1.toUByte() // dep_group
+                    )
+                ),
+                cellDepsForJson = listOf(
+                    JsonCellDep(cfg.secp256k1DepGroupTxHash, cfg.secp256k1DepGroupIndex, "dep_group")
+                ),
+                signWitness0 = { built, inputCount ->
+                    val witnessPlaceholders = List(inputCount) { i ->
+                        if (i == 0) "0x" + "00".repeat(65) else "0x"
+                    }
+                    val sig = signCkbSecp256k1(
+                        built.txHashHex,
+                        witnessPlaceholders,
+                        keyPair.privateKeyHex
+                    )
+                    "0x$sig"
+                }
+            )
+        }
+    }
+
+    private fun buildAddressesForType(
+        seedHex: String,
+        type: AccountType,
+        network: NetworkType
+    ): List<CkbAddress> {
+        val classic = lazy { buildClassicAddress(seedHex, network) }
+        val pq = lazy { buildPqAddress(seedHex, network) }
+        return when (type) {
+            AccountType.CLASSIC -> listOf(classic.value)
+            AccountType.POST_QUANTUM -> {
+                val p = pq.value
+                    ?: throw IllegalStateException(
+                        "PQ accounts require an ML-DSA-65 lock deployment on $network. " +
+                            "Update NetworkConfig.mldsa65 with the testnet deployment."
+                    )
+                listOf(p)
+            }
+            AccountType.HYBRID -> listOfNotNull(classic.value, pq.value)
+        }
+    }
+}
+
+private fun com.wyltek.wallet.core.chain.MldsaLockConfig.isPlaceholder(): Boolean {
+    val stripped = codeHash.removePrefix("0x")
+    return stripped.isEmpty() || stripped.all { it == '0' }
 }
 
 sealed class WalletResult<out T> {

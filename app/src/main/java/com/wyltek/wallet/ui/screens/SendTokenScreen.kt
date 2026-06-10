@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.core.assets.TokenInfo
+import com.wyltek.wallet.core.chain.NetworkConfig
 import com.wyltek.wallet.core.model.AccountType
 import com.wyltek.wallet.core.model.LockScript
 import com.wyltek.wallet.ui.security.BiometricResult
@@ -29,8 +30,24 @@ fun SendTokenScreen(
     val uiState by viewModel.uiState.collectAsState()
     val biometric = rememberBiometricAuth()
 
-    val accountType = uiState.currentAccount?.type
-    val requiresAuth = accountType == AccountType.POST_QUANTUM || accountType == AccountType.HYBRID
+    val account = uiState.currentAccount
+    val subAddresses = account?.addresses.orEmpty()
+    // For tokens, default to the first non-PQ sub-account if one exists —
+    // sUDT sends from PQ are not yet wired (Repository.sendToken refuses).
+    val defaultIndex = remember(account?.id) {
+        if (account != null) {
+            subAddresses.indexOfFirst { !NetworkConfig.isPqLock(it.lockScript.codeHash, account.network) }
+                .takeIf { it >= 0 } ?: 0
+        } else 0
+    }
+    var selectedIndex by remember(account?.id) { mutableIntStateOf(defaultIndex) }
+    val selectedAddress = subAddresses.getOrNull(selectedIndex)
+    val isPqSelection = selectedAddress != null && account != null &&
+        NetworkConfig.isPqLock(selectedAddress.lockScript.codeHash, account.network)
+    val accountType = account?.type
+    val requiresAuth = isPqSelection ||
+        accountType == AccountType.POST_QUANTUM ||
+        (accountType == AccountType.HYBRID && subAddresses.size <= 1)
 
     val performSend: (BigInteger) -> Unit = { amountBig ->
         val tokenLock = LockScript(
@@ -46,7 +63,7 @@ fun SendTokenScreen(
                 description = "Sending ${token.symbol} from a PQ account requires re-authentication."
             ) { result ->
                 when (result) {
-                    is BiometricResult.Success -> viewModel.sendToken(recipientAddress, tokenLock, amountBig)
+                    is BiometricResult.Success -> viewModel.sendToken(recipientAddress, tokenLock, amountBig, selectedAddress)
                     is BiometricResult.Cancelled -> { /* silent */ }
                     is BiometricResult.Error -> { authError = result.message }
                     is BiometricResult.Unavailable -> {
@@ -55,7 +72,7 @@ fun SendTokenScreen(
                 }
             }
         } else {
-            viewModel.sendToken(recipientAddress, tokenLock, amountBig)
+            viewModel.sendToken(recipientAddress, tokenLock, amountBig, selectedAddress)
         }
     }
 
@@ -121,6 +138,46 @@ fun SendTokenScreen(
                 unfocusedBorderColor = CardBorder
             )
         )
+
+        if (subAddresses.size > 1 && account != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CardBackground)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Sign with",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        subAddresses.forEachIndexed { idx, addr ->
+                            val isPq = NetworkConfig.isPqLock(addr.lockScript.codeHash, account.network)
+                            val label = if (isPq) "PQ (ML-DSA-65)" else "Classic (secp256k1)"
+                            FilterChip(
+                                selected = idx == selectedIndex,
+                                onClick = { selectedIndex = idx },
+                                label = { Text(label) },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeonCyan.copy(alpha = 0.2f),
+                                    selectedLabelColor = NeonCyan
+                                )
+                            )
+                        }
+                    }
+                    if (isPqSelection) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Note: ${token.symbol} sends from a PQ sub-account are not yet supported. Switch to the Classic sub-account.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = WarningOrange
+                        )
+                    }
+                }
+            }
+        }
 
         (authError ?: uiState.error)?.let { error ->
             Card(

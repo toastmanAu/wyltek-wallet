@@ -398,12 +398,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         refreshAssets()
     }
 
-    fun sendCkb(toAddress: String, amount: ULong) {
+    fun sendCkb(toAddress: String, amount: ULong, fromCkbAddress: com.wyltek.wallet.core.model.CkbAddress? = null) {
         viewModelScope.launch {
             val from = _uiState.value.currentAccount ?: return@launch
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-            when (val result = repository.sendCkb(from, toAddress, amount)) {
+            when (val result = repository.sendCkb(from, toAddress, amount, fromCkbAddress = fromCkbAddress)) {
                 is WalletResult.Success -> {
                     _uiState.value = _uiState.value.copy(
                         lastTxHash = result.data,
@@ -422,12 +422,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun sendToken(toAddress: String, tokenTypeScript: com.wyltek.wallet.core.model.LockScript, amount: java.math.BigInteger) {
+    fun sendToken(toAddress: String, tokenTypeScript: com.wyltek.wallet.core.model.LockScript, amount: java.math.BigInteger, fromCkbAddress: com.wyltek.wallet.core.model.CkbAddress? = null) {
         viewModelScope.launch {
             val from = _uiState.value.currentAccount ?: return@launch
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-            when (val result = repository.sendToken(from, tokenTypeScript, toAddress, amount)) {
+            when (val result = repository.sendToken(from, tokenTypeScript, toAddress, amount, fromCkbAddress = fromCkbAddress)) {
                 is WalletResult.Success -> {
                     _uiState.value = _uiState.value.copy(
                         lastTxHash = result.data,

@@ -8,7 +8,7 @@ App branding finalised as **Blackbox Vault** (under the Wyltek umbrella). All si
 |-----------|--------|
 | MVP 1 — Native wallet core | ✅ Complete |
 | MVP 2 — Light client / chain access | 🔄 Public RPC + failover + health checks shipped; embedded `ckb-light-client-lite` binary still pending |
-| MVP 3 — PQ accounts (ML-DSA-65) | ✅ Complete (testnet lock) |
+| MVP 3 — PQ accounts (ML-DSA-65) | 🔄 Crypto primitives + Hybrid account creation + signing dispatch in place; awaiting real `ckb-mldsa-lock` testnet deployment hashes in NetworkConfig + protocol-level verification of the witness/sighash format |
 | MVP 4 — Assets gallery | ✅ Complete (Spore/CoTA/CKBFS scanners + gallery + inspector) |
 | MVP 5 — Marketplace (LSDL) | ✅ Complete (list / cancel / buy) |
 | MVP 6 — Messaging (CEMP-PQ) | ✅ Complete (profile + contacts + encrypted send/receive + notification scanner) |
@@ -322,13 +322,17 @@ Each panel supports:
 * ✅ Multi-endpoint RPC failover.
 * ✅ Cell sync and balance indexing via RPC.
 
-### MVP 3 — PQ accounts ✅ COMPLETE
+### MVP 3 — PQ accounts 🔄 PARTIAL
 
-* ✅ ML-DSA-65 testnet lock (`fips204`).
-* ✅ Create / import PQ wallet (extended BIP-39 backup).
-* ✅ Sign PQ transactions locally.
-* ✅ Internal transfer classic ↔ PQ.
-* ✅ PQ transaction preview with testnet-only warnings.
+* ✅ ML-DSA-65 primitives via `fips204` (keygen, sign, verify, BIP-39 seed → ML-DSA key).
+* ✅ Hybrid account creation — single seed derives both secp256k1 + ML-DSA-65 addresses.
+* ✅ Signing dispatch wired in `Repository.sendCkb` — selects secp or ML-DSA-65 path from chosen sub-address's lockScript codeHash.
+* ✅ UI picker in SendScreen for hybrid accounts ("Sign with Classic / PQ").
+* ✅ Biometric gate fires for any PQ sub-account selection.
+* ⏳ **`ckb-mldsa-lock` testnet deployment hashes** — `NetworkConfig.testnet.mldsa65` currently holds placeholder zeros. Wallet refuses to construct/broadcast PQ transactions until real values are plugged in. The placeholder gate is enforced server-side in `Repository.buildPqAddress` and `Repository.resolveSigningContext`.
+* ⏳ **Protocol verification** — the ML-DSA-65 signing path uses `sign_transaction(raw_tx, sk, "mldsa65")` as a working scaffold. The actual deployed `ckb-mldsa-lock` contract may require a different sighash construction (e.g. blake2b over tx_hash + witness placeholders, as secp does). Verify against the contract's verifier before live broadcast.
+* ⏳ sUDT sends from a PQ sub-account — currently refused with a clear UI hint pointing the user to the Classic sub-account.
+* ⏳ Internal transfer screen still a UI stub (`InternalTransferScreen.kt` button is `/* TODO */`).
 
 ### MVP 4 — assets ✅ COMPLETE
 
