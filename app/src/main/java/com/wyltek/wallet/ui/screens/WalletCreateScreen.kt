@@ -15,7 +15,7 @@ import com.wyltek.wallet.data.WalletViewModel
 @Composable
 fun WalletCreateScreen(
     onBack: () -> Unit = {},
-    onVerify: (mnemonic: String) -> Unit = {},
+    onVerify: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     var walletName by remember { mutableStateOf("") }
@@ -160,7 +160,7 @@ fun WalletCreateScreen(
                 }
                 uiState.pendingMnemonic != null -> {
                     Button(
-                        onClick = { onVerify(uiState.pendingMnemonic!!) },
+                        onClick = { onVerify() },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = NeonCyan)
                     ) {

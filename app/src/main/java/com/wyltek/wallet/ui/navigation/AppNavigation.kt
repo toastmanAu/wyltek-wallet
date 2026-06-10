@@ -235,17 +235,15 @@ fun AppNavigation() {
             composable(Screen.WalletCreate.route) {
                 WalletCreateScreen(
                     onBack = { navController.popBackStack() },
-                    onVerify = { mnemonic ->
-                        navController.navigate("mnemonic-verify/${java.net.URLEncoder.encode(mnemonic, "UTF-8")}")
+                    onVerify = {
+                        navController.navigate(Screen.MnemonicVerify.route)
                     },
                     viewModel = viewModel
                 )
             }
-            composable("mnemonic-verify/{mnemonic}") { backStackEntry ->
-                val encodedMnemonic = backStackEntry.arguments?.getString("mnemonic") ?: ""
-                val mnemonic = java.net.URLDecoder.decode(encodedMnemonic, "UTF-8")
+            composable(Screen.MnemonicVerify.route) {
                 MnemonicVerifyScreen(
-                    mnemonic = mnemonic,
+                    viewModel = viewModel,
                     onVerified = {
                         viewModel.confirmWalletCreation()
                         navController.popBackStack(Screen.Home.route, false)

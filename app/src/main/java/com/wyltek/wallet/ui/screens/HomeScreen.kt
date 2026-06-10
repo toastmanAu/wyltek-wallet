@@ -201,7 +201,7 @@ fun HomeScreen(
     if (showExportDialog) {
         ExportAccountDialog(
             account = uiState.currentAccount,
-            seedHex = viewModel.exportCurrentAccount(),
+            loadSeed = { viewModel.exportCurrentAccount() },
             onDismiss = { showExportDialog = false },
             textColor = textColorStyle
         )
@@ -757,10 +757,19 @@ private fun SwitchAccountDialog(
 @Composable
 private fun ExportAccountDialog(
     account: WalletAccount?,
-    seedHex: String?,
+    loadSeed: () -> String?,
     onDismiss: () -> Unit,
     textColor: Color
 ) {
+    // Seed is materialized only when the user explicitly reveals it, and is
+    // dropped when the dialog leaves composition. Until passkey/biometric
+    // re-auth is wired in, the explicit reveal gate is our weakest acceptable
+    // bar — see TODO below.
+    var seedHex by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(Unit) {
+        onDispose { seedHex = null }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkSurface,
@@ -780,8 +789,31 @@ private fun ExportAccountDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
-                    if (seedHex != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val revealed = seedHex
+                    if (revealed == null) {
+                        Text(
+                            text = "Revealing your seed phrase exposes full control of this account. Anyone with the phrase can drain it.",
+                            color = ErrorRed,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Only proceed somewhere private and never share or screenshot the result.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        // TODO(security): gate this behind BiometricPrompt /
+                        // device-credential re-auth once the biometric library
+                        // is added (requires app dep + MainActivity refactor).
+                        Button(
+                            onClick = { seedHex = loadSeed() },
+                            colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Reveal Seed Phrase", color = DarkBackground, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
                         Text(
                             text = "Seed Hex (keep secret!):",
                             color = ErrorRed,
@@ -792,17 +824,12 @@ private fun ExportAccountDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = seedHex,
+                                text = revealed,
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = textColor
                             )
                         }
-                    } else {
-                        Text(
-                            text = "Seed not available for export.",
-                            color = TextSecondary
-                        )
                     }
                 }
             }

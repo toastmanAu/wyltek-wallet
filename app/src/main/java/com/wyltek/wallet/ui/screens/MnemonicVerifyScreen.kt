@@ -16,20 +16,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.wyltek.wallet.data.WalletViewModel
 import com.wyltek.wallet.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MnemonicVerifyScreen(
-    mnemonic: String,
+    viewModel: WalletViewModel,
     onVerified: () -> Unit,
     onBack: () -> Unit
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+    val mnemonic = uiState.pendingMnemonic
+    if (mnemonic.isNullOrBlank()) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
+
     val words = remember(mnemonic) { mnemonic.split(" ") }
     val blankedIndices = remember(mnemonic) {
-        (0 until words.size).shuffled().take(5).sorted()
+        words.indices.shuffled().take(5).sorted()
     }
-    val userAnswers = remember { mutableStateMapOf<Int, String>() }
+    val userAnswers = remember(mnemonic) { mutableStateMapOf<Int, String>() }
     var showError by remember { mutableStateOf(false) }
     var allFilled by remember { mutableStateOf(false) }
 
