@@ -14,6 +14,14 @@ fn ckb_blake2b(data: &[u8]) -> [u8; 32] {
     out
 }
 
+fn standard_blake2b_256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Blake2bBuilder::new(32).build();
+    hasher.update(data);
+    let mut out = [0u8; 32];
+    hasher.finalize(&mut out);
+    out
+}
+
 #[uniffi::export]
 pub fn sign_transaction(
     raw_tx_hex: String,
@@ -58,6 +66,51 @@ fn sign_mldsa65(raw_tx: Vec<u8>, private_key_hex: String) -> Result<String, Wall
         .map_err(|e| WalletError::CryptoError(format!("ML-DSA-65 signing failed: {}", e)))?;
 
     Ok(hex::encode(sig))
+}
+
+/// Sign a CKB SECP256K1_BLAKE160_SIGHASH_ALL transaction.
+/// tx_hash_hex: the transaction hash (32 bytes, hex)
+/// witness_placeholders_hex: list of witness data as hex strings.
+///   For the input group being signed, the first witness should be a 65-byte placeholder.
+///   Other witnesses in the same group should be empty ("0x").
+/// private_key_hex: secp256k1 private key (32 bytes, hex)
+/// Returns: 65-byte recoverable signature as hex string.
+#[uniffi::export]
+pub fn sign_ckb_secp256k1(
+    tx_hash_hex: String,
+    witness_placeholders_hex: Vec<String>,
+    private_key_hex: String,
+) -> Result<String, WalletError> {
+    let tx_hash = hex::decode(&tx_hash_hex)?;
+    if tx_hash.len() != 32 {
+        return Err(WalletError::InvalidInput(format!(
+            "tx_hash must be 32 bytes, got {}", tx_hash.len()
+        )));
+    }
+
+    let mut sign_data = Vec::new();
+    sign_data.extend_from_slice(&tx_hash);
+
+    for witness_hex in &witness_placeholders_hex {
+        let witness = hex::decode(witness_hex.strip_prefix("0x").unwrap_or(witness_hex))?;
+        let len = witness.len() as u64;
+        sign_data.extend_from_slice(&len.to_le_bytes());
+        sign_data.extend_from_slice(&witness);
+    }
+
+    let hash = standard_blake2b_256(&sign_data);
+
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&hex::decode(&private_key_hex)?)?;
+    let msg = Message::from_digest(hash);
+    let signature = secp.sign_ecdsa_recoverable(&msg, &sk);
+
+    let (recovery_id, serialized) = signature.serialize_compact();
+    let mut result = Vec::with_capacity(65);
+    result.extend_from_slice(&serialized);
+    result.push(recovery_id.to_i32() as u8);
+
+    Ok(hex::encode(result))
 }
 
 #[uniffi::export]
@@ -127,7 +180,7 @@ pub fn verify_signature(
 
             let recovery_id = secp256k1::ecdsa::RecoveryId::from_i32(sig_bytes[64] as i32)
                 .map_err(|e| WalletError::CryptoError(format!("Invalid recovery id: {}", e)))?;
-            let signature = secp256k1::ecdsa::RecoverableSignature::from_compact(&sig_bytes[..65], recovery_id)?;
+            let signature = secp256k1::ecdsa::RecoverableSignature::from_compact(&sig_bytes[..64], recovery_id)?;
 
             let recovered = secp.recover_ecdsa(&msg, &signature)?;
             Ok(recovered == pk)

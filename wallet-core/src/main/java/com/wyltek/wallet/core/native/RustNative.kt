@@ -145,6 +145,13 @@ object RustNative {
     }
 
     /**
+     * Sign a CKB SECP256K1_BLAKE160_SIGHASH_ALL transaction
+     */
+    fun signCkbSecp256k1(txHashHex: String, witnessPlaceholdersHex: List<String>, privateKeyHex: String): String {
+        return com.wyltek.wallet.core.native.signCkbSecp256k1(txHashHex, witnessPlaceholdersHex, privateKeyHex)
+    }
+
+    /**
      * Verify signature with specified algorithm
      */
     fun verifySignature(
@@ -161,5 +168,19 @@ object RustNative {
      */
     fun buildTransaction(request: TransactionRequest): BuiltTransaction {
         return com.wyltek.wallet.core.native.buildTransaction(request)
+    }
+
+    /**
+     * Get full BIP39 English wordlist
+     */
+    fun getBip39Wordlist(): List<String> {
+        return com.wyltek.wallet.core.native.getBip39Wordlist()
+    }
+
+    /**
+     * Get BIP39 word suggestions matching prefix
+     */
+    fun suggestBip39Words(prefix: String, limit: UInt = 8u): List<String> {
+        return com.wyltek.wallet.core.native.suggestBip39Words(prefix, limit)
     }
 }

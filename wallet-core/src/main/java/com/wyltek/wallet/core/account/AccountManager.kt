@@ -1,75 +1,59 @@
 package com.wyltek.wallet.core.account
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.wyltek.wallet.core.model.*
-import java.security.SecureRandom
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.util.UUID
 
-class AccountManager {
+class AccountManager(context: Context) {
 
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences("wallet_accounts", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
     private val accounts = mutableMapOf<String, WalletAccount>()
-    private val secureRandom = SecureRandom()
 
-    fun createClassicAccount(
-        name: String,
-        network: NetworkType = NetworkType.TESTNET,
-        mnemonic: String? = null
-    ): WalletAccount {
-        val id = UUID.randomUUID().toString()
-        val account = WalletAccount(
-            id = id,
-            name = name,
-            type = AccountType.CLASSIC,
-            network = network,
-            addresses = emptyList(),
-            createdAt = System.currentTimeMillis()
-        )
-        accounts[id] = account
-        return account
+    init {
+        loadAll()
     }
 
-    fun createPqAccount(
-        name: String,
-        network: NetworkType = NetworkType.TESTNET,
-        algorithm: LockAlgorithm = LockAlgorithm.ML_DSA_65
-    ): WalletAccount {
-        val id = UUID.randomUUID().toString()
-        val account = WalletAccount(
-            id = id,
-            name = name,
-            type = AccountType.POST_QUANTUM,
-            network = network,
-            addresses = emptyList(),
-            createdAt = System.currentTimeMillis()
-        )
-        accounts[id] = account
-        return account
+    private fun loadAll() {
+        accounts.clear()
+        val all = prefs.all
+        for ((key, value) in all) {
+            if (key.startsWith("acct_")) {
+                try {
+                    val account = json.decodeFromString<WalletAccount>(value as String)
+                    accounts[account.id] = account
+                } catch (_: Exception) {}
+            }
+        }
     }
 
-    fun createHybridAccount(
-        name: String,
-        network: NetworkType = NetworkType.TESTNET
-    ): WalletAccount {
-        val id = UUID.randomUUID().toString()
-        val account = WalletAccount(
-            id = id,
-            name = name,
-            type = AccountType.HYBRID,
-            network = network,
-            addresses = emptyList(),
-            createdAt = System.currentTimeMillis()
-        )
-        accounts[id] = account
-        return account
+    private fun save(account: WalletAccount) {
+        accounts[account.id] = account
+        prefs.edit().putString("acct_${account.id}", json.encodeToString(account)).apply()
     }
 
     fun getAccount(id: String): WalletAccount? = accounts[id]
+
+    fun saveAccount(account: WalletAccount) {
+        save(account)
+    }
 
     fun getAllAccounts(): List<WalletAccount> = accounts.values.toList()
 
     fun getAccountsByType(type: AccountType): List<WalletAccount> =
         accounts.values.filter { it.type == type }
 
-    fun deleteAccount(id: String): Boolean = accounts.remove(id) != null
+    fun deleteAccount(id: String): Boolean {
+        val removed = accounts.remove(id) != null
+        if (removed) {
+            prefs.edit().remove("acct_$id").apply()
+        }
+        return removed
+    }
 
     fun importFromAddress(address: String): WalletAccount? {
         val id = UUID.randomUUID().toString()
@@ -82,7 +66,7 @@ class AccountManager {
             createdAt = System.currentTimeMillis(),
             isHD = false
         )
-        accounts[id] = account
+        save(account)
         return account
     }
 }

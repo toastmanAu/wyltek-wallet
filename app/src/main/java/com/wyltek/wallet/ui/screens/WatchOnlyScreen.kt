@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,7 +22,7 @@ import com.wyltek.wallet.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WatchOnlyScreen(viewModel: WalletViewModel) {
+fun WatchOnlyScreen(onBack: () -> Unit = {}, viewModel: WalletViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     var showImportDialog by remember { mutableStateOf(false) }
     var selectedAccount by remember { mutableStateOf<WatchOnlyAccount?>(null) }
@@ -39,6 +40,15 @@ fun WatchOnlyScreen(viewModel: WalletViewModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Watch-Only Wallets") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = TextPrimary
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = DarkSurface
                 ),

@@ -3,6 +3,7 @@ package com.wyltek.wallet.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -14,11 +15,18 @@ import com.wyltek.wallet.data.WalletViewModel
 @Composable
 fun SendScreen(
     onBack: () -> Unit = {},
+    onScanQr: () -> Unit = {},
+    scannedAddress: String? = null,
     viewModel: WalletViewModel
 ) {
-    var recipientAddress by remember { mutableStateOf("") }
+    var recipientAddress by remember { mutableStateOf(scannedAddress ?: "") }
     var amount by remember { mutableStateOf("") }
     val uiState by viewModel.uiState.collectAsState()
+
+    // Update address if scanned result arrives after initial composition
+    LaunchedEffect(scannedAddress) {
+        scannedAddress?.let { recipientAddress = it }
+    }
 
     Column(
         modifier = Modifier
@@ -43,7 +51,16 @@ fun SendScreen(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NeonCyan,
                 unfocusedBorderColor = CardBorder
-            )
+            ),
+            trailingIcon = {
+                IconButton(onClick = onScanQr) {
+                    Icon(
+                        Icons.Default.QrCodeScanner,
+                        contentDescription = "Scan QR Code",
+                        tint = NeonCyan
+                    )
+                }
+            }
         )
 
         OutlinedTextField(
@@ -75,7 +92,7 @@ fun SendScreen(
                 colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.1f))
             ) {
                 Text(
-                    text = "Transaction built: $txHash",
+                    text = "Transaction sent: $txHash",
                     modifier = Modifier.padding(12.dp),
                     color = SuccessGreen,
                     style = MaterialTheme.typography.bodySmall
@@ -87,9 +104,10 @@ fun SendScreen(
 
         Button(
             onClick = {
-                val amountLong = amount.toULongOrNull()
-                if (amountLong != null && recipientAddress.isNotBlank()) {
-                    viewModel.buildTransaction(recipientAddress, amountLong)
+                val amountCkb = amount.toDoubleOrNull()
+                if (amountCkb != null && amountCkb > 0 && recipientAddress.isNotBlank()) {
+                    val amountShannons = (amountCkb * 100_000_000.0).toULong()
+                    viewModel.sendCkb(recipientAddress, amountShannons)
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -102,7 +120,7 @@ fun SendScreen(
                     color = DarkBackground
                 )
             } else {
-                Text("Review Transaction", color = DarkBackground)
+                Text("Send CKB", color = DarkBackground)
             }
         }
     }

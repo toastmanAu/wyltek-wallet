@@ -655,7 +655,11 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_generate_mnemonic(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_get_bip39_wordlist(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_mnemonic_to_seed(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_suggest_bip39_words(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_validate_mnemonic(
     ): Short
@@ -668,6 +672,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_verify(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_pq_lock_args(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_message(
     ): Short
@@ -691,153 +697,159 @@ internal object UniffiLib {
         
     }
     external fun uniffi_wyltekwalletcore_fn_func_wallet_version(uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_decode_address(`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_encode_address(`codeHash`: RustBuffer.ByValue,`hashType`: RustBuffer.ByValue,`args`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_validate_address(`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
-    external fun uniffi_wyltekwalletcore_fn_func_blake2b_256(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_ckb_hash(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_generate_secp256k1_keypair(`seedHex`: RustBuffer.ByValue,`derivationPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_public_key_to_ckb_address(`publicKeyHex`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_public_key_to_pq_address(`publicKeyHex`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_generate_mnemonic(`wordCount`: Int,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_mnemonic_to_seed(`mnemonic`: RustBuffer.ByValue,`passphrase`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_validate_mnemonic(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
-    external fun uniffi_wyltekwalletcore_fn_func_generate_mldsa65_keypair(uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_mldsa65_from_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_mldsa65_sign(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_mldsa65_verify(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
-    external fun uniffi_wyltekwalletcore_fn_func_pq_lock_args(`publicKeyHex`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_sign_message(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_sign_transaction(`rawTxHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun uniffi_wyltekwalletcore_fn_func_verify_signature(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
-    external fun uniffi_wyltekwalletcore_fn_func_build_transaction(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun ffi_wyltekwalletcore_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun ffi_wyltekwalletcore_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun ffi_wyltekwalletcore_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Unit
-    external fun ffi_wyltekwalletcore_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun ffi_wyltekwalletcore_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_u8(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_u8(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
-    external fun ffi_wyltekwalletcore_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_i8(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_i8(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Byte
-    external fun ffi_wyltekwalletcore_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_u16(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_u16(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Short
-    external fun ffi_wyltekwalletcore_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_i16(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_i16(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Short
-    external fun ffi_wyltekwalletcore_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_u32(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_u32(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Int
-    external fun ffi_wyltekwalletcore_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_i32(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_i32(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Int
-    external fun ffi_wyltekwalletcore_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_u64(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_u64(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Long
-    external fun ffi_wyltekwalletcore_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_i64(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_i64(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Long
-    external fun ffi_wyltekwalletcore_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_f32(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_f32(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Float
-    external fun ffi_wyltekwalletcore_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_f64(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_f64(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Double
-    external fun ffi_wyltekwalletcore_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_rust_buffer(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_rust_buffer(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    external fun ffi_wyltekwalletcore_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_cancel_void(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_free_void(`handle`: Long,
-    ): Unit
-    external fun ffi_wyltekwalletcore_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Unit
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_decode_address(`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_encode_address(`codeHash`: RustBuffer.ByValue,`hashType`: RustBuffer.ByValue,`args`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_validate_address(`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_wyltekwalletcore_fn_func_blake2b_256(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_ckb_hash(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_generate_secp256k1_keypair(`seedHex`: RustBuffer.ByValue,`derivationPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_public_key_to_ckb_address(`publicKeyHex`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_public_key_to_pq_address(`publicKeyHex`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_generate_mnemonic(`wordCount`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_get_bip39_wordlist(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mnemonic_to_seed(`mnemonic`: RustBuffer.ByValue,`passphrase`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_suggest_bip39_words(`prefix`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_validate_mnemonic(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_wyltekwalletcore_fn_func_generate_mldsa65_keypair(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mldsa65_from_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mldsa65_sign(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mldsa65_verify(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_wyltekwalletcore_fn_func_pq_lock_args(`publicKeyHex`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(`txHashHex`: RustBuffer.ByValue,`witnessPlaceholdersHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_sign_message(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_sign_transaction(`rawTxHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_verify_signature(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_wyltekwalletcore_fn_func_build_transaction(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun ffi_wyltekwalletcore_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun ffi_wyltekwalletcore_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun ffi_wyltekwalletcore_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun ffi_wyltekwalletcore_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun ffi_wyltekwalletcore_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_u8(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_u8(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun ffi_wyltekwalletcore_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_i8(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_i8(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun ffi_wyltekwalletcore_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_u16(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_u16(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Short
+external fun ffi_wyltekwalletcore_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_i16(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_i16(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Short
+external fun ffi_wyltekwalletcore_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_u32(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_u32(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Int
+external fun ffi_wyltekwalletcore_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_i32(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_i32(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Int
+external fun ffi_wyltekwalletcore_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_u64(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_u64(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun ffi_wyltekwalletcore_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_i64(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_i64(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun ffi_wyltekwalletcore_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_f32(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_f32(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Float
+external fun ffi_wyltekwalletcore_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_f64(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_f64(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+external fun ffi_wyltekwalletcore_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_rust_buffer(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_rust_buffer(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun ffi_wyltekwalletcore_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_cancel_void(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_free_void(`handle`: Long,
+): Unit
+external fun ffi_wyltekwalletcore_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 
-        
+    
 }
 
 private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
@@ -881,7 +893,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_generate_mnemonic() != 43756.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_get_bip39_wordlist() != 798.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_wyltekwalletcore_checksum_func_mnemonic_to_seed() != 18613.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_suggest_bip39_words() != 59106.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_validate_mnemonic() != 360.toShort()) {
@@ -900,6 +918,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_pq_lock_args() != 10651.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_message() != 35259.toShort()) {
@@ -1388,6 +1409,8 @@ data class TransactionRequest (
     , 
     var `outputs`: List<TxOutput>
     , 
+    var `cellDeps`: List<TxCellDep>
+    , 
     var `feeRate`: kotlin.ULong
     
 ){
@@ -1407,6 +1430,7 @@ public object FfiConverterTypeTransactionRequest: FfiConverterRustBuffer<Transac
         return TransactionRequest(
             FfiConverterSequenceTypeTxInput.read(buf),
             FfiConverterSequenceTypeTxOutput.read(buf),
+            FfiConverterSequenceTypeTxCellDep.read(buf),
             FfiConverterULong.read(buf),
         )
     }
@@ -1414,13 +1438,58 @@ public object FfiConverterTypeTransactionRequest: FfiConverterRustBuffer<Transac
     override fun allocationSize(value: TransactionRequest) = (
             FfiConverterSequenceTypeTxInput.allocationSize(value.`inputs`) +
             FfiConverterSequenceTypeTxOutput.allocationSize(value.`outputs`) +
+            FfiConverterSequenceTypeTxCellDep.allocationSize(value.`cellDeps`) +
             FfiConverterULong.allocationSize(value.`feeRate`)
     )
 
     override fun write(value: TransactionRequest, buf: ByteBuffer) {
             FfiConverterSequenceTypeTxInput.write(value.`inputs`, buf)
             FfiConverterSequenceTypeTxOutput.write(value.`outputs`, buf)
+            FfiConverterSequenceTypeTxCellDep.write(value.`cellDeps`, buf)
             FfiConverterULong.write(value.`feeRate`, buf)
+    }
+}
+
+
+
+data class TxCellDep (
+    var `txHash`: kotlin.String
+    , 
+    var `index`: kotlin.UInt
+    , 
+    var `depType`: kotlin.UByte
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTxCellDep: FfiConverterRustBuffer<TxCellDep> {
+    override fun read(buf: ByteBuffer): TxCellDep {
+        return TxCellDep(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TxCellDep) = (
+            FfiConverterString.allocationSize(value.`txHash`) +
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterUByte.allocationSize(value.`depType`)
+    )
+
+    override fun write(value: TxCellDep, buf: ByteBuffer) {
+            FfiConverterString.write(value.`txHash`, buf)
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterUByte.write(value.`depType`, buf)
     }
 }
 
@@ -1432,6 +1501,8 @@ data class TxInput (
     var `index`: kotlin.UInt
     , 
     var `since`: kotlin.ULong
+    , 
+    var `capacity`: kotlin.ULong
     
 ){
     
@@ -1451,19 +1522,22 @@ public object FfiConverterTypeTxInput: FfiConverterRustBuffer<TxInput> {
             FfiConverterString.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
         )
     }
 
     override fun allocationSize(value: TxInput) = (
             FfiConverterString.allocationSize(value.`txHash`) +
             FfiConverterUInt.allocationSize(value.`index`) +
-            FfiConverterULong.allocationSize(value.`since`)
+            FfiConverterULong.allocationSize(value.`since`) +
+            FfiConverterULong.allocationSize(value.`capacity`)
     )
 
     override fun write(value: TxInput, buf: ByteBuffer) {
             FfiConverterString.write(value.`txHash`, buf)
             FfiConverterUInt.write(value.`index`, buf)
             FfiConverterULong.write(value.`since`, buf)
+            FfiConverterULong.write(value.`capacity`, buf)
     }
 }
 
@@ -1483,6 +1557,8 @@ data class TxOutput (
     var `typeHashType`: kotlin.String
     , 
     var `typeArgs`: kotlin.String
+    , 
+    var `data`: kotlin.String
     
 ){
     
@@ -1506,6 +1582,7 @@ public object FfiConverterTypeTxOutput: FfiConverterRustBuffer<TxOutput> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
@@ -1516,7 +1593,8 @@ public object FfiConverterTypeTxOutput: FfiConverterRustBuffer<TxOutput> {
             FfiConverterString.allocationSize(value.`lockArgs`) +
             FfiConverterString.allocationSize(value.`typeCodeHash`) +
             FfiConverterString.allocationSize(value.`typeHashType`) +
-            FfiConverterString.allocationSize(value.`typeArgs`)
+            FfiConverterString.allocationSize(value.`typeArgs`) +
+            FfiConverterString.allocationSize(value.`data`)
     )
 
     override fun write(value: TxOutput, buf: ByteBuffer) {
@@ -1527,6 +1605,7 @@ public object FfiConverterTypeTxOutput: FfiConverterRustBuffer<TxOutput> {
             FfiConverterString.write(value.`typeCodeHash`, buf)
             FfiConverterString.write(value.`typeHashType`, buf)
             FfiConverterString.write(value.`typeArgs`, buf)
+            FfiConverterString.write(value.`data`, buf)
     }
 }
 
@@ -1584,6 +1663,62 @@ public object FfiConverterTypeWalletError : FfiConverterRustBuffer<WalletExcepti
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTxCellDep: FfiConverterRustBuffer<List<TxCellDep>> {
+    override fun read(buf: ByteBuffer): List<TxCellDep> {
+        val len = buf.getInt()
+        return List<TxCellDep>(len) {
+            FfiConverterTypeTxCellDep.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TxCellDep>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTxCellDep.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TxCellDep>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTxCellDep.write(it, buf)
+        }
+    }
 }
 
 
@@ -1748,6 +1883,16 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     )
     }
     
+ fun `getBip39Wordlist`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_get_bip39_wordlist(
+    
+        _status)
+}
+    )
+    }
+    
 
     @Throws(WalletException::class) fun `mnemonicToSeed`(`mnemonic`: kotlin.String, `passphrase`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
@@ -1755,6 +1900,16 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_mnemonic_to_seed(
     
         FfiConverterString.lower(`mnemonic`),FfiConverterString.lower(`passphrase`),_status)
+}
+    )
+    }
+    
+ fun `suggestBip39Words`(`prefix`: kotlin.String, `limit`: kotlin.UInt): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_suggest_bip39_words(
+    
+        FfiConverterString.lower(`prefix`),FfiConverterUInt.lower(`limit`),_status)
 }
     )
     }
@@ -1820,6 +1975,26 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_pq_lock_args(
     
         FfiConverterString.lower(`publicKeyHex`),FfiConverterUByte.lower(`algorithmId`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Sign a CKB SECP256K1_BLAKE160_SIGHASH_ALL transaction.
+         * tx_hash_hex: the transaction hash (32 bytes, hex)
+         * witness_placeholders_hex: list of witness data as hex strings.
+         * For the input group being signed, the first witness should be a 65-byte placeholder.
+         * Other witnesses in the same group should be empty ("0x").
+         * private_key_hex: secp256k1 private key (32 bytes, hex)
+         * Returns: 65-byte recoverable signature as hex string.
+         */
+    @Throws(WalletException::class) fun `signCkbSecp256k1`(`txHashHex`: kotlin.String, `witnessPlaceholdersHex`: List<kotlin.String>, `privateKeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterSequenceString.lower(`witnessPlaceholdersHex`),FfiConverterString.lower(`privateKeyHex`),_status)
 }
     )
     }

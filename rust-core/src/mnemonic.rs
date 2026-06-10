@@ -42,3 +42,24 @@ pub fn mnemonic_to_seed(mnemonic: String, passphrase: String) -> Result<String, 
     let seed = mn.to_seed(passphrase);
     Ok(hex::encode(seed))
 }
+
+#[uniffi::export]
+pub fn get_bip39_wordlist() -> Vec<String> {
+    bip39::Language::English
+        .word_list()
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+#[uniffi::export]
+pub fn suggest_bip39_words(prefix: String, limit: u32) -> Vec<String> {
+    let prefix_lower = prefix.to_lowercase();
+    bip39::Language::English
+        .word_list()
+        .iter()
+        .filter(|w| w.starts_with(&prefix_lower))
+        .take(limit as usize)
+        .map(|s| s.to_string())
+        .collect()
+}

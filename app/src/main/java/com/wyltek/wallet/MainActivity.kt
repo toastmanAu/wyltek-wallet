@@ -9,14 +9,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.wyltek.wallet.ui.navigation.AppNavigation
-import com.wyltek.wallet.ui.theme.WyltekWalletTheme
+import com.wyltek.wallet.ui.theme.BlackboxVaultTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            WyltekWalletTheme {
+            BlackboxVaultTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

@@ -1,4 +1,5 @@
 use crate::WalletError;
+use crate::molecule::*;
 use blake2b_ref::Blake2bBuilder;
 
 fn ckb_blake2b(data: &[u8]) -> [u8; 32] {
@@ -16,6 +17,7 @@ pub struct TxInput {
     pub tx_hash: String,
     pub index: u32,
     pub since: u64,
+    pub capacity: u64,
 }
 
 #[derive(uniffi::Record)]
@@ -27,12 +29,21 @@ pub struct TxOutput {
     pub type_code_hash: String,
     pub type_hash_type: String,
     pub type_args: String,
+    pub data: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct TxCellDep {
+    pub tx_hash: String,
+    pub index: u32,
+    pub dep_type: u8,
 }
 
 #[derive(uniffi::Record)]
 pub struct TransactionRequest {
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
+    pub cell_deps: Vec<TxCellDep>,
     pub fee_rate: u64,
 }
 
@@ -48,62 +59,94 @@ pub struct BuiltTransaction {
 #[uniffi::export]
 pub fn build_transaction(request: TransactionRequest) -> Result<BuiltTransaction, WalletError> {
     let total_output: u64 = request.outputs.iter().map(|o| o.capacity).sum();
+    let total_input: u64 = request.inputs.iter().map(|i| i.capacity).sum();
 
-    let estimated_size = (request.inputs.len() * 44 + request.outputs.len() * 68 + 4) as u64;
-    let fee = estimated_size * request.fee_rate / 1000;
+    let cell_deps: Vec<CellDepSer> = request.cell_deps.iter().map(|dep| {
+        Ok(CellDepSer {
+            out_point: OutPointSer {
+                tx_hash: hex_to_byte32(&dep.tx_hash)?,
+                index: dep.index,
+            },
+            dep_type: dep.dep_type,
+        })
+    }).collect::<Result<Vec<_>, String>>()
+    .map_err(|e| WalletError::InvalidInput(e))?;
 
-    let mut raw_tx = Vec::new();
+    let inputs: Vec<CellInputSer> = request.inputs.iter().map(|input| {
+        Ok(CellInputSer {
+            since: input.since,
+            previous_output: OutPointSer {
+                tx_hash: hex_to_byte32(&input.tx_hash)?,
+                index: input.index,
+            },
+        })
+    }).collect::<Result<Vec<_>, String>>()
+    .map_err(|e| WalletError::InvalidInput(e))?;
 
-    raw_tx.extend_from_slice(&0u32.to_le_bytes());
-
-    raw_tx.extend_from_slice(&(request.inputs.len() as u32).to_le_bytes());
-    for input in &request.inputs {
-        let tx_hash_bytes = hex::decode(&input.tx_hash)?;
-        raw_tx.extend_from_slice(&tx_hash_bytes);
-        raw_tx.extend_from_slice(&input.index.to_le_bytes());
-        raw_tx.extend_from_slice(&input.since.to_le_bytes());
-    }
-
-    raw_tx.extend_from_slice(&(request.outputs.len() as u32).to_le_bytes());
-    for output in &request.outputs {
-        raw_tx.extend_from_slice(&output.capacity.to_le_bytes());
-
-        let code_hash = hex::decode(&output.lock_code_hash)?;
-        raw_tx.extend_from_slice(&code_hash);
-        let hash_type = match output.lock_hash_type.as_str() {
-            "data" => 0x00u8,
-            "type" => 0x01u8,
-            _ => 0x00u8,
+    let outputs: Vec<CellOutputSer> = request.outputs.iter().map(|output| {
+        let lock = ScriptSer {
+            code_hash: hex_to_byte32(&output.lock_code_hash)?,
+            hash_type: match output.lock_hash_type.as_str() {
+                "type" => 1,
+                _ => 0,
+            },
+            args: hex_to_bytes(&output.lock_args)?,
         };
-        raw_tx.push(hash_type);
-        let args = hex::decode(&output.lock_args)?;
-        raw_tx.extend_from_slice(&(args.len() as u32).to_le_bytes());
-        raw_tx.extend_from_slice(&args);
-
-        if !output.type_code_hash.is_empty() {
-            let type_code_hash = hex::decode(&output.type_code_hash)?;
-            raw_tx.extend_from_slice(&type_code_hash);
-            let type_hash_type = match output.type_hash_type.as_str() {
-                "data" => 0x00u8,
-                "type" => 0x01u8,
-                _ => 0x00u8,
-            };
-            raw_tx.push(type_hash_type);
-            let type_args = hex::decode(&output.type_args)?;
-            raw_tx.extend_from_slice(&(type_args.len() as u32).to_le_bytes());
-            raw_tx.extend_from_slice(&type_args);
+        let type_ = if output.type_code_hash.is_empty() {
+            None
         } else {
-            raw_tx.push(0x00);
-        }
-    }
+            Some(ScriptSer {
+                code_hash: hex_to_byte32(&output.type_code_hash)?,
+                hash_type: match output.type_hash_type.as_str() {
+                    "type" => 1,
+                    _ => 0,
+                },
+                args: hex_to_bytes(&output.type_args)?,
+            })
+        };
+        Ok(CellOutputSer {
+            capacity: output.capacity,
+            lock,
+            type_,
+        })
+    }).collect::<Result<Vec<_>, String>>()
+    .map_err(|e| WalletError::InvalidInput(e))?;
 
-    let tx_hash = ckb_blake2b(&raw_tx);
+    let outputs_data: Vec<Vec<u8>> = request.outputs.iter()
+        .map(|o| hex_to_bytes(&o.data).unwrap_or_default())
+        .collect();
+
+    let raw = RawTransactionSer {
+        version: 0,
+        cell_deps,
+        header_deps: vec![],
+        inputs,
+        outputs,
+        outputs_data,
+    };
+
+    // Serialize raw transaction
+    let mut raw_bytes = Vec::new();
+    raw.serialize(&mut raw_bytes);
+
+    // Compute tx_hash
+    let tx_hash = ckb_blake2b(&raw_bytes);
+
+    // Estimate fee from actual transaction size (including placeholder witnesses)
+    let witness_placeholder = vec![vec![0u8; 65]; request.inputs.len()];
+    let tx_with_witnesses = TransactionSer {
+        raw,
+        witnesses: witness_placeholder,
+    };
+    let mut full_tx_bytes = Vec::new();
+    tx_with_witnesses.serialize(&mut full_tx_bytes);
+    let fee = (full_tx_bytes.len() as u64) * request.fee_rate / 1000;
 
     Ok(BuiltTransaction {
-        raw_transaction_hex: hex::encode(&raw_tx),
+        raw_transaction_hex: hex::encode(&raw_bytes),
         tx_hash_hex: hex::encode(&tx_hash),
         estimated_fee: fee,
-        total_input_capacity: 0,
+        total_input_capacity: total_input,
         total_output_capacity: total_output,
     })
 }

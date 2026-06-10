@@ -54,9 +54,11 @@ pub fn public_key_to_ckb_address(
         _ => "ckb",
     };
 
+    let code_hash = hex::decode("9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8")?;
+
     let mut data = Vec::new();
     data.push(0x00);
-    data.extend_from_slice(&pk_hash);
+    data.extend_from_slice(&code_hash);
     data.push(0x01);
     data.extend_from_slice(&pk_hash[..20]);
 

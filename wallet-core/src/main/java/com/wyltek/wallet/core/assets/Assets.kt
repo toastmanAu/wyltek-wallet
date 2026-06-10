@@ -4,7 +4,9 @@ import com.wyltek.wallet.core.chain.ChainManager
 import com.wyltek.wallet.core.chain.CkbRpcClient
 import com.wyltek.wallet.core.chain.RpcProfile
 import com.wyltek.wallet.core.model.*
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import java.math.BigInteger
 import java.util.UUID
 
 data class AssetInfo(
@@ -32,8 +34,15 @@ enum class AssetType {
     SPORE,
     COTA,
     CKBFS,
+    SUDT,
     UNKNOWN
 }
+
+data class TokenInfo(
+    val typeScript: LockScript,
+    val amount: BigInteger,
+    val symbol: String = "sUDT"
+)
 
 data class Listing(
     val id: String,
@@ -151,6 +160,7 @@ class AssetScanner(private val chainManager: ChainManager) {
         private const val SPORE_TYPE_CODE_HASH = "0x25c29c62f4984899f74328a2786bfb126ef0eee9b2e1c020614c417bc3a2d838"
         private const val CKBFS_TYPE_CODE_HASH = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4bfff5a105f828c0b50aa673"
         private const val COTA_SMT_TYPE_HASH = "0x86a18e3e05d03f80ca2d3fc1e06b0a5424070009e26a46d7dad0e6ca74f47e55"
+        private const val SUDT_TYPE_CODE_HASH = "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     }
@@ -275,6 +285,52 @@ class AssetScanner(private val chainManager: ChainManager) {
         return spore + cota + ckbfs
     }
 
+    suspend fun scanSudtCells(
+        ownerLock: LockScript,
+        customTokens: List<CustomTokenDefinition> = emptyList(),
+        network: com.wyltek.wallet.core.model.NetworkType = com.wyltek.wallet.core.model.NetworkType.TESTNET
+    ): List<TokenInfo> {
+        val cells = try {
+            chainManager.getCellsByLock(ownerLock)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+
+        val networkConfig = com.wyltek.wallet.core.chain.NetworkConfig.forNetwork(network)
+
+        // Known SUDT + custom tokens
+        val knownCodeHashes = mutableSetOf(networkConfig.sudtTypeCodeHash.lowercase())
+        val customByCodeHash = customTokens.groupBy { it.codeHash.lowercase() }
+        knownCodeHashes.addAll(customByCodeHash.keys)
+
+        val sudtCells = cells.filter { cell ->
+            val typeScript = cell.type_ ?: return@filter false
+            knownCodeHashes.contains(typeScript.codeHash.lowercase()) &&
+                    typeScript.hashType == "type"
+        }
+
+        // Group by type script args (identifies specific sUDT)
+        val grouped = sudtCells.groupBy { it.type_!!.args }
+
+        return grouped.map { (args, cellsOfType) ->
+            val totalAmount = cellsOfType.fold(BigInteger.ZERO) { acc, cell ->
+                val data = cell.data?.removePrefix("0x") ?: ""
+                val amount = if (data.length >= 32) {
+                    decodeU128Le(data)
+                } else BigInteger.ZERO
+                acc + amount
+            }
+
+            // Find custom token symbol if matched
+            val custom = customTokens.find { it.args.equals(args, ignoreCase = true) }
+            TokenInfo(
+                typeScript = cellsOfType.first().type_!!,
+                amount = totalAmount,
+                symbol = custom?.symbol ?: "sUDT"
+            )
+        }
+    }
+
     suspend fun getAssetDetail(outPoint: OutPoint): AssetInfo? {
         return null
     }
@@ -344,6 +400,11 @@ class AssetScanner(private val chainManager: ChainManager) {
 
         result["hash"] = typeArgs
         return result
+    }
+
+    private fun decodeU128Le(hexData: String): BigInteger {
+        val bytes = hexToBytes(hexData).take(16).reversed().toByteArray()
+        return BigInteger(1, bytes)
     }
 
     private fun hexToBytes(hex: String): ByteArray {

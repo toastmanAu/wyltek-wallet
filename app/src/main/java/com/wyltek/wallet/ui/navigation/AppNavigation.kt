@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,9 +36,15 @@ sealed class Screen(val route: String, val label: String) {
     data object RpcHealth : Screen("rpc-health", "RPC Health")
     data object Send : Screen("send", "Send")
     data object Receive : Screen("receive", "Receive")
+    data object QrScanner : Screen("qr-scanner", "Scan QR")
+    data object TransactionHistory : Screen("transaction-history", "History")
+    data object TransactionDetail : Screen("transaction-detail/{txHash}", "Detail")
+    data object SendToken : Screen("send-token", "Send Token")
     data object InternalTransfer : Screen("internal-transfer", "Transfer")
     data object WalletCreate : Screen("wallet-create", "Create Wallet")
     data object WalletImport : Screen("wallet-import", "Import Wallet")
+    data object MnemonicVerify : Screen("mnemonic-verify", "Verify Mnemonic")
+    data object Dao : Screen("dao", "DAO")
 }
 
 private val bottomBarScreens = listOf(
@@ -106,13 +113,25 @@ fun AppNavigation() {
                     onSend = { navController.navigate(Screen.Send.route) },
                     onReceive = { navController.navigate(Screen.Receive.route) },
                     onInternalTransfer = { navController.navigate(Screen.InternalTransfer.route) },
+                    onTransactionHistory = { navController.navigate(Screen.TransactionHistory.route) },
                     onCreateWallet = { navController.navigate(Screen.WalletCreate.route) },
-                    onSettings = { navController.navigate(Screen.Settings.route) },
+                    onImportWallet = { navController.navigate(Screen.WalletImport.route) },
+                    onSettings = {
+                        navController.navigate(Screen.Settings.route) {
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onDao = { navController.navigate(Screen.Dao.route) },
                     viewModel = viewModel
                 )
             }
             composable(Screen.Assets.route) {
-                AssetsScreen(viewModel = viewModel)
+                AssetsScreen(
+                    onSendToken = { navController.navigate(Screen.SendToken.route) },
+                    viewModel = viewModel
+                )
             }
             composable(Screen.Marketplace.route) {
                 MarketplaceScreen(viewModel = viewModel)
@@ -131,23 +150,27 @@ fun AppNavigation() {
                 )
             }
             composable(Screen.Skins.route) {
-                SkinsScreen(viewModel = viewModel)
+                SkinsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
             }
             composable(Screen.PasskeySettings.route) {
-                PasskeySettingsScreen(viewModel = viewModel)
+                PasskeySettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
             }
             composable(Screen.WatchOnly.route) {
-                WatchOnlyScreen(viewModel = viewModel)
+                WatchOnlyScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
             }
             composable(Screen.Security.route) {
-                SecuritySettingsScreen(viewModel = viewModel)
+                SecuritySettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
             }
             composable(Screen.RpcHealth.route) {
-                RpcHealthScreen(viewModel = viewModel)
+                RpcHealthScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
             }
-            composable(Screen.Send.route) {
+            composable(Screen.Send.route) { backStackEntry ->
+                val scannedAddress = backStackEntry.savedStateHandle.get<String>("scannedAddress")
+                backStackEntry.savedStateHandle.remove<String>("scannedAddress")
                 SendScreen(
                     onBack = { navController.popBackStack() },
+                    onScanQr = { navController.navigate(Screen.QrScanner.route) },
+                    scannedAddress = scannedAddress,
                     viewModel = viewModel
                 )
             }
@@ -157,13 +180,77 @@ fun AppNavigation() {
                     viewModel = viewModel
                 )
             }
+            composable(Screen.QrScanner.route) {
+                QrScannerScreen(
+                    onBack = { navController.popBackStack() },
+                    onScanned = { address ->
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("scannedAddress", address)
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable(Screen.TransactionHistory.route) {
+                TransactionHistoryScreen(
+                    onBack = { navController.popBackStack() },
+                    onDetail = { txHash ->
+                        navController.navigate("transaction-detail/$txHash")
+                    },
+                    viewModel = viewModel
+                )
+            }
+            composable(Screen.TransactionDetail.route) { backStackEntry ->
+                val txHash = backStackEntry.arguments?.getString("txHash") ?: ""
+                TransactionDetailScreen(
+                    txHash = txHash,
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
+            }
+            composable(Screen.SendToken.route) {
+                val token = viewModel.uiState.value.selectedToken
+                if (token != null) {
+                    SendTokenScreen(
+                        token = token,
+                        onBack = {
+                            viewModel.clearSelectedToken()
+                            navController.popBackStack()
+                        },
+                        viewModel = viewModel
+                    )
+                } else {
+                    navController.popBackStack()
+                }
+            }
             composable(Screen.InternalTransfer.route) {
                 InternalTransferScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.Dao.route) {
+                DaoScreen(
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
             }
             composable(Screen.WalletCreate.route) {
                 WalletCreateScreen(
                     onBack = { navController.popBackStack() },
+                    onVerify = { mnemonic ->
+                        navController.navigate("mnemonic-verify/${java.net.URLEncoder.encode(mnemonic, "UTF-8")}")
+                    },
                     viewModel = viewModel
+                )
+            }
+            composable("mnemonic-verify/{mnemonic}") { backStackEntry ->
+                val encodedMnemonic = backStackEntry.arguments?.getString("mnemonic") ?: ""
+                val mnemonic = java.net.URLDecoder.decode(encodedMnemonic, "UTF-8")
+                MnemonicVerifyScreen(
+                    mnemonic = mnemonic,
+                    onVerified = {
+                        viewModel.confirmWalletCreation()
+                        navController.popBackStack(Screen.Home.route, false)
+                    },
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Screen.WalletImport.route) {

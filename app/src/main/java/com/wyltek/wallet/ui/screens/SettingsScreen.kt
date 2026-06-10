@@ -2,6 +2,8 @@ package com.wyltek.wallet.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,6 +25,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showRpcDialog by remember { mutableStateOf(false) }
+    var showNetworkDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -31,10 +34,18 @@ fun SettingsScreen(
         )
 
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             SettingsSection(title = "Network") {
+                SettingsItem(
+                    icon = Icons.Default.Language,
+                    title = "Network",
+                    subtitle = uiState.currentNetwork.name,
+                    onClick = { showNetworkDialog = true }
+                )
                 SettingsItem(
                     icon = Icons.Default.Cloud,
                     title = "RPC Provider",
@@ -102,11 +113,6 @@ fun SettingsScreen(
                     onClick = onWatchOnly
                 )
                 SettingsItem(
-                    icon = Icons.Default.Code,
-                    title = "Network",
-                    subtitle = "Testnet"
-                )
-                SettingsItem(
                     icon = Icons.Default.Info,
                     title = "About",
                     subtitle = "v0.1.0-dev"
@@ -122,6 +128,17 @@ fun SettingsScreen(
             onSelect = { rpc ->
                 viewModel.setActiveRpc(rpc)
                 showRpcDialog = false
+            }
+        )
+    }
+
+    if (showNetworkDialog) {
+        NetworkSelectionDialog(
+            currentNetwork = uiState.currentNetwork,
+            onDismiss = { showNetworkDialog = false },
+            onSelect = { network ->
+                viewModel.switchNetwork(network)
+                showNetworkDialog = false
             }
         )
     }
@@ -158,6 +175,70 @@ private fun RpcSelectionDialog(
             }
         }
     )
+}
+
+@Composable
+private fun NetworkSelectionDialog(
+    currentNetwork: com.wyltek.wallet.core.model.NetworkType,
+    onDismiss: () -> Unit,
+    onSelect: (com.wyltek.wallet.core.model.NetworkType) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkSurface,
+        titleContentColor = TextPrimary,
+        textContentColor = TextSecondary,
+        title = { Text("Select Network") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                NetworkOption(
+                    name = "Mainnet",
+                    description = "CKB Mainnet — real assets",
+                    isSelected = currentNetwork == com.wyltek.wallet.core.model.NetworkType.MAINNET,
+                    onClick = { onSelect(com.wyltek.wallet.core.model.NetworkType.MAINNET) }
+                )
+                NetworkOption(
+                    name = "Testnet",
+                    description = "CKB Testnet — development & testing",
+                    isSelected = currentNetwork == com.wyltek.wallet.core.model.NetworkType.TESTNET,
+                    onClick = { onSelect(com.wyltek.wallet.core.model.NetworkType.TESTNET) }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+private fun NetworkOption(
+    name: String,
+    description: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) NeonCyan.copy(alpha = 0.1f) else DarkSurfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isSelected) NeonCyan else TextPrimary
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+        }
+    }
 }
 
 @Composable

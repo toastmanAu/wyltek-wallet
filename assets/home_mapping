@@ -1,0 +1,74 @@
+bg_brown_leather_02
+chain label height: 20 
+Section 0: 46,300 - 630x175
+Section 1: 46,540 - 630x175
+Section 2: 46,775 - 630x175
+Section 3: 46,1010 - 630x380
+
+bg_brown_leather_01 
+chain label height: 30 
+Section 0: 100,470 - 580x90
+Section 1: 100,613 - 580x90
+Section 2: 100,748 - 580x90
+Section 3: 100,880 - 580x90
+Section 4: 100,1020 - 580x370
+
+bg_brown_leather_03 
+chain label height: 20 
+Section 0: 50,395 - 620x960
+
+bg_black_leather
+chain label height: 260 
+Section 0: 50,323 - 610x180
+Section 1: 50,570 - 610x180
+Section 2: 50,827 - 610x180
+Section 3: 50,1070 - 610x280
+
+bg_wood_dark_01 
+chain label height: 20 
+Section 0: 44,435 - 630x150
+Section 1: 44,650 - 630x150
+Section 2: 44,860 - 630x150
+Section 3: 44,1075 - 630x150
+
+bg_marble
+chain label height: 20 
+Section 0: 35,445 - 650x150
+Section 1: 35,650 - 650x150
+Section 2: 35,855 - 650x150
+Section 3: 35,1055 - 650x150
+
+bg_forest
+chain label height: 20 
+Section 0: 71,502 - 580x130
+Section 1: 71,697 - 580x130
+Section 2: 71,888 - 580x130
+Section 3: 71,1075 - 580x130
+
+bg_brown_leather_04
+chain label height: 40 
+Section 0: 77,480 - 560x160
+Section 1: 77,705 - 560x160
+Section 2: 77,931 - 560x160
+Section 3: 77,1166 - 560x160
+
+bg_circuit_board
+chain label height: 20 
+Section 0: 77,480 - 560x160
+Section 1: 77,705 - 560x160
+Section 2: 77,931 - 560x160
+Section 3: 77,1166 - 560x160
+
+bg_wood_dark_02
+chain label height: 20 
+Section 0: 22,450 - 680x230
+Section 1: 44,730 - 630x100
+Section 2: 44,875 - 630x100
+Section 3: 44,1026 - 630x100
+Section 4: 44,1174 - 630x100
+
+
+
+
+
+

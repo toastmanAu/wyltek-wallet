@@ -9,15 +9,23 @@ interface ChainProvider {
 
     suspend fun getCellsByLock(lockScript: LockScript): List<Utxo>
 
+    suspend fun getCellsByLockAndType(lockScript: LockScript, typeScript: LockScript): List<Utxo>
+
     suspend fun getCellsCapacity(lockScript: LockScript): CellsCapacity
 
     suspend fun getTipHeader(): HeaderInfo?
+
+    suspend fun getHeaderByNumber(blockNumber: String): HeaderInfo?
 
     suspend fun estimateFee(rate: ULong): ULong
 
     suspend fun sendTransaction(transaction: Transaction): String?
 
+    suspend fun sendTransactionJson(txJson: JsonElement): String?
+
     suspend fun getTransactionStatus(txHash: String): TxStatus?
+
+    suspend fun getTransactionsByLock(lockScript: LockScript): List<TransactionHistoryItem>
 }
 
 data class CellsCapacity(
@@ -31,7 +39,8 @@ data class HeaderInfo(
     val number: ULong,
     val epoch: String,
     val parentHash: String,
-    val timestamp: ULong
+    val timestamp: ULong,
+    val dao: String = ""
 )
 
 enum class TxStatus {
@@ -40,6 +49,14 @@ enum class TxStatus {
     REJECTED,
     UNKNOWN
 }
+
+data class TransactionHistoryItem(
+    val txHash: String,
+    val blockNumber: ULong,
+    val isInput: Boolean,
+    val isOutput: Boolean,
+    val timestamp: ULong = 0u
+)
 
 class RpcProfile(
     override val name: String,
@@ -50,11 +67,13 @@ class RpcProfile(
 
     private val client = CkbRpcClient(url)
 
+    private fun String.withHexPrefix(): String = if (startsWith("0x", ignoreCase = true)) this else "0x$this"
+
     override suspend fun getCellsByLock(lockScript: LockScript): List<Utxo> {
         val script = Script(
-            code_hash = lockScript.codeHash,
+            code_hash = lockScript.codeHash.withHexPrefix(),
             hash_type = lockScript.hashType,
-            args = lockScript.args
+            args = lockScript.args.withHexPrefix()
         )
 
         val cells = mutableListOf<Utxo>()
@@ -82,13 +101,14 @@ class RpcProfile(
                 }
                 val data = cell.output_data.data
 
-                cells.add(
+cells.add(
                     Utxo(
                         outPoint = outPoint,
                         capacity = capacity,
                         lock = lock,
                         type_ = typeScript,
-                        data = if (data.isNotEmpty()) data else null
+                        data = if (data.isNotEmpty()) data else null,
+                        blockNumber = cell.block_number.removePrefix("0x").toULong(16)
                     )
                 )
             }
@@ -100,18 +120,72 @@ class RpcProfile(
 
     override suspend fun getCellsCapacity(lockScript: LockScript): CellsCapacity {
         val script = Script(
-            code_hash = lockScript.codeHash,
+            code_hash = lockScript.codeHash.withHexPrefix(),
             hash_type = lockScript.hashType,
-            args = lockScript.args
+            args = lockScript.args.withHexPrefix()
         )
         val response = client.getCellsCapacity(script)
         val total = response.capacity.removePrefix("0x").toULong(16)
-        val occupied = response.occupied_capacity.removePrefix("0x").toULong(16)
+        val occupied = response.occupied_capacity?.removePrefix("0x")?.toULong(16) ?: 0u
         return CellsCapacity(
             totalCapacity = total,
             occupiedCapacity = occupied,
             availableCapacity = total - occupied
         )
+    }
+
+    override suspend fun getCellsByLockAndType(lockScript: LockScript, typeScript: LockScript): List<Utxo> {
+        val lockScriptRpc = Script(
+            code_hash = lockScript.codeHash.withHexPrefix(),
+            hash_type = lockScript.hashType,
+            args = lockScript.args.withHexPrefix()
+        )
+        val typeScriptRpc = Script(
+            code_hash = typeScript.codeHash.withHexPrefix(),
+            hash_type = typeScript.hashType,
+            args = typeScript.args.withHexPrefix()
+        )
+
+        val cells = mutableListOf<Utxo>()
+        var cursor: String? = null
+
+        do {
+            val response = client.getCellsByLockAndType(lockScriptRpc, typeScriptRpc, afterCursor = cursor)
+            for (cell in response.objects) {
+                val capacity = cell.output.capacity.removePrefix("0x").toULong(16)
+                val outPoint = com.wyltek.wallet.core.model.OutPoint(
+                    txHash = cell.out_point.tx_hash,
+                    index = cell.out_point.index.removePrefix("0x").toUInt(16)
+                )
+                val lock = LockScript(
+                    codeHash = cell.output.lock.code_hash,
+                    hashType = cell.output.lock.hash_type,
+                    args = cell.output.lock.args
+                )
+                val cellTypeScript = cell.output.type_?.let {
+                    LockScript(
+                        codeHash = it.code_hash,
+                        hashType = it.hash_type,
+                        args = it.args
+                    )
+                }
+                val data = cell.output_data.data
+
+                cells.add(
+                    Utxo(
+                        outPoint = outPoint,
+                        capacity = capacity,
+                        lock = lock,
+                        type_ = cellTypeScript,
+                        data = if (data.isNotEmpty()) data else null,
+                        blockNumber = cell.block_number.removePrefix("0x").toULong(16)
+                    )
+                )
+            }
+            cursor = if (response.objects.isNotEmpty()) response.last_cursor else null
+        } while (cursor != null)
+
+        return cells
     }
 
     override suspend fun getTipHeader(): HeaderInfo? {
@@ -122,7 +196,24 @@ class RpcProfile(
                 number = header.number.removePrefix("0x").toULong(16),
                 epoch = header.epoch,
                 parentHash = header.parent_hash,
-                timestamp = header.timestamp.removePrefix("0x").toULong(16)
+                timestamp = header.timestamp.removePrefix("0x").toULong(16),
+                dao = header.dao
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun getHeaderByNumber(blockNumber: String): HeaderInfo? {
+        return try {
+            val header = client.getHeaderByNumber(blockNumber)
+            HeaderInfo(
+                hash = header.hash,
+                number = header.number.removePrefix("0x").toULong(16),
+                epoch = header.epoch,
+                parentHash = header.parent_hash,
+                timestamp = header.timestamp.removePrefix("0x").toULong(16),
+                dao = header.dao
             )
         } catch (e: Exception) {
             null
@@ -151,6 +242,14 @@ class RpcProfile(
         }
     }
 
+    override suspend fun sendTransactionJson(txJson: JsonElement): String? {
+        return try {
+            client.sendTransaction(txJson)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override suspend fun getTransactionStatus(txHash: String): TxStatus? {
         return try {
             val response = client.getTransactionStatus(txHash)
@@ -164,6 +263,36 @@ class RpcProfile(
         } catch (e: Exception) {
             TxStatus.UNKNOWN
         }
+    }
+
+    override suspend fun getTransactionsByLock(lockScript: LockScript): List<TransactionHistoryItem> {
+        val script = Script(
+            code_hash = lockScript.codeHash.withHexPrefix(),
+            hash_type = lockScript.hashType,
+            args = lockScript.args.withHexPrefix()
+        )
+        val items = mutableListOf<TransactionHistoryItem>()
+        var cursor: String? = null
+        do {
+            val response = client.getTransactionsByLock(script, afterCursor = cursor)
+            // Group by tx_hash to determine input/output involvement
+            val grouped = response.objects.groupBy { it.tx_hash }
+            for ((txHash, entries) in grouped) {
+                val isInput = entries.any { it.io_type == "input" }
+                val isOutput = entries.any { it.io_type == "output" }
+                val blockNumber = entries.firstOrNull()?.block_number?.removePrefix("0x")?.toULong(16) ?: 0u
+                items.add(
+                    TransactionHistoryItem(
+                        txHash = txHash,
+                        blockNumber = blockNumber,
+                        isInput = isInput,
+                        isOutput = isOutput
+                    )
+                )
+            }
+            cursor = if (response.objects.isNotEmpty()) response.last_cursor else null
+        } while (cursor != null)
+        return items
     }
 
     companion object {
@@ -223,6 +352,7 @@ class ChainManager {
         return try {
             activeProvider?.getCellsByLock(lockScript) ?: emptyList()
         } catch (e: Exception) {
+            android.util.Log.e("ChainManager", "getCellsByLock failed: ${e.message}", e)
             if (failover()) {
                 activeProvider?.getCellsByLock(lockScript) ?: emptyList()
             } else {
@@ -235,6 +365,7 @@ class ChainManager {
         return try {
             activeProvider?.getCellsCapacity(lockScript)
         } catch (e: Exception) {
+            android.util.Log.e("CkbRpc", "getCellsCapacity exception: ${e.javaClass.simpleName}: ${e.message}")
             if (failover()) {
                 activeProvider?.getCellsCapacity(lockScript)
             } else {
@@ -261,6 +392,55 @@ class ChainManager {
         } catch (e: Exception) {
             if (failover()) {
                 activeProvider?.sendTransaction(transaction)
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun sendTransactionJson(txJson: JsonElement): String? {
+        return try {
+            activeProvider?.sendTransactionJson(txJson)
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.sendTransactionJson(txJson)
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun getTransactionsByLock(lockScript: LockScript): List<TransactionHistoryItem> {
+        return try {
+            activeProvider?.getTransactionsByLock(lockScript) ?: emptyList()
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.getTransactionsByLock(lockScript) ?: emptyList()
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun getCellsByLockAndType(lockScript: LockScript, typeScript: LockScript): List<Utxo> {
+        return try {
+            activeProvider?.getCellsByLockAndType(lockScript, typeScript) ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("ChainManager", "getCellsByLockAndType failed: ${e.message}", e)
+            if (failover()) {
+                activeProvider?.getCellsByLockAndType(lockScript, typeScript) ?: emptyList()
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun getHeaderByNumber(blockNumber: String): HeaderInfo? {
+        return try {
+            activeProvider?.getHeaderByNumber(blockNumber)
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.getHeaderByNumber(blockNumber)
             } else {
                 null
             }

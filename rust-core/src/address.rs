@@ -33,7 +33,7 @@ pub fn decode_address(address: String) -> Result<AddressInfo, WalletError> {
         return Err(WalletError::InvalidInput("Payload too short for lock script".into()));
     }
 
-    let code_hash = hex::encode(&payload[..32]);
+    let code_hash = format!("0x{}", hex::encode(&payload[..32]));
     let hash_type = match payload[32] {
         0x00 => "data",
         0x01 => "type",
@@ -41,7 +41,7 @@ pub fn decode_address(address: String) -> Result<AddressInfo, WalletError> {
         0x04 => "data2",
         _ => "unknown",
     };
-    let lock_args = hex::encode(&payload[33..]);
+    let lock_args = format!("0x{}", hex::encode(&payload[33..]));
 
     Ok(AddressInfo {
         bech32m: address,
@@ -67,7 +67,8 @@ pub fn encode_address(
         _ => "ckb",
     };
 
-    let code_hash_bytes = hex::decode(&code_hash)?;
+    let code_hash_clean = code_hash.strip_prefix("0x").unwrap_or(&code_hash);
+    let code_hash_bytes = hex::decode(code_hash_clean)?;
     if code_hash_bytes.len() != 32 {
         return Err(WalletError::InvalidInput("Code hash must be 32 bytes".into()));
     }
@@ -80,7 +81,8 @@ pub fn encode_address(
         _ => return Err(WalletError::InvalidInput(format!("Invalid hash type: {}", hash_type))),
     };
 
-    let args_bytes = hex::decode(&args)?;
+    let args_clean = args.strip_prefix("0x").unwrap_or(&args);
+    let args_bytes = hex::decode(args_clean)?;
 
     let mut payload = Vec::with_capacity(1 + 32 + 1 + args.len());
     payload.push(0x00);

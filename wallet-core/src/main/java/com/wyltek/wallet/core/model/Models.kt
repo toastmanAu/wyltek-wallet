@@ -106,7 +106,8 @@ data class Utxo(
     val capacity: ULong,
     val lock: LockScript,
     val type_: LockScript? = null,
-    val data: String? = null
+    val data: String? = null,
+    val blockNumber: ULong = 0u
 )
 
 @Serializable

@@ -7,6 +7,26 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
+data class PanelBackground(
+    val imageUri: String? = null,
+    val backgroundColor: Long? = null,
+    val blurRadius: Float = 0f,
+    val dimOpacity: Float = 0.3f
+)
+
+@Serializable
+data class PanelZone(
+    val label: String,
+    val xFraction: Float = 0.05f,
+    val yFraction: Float = 0.05f,
+    val widthFraction: Float = 0.9f,
+    val heightFraction: Float = 0.12f,
+    val alignment: String = "center",
+    val textOpacity: Float = 0.95f,
+    val panelOpacity: Float = 0.0f
+)
+
+@Serializable
 data class ThemeConfig(
     val name: String,
     val primaryColor: Long,
@@ -15,15 +35,13 @@ data class ThemeConfig(
     val surfaceColor: Long,
     val textColor: Long,
     val isDark: Boolean = true,
-    val panelBackgrounds: Map<String, PanelBackground> = emptyMap()
-)
-
-@Serializable
-data class PanelBackground(
-    val imageUri: String? = null,
-    val backgroundColor: Long? = null,
-    val blurRadius: Float = 0f,
-    val dimOpacity: Float = 0.3f
+    val panelBackgrounds: Map<String, PanelBackground> = emptyMap(),
+    val backgroundResId: String? = null,
+    val panelZones: List<PanelZone> = emptyList(),
+    val accentColor: Long = 0xFF00FFFF,
+    val panelCornerRadius: Float = 12f,
+    val useBackgroundImage: Boolean = false,
+    val chainLabelYFraction: Float = 0.014f
 )
 
 object ThemePresets {
@@ -88,7 +106,207 @@ object ThemePresets {
         isDark = true
     )
 
-    val all = listOf(cyberpunk, neonNervos, lightClean, midnightBlue, sunsetOrange, forestGreen)
+    val vaultBlackLeather = ThemeConfig(
+        name = "Black Leather",
+        primaryColor = 0xFFE0C068,
+        secondaryColor = 0xFFB89040,
+        backgroundColor = 0xFF0A0A0F,
+        surfaceColor = 0xFF1A1A1E,
+        textColor = 0xFFF0E0C0,
+        accentColor = 0xFFE0C068,
+        useBackgroundImage = true,
+        backgroundResId = "bg_black_leather",
+        chainLabelYFraction = 0.111f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.069f, yFraction = 0.155f, widthFraction = 0.847f, heightFraction = 0.125f, panelOpacity = 0.5f),
+            PanelZone(label = "send", xFraction = 0.069f, yFraction = 0.327f, widthFraction = 0.847f, heightFraction = 0.125f, panelOpacity = 0.5f),
+            PanelZone(label = "receive", xFraction = 0.069f, yFraction = 0.505f, widthFraction = 0.847f, heightFraction = 0.125f, panelOpacity = 0.5f),
+            PanelZone(label = "transfer", xFraction = 0.069f, yFraction = 0.674f, widthFraction = 0.847f, heightFraction = 0.194f, panelOpacity = 0.5f)
+        )
+    )
+
+    val vaultBrownLeather1 = ThemeConfig(
+        name = "Brown Leather I",
+        primaryColor = 0xFFD4A050,
+        secondaryColor = 0xFFC08830,
+        backgroundColor = 0xFF1A0E04,
+        surfaceColor = 0xFF2A1A08,
+        textColor = 0xFFF0D8A8,
+        accentColor = 0xFFD4A050,
+        useBackgroundImage = true,
+        backgroundResId = "bg_brown_leather_01",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.139f, yFraction = 0.257f, widthFraction = 0.806f, heightFraction = 0.0625f, panelOpacity = 0.5f),
+            PanelZone(label = "send", xFraction = 0.139f, yFraction = 0.357f, widthFraction = 0.806f, heightFraction = 0.0625f, panelOpacity = 0.5f),
+            PanelZone(label = "receive", xFraction = 0.139f, yFraction = 0.45f, widthFraction = 0.806f, heightFraction = 0.0625f, panelOpacity = 0.5f),
+            PanelZone(label = "transfer", xFraction = 0.139f, yFraction = 0.542f, widthFraction = 0.806f, heightFraction = 0.0625f, panelOpacity = 0.5f),
+            PanelZone(label = "history", xFraction = 0.139f, yFraction = 0.639f, widthFraction = 0.806f, heightFraction = 0.257f, panelOpacity = 0.5f)
+        )
+    )
+
+    val vaultBrownLeather2 = ThemeConfig(
+        name = "Brown Leather II",
+        primaryColor = 0xFFCCA060,
+        secondaryColor = 0xFFB08840,
+        backgroundColor = 0xFF1C0E04,
+        surfaceColor = 0xFF2C1808,
+        textColor = 0xFFF0D8A8,
+        accentColor = 0xFFCCA060,
+        useBackgroundImage = true,
+        backgroundResId = "bg_brown_leather_02",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.064f, yFraction = 0.139f, widthFraction = 0.875f, heightFraction = 0.121f, panelOpacity = 0.5f),
+            PanelZone(label = "send", xFraction = 0.064f, yFraction = 0.306f, widthFraction = 0.875f, heightFraction = 0.121f, panelOpacity = 0.5f),
+            PanelZone(label = "receive", xFraction = 0.064f, yFraction = 0.47f, widthFraction = 0.875f, heightFraction = 0.121f, panelOpacity = 0.5f),
+            PanelZone(label = "transfer", xFraction = 0.064f, yFraction = 0.632f, widthFraction = 0.875f, heightFraction = 0.264f, panelOpacity = 0.5f)
+        )
+    )
+
+    val vaultBrownLeather3 = ThemeConfig(
+        name = "Brown Leather III",
+        primaryColor = 0xFFD0A858,
+        secondaryColor = 0xFFAA8838,
+        backgroundColor = 0xFF1A0E04,
+        surfaceColor = 0xFF281A08,
+        textColor = 0xFFF0D8B0,
+        accentColor = 0xFFD0A858,
+        useBackgroundImage = true,
+        backgroundResId = "bg_brown_leather_03",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.069f, yFraction = 0.205f, widthFraction = 0.861f, heightFraction = 0.667f, panelOpacity = 0.4f)
+        )
+    )
+
+    val vaultBrownLeather4 = ThemeConfig(
+        name = "Brown Leather IV",
+        primaryColor = 0xFFC89848,
+        secondaryColor = 0xFFAA7830,
+        backgroundColor = 0xFF180C04,
+        surfaceColor = 0xFF241608,
+        textColor = 0xFFF0D0A0,
+        accentColor = 0xFFC89848,
+        useBackgroundImage = true,
+        backgroundResId = "bg_brown_leather_04",
+        chainLabelYFraction = 0.042f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.107f, yFraction = 0.264f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.5f),
+            PanelZone(label = "send", xFraction = 0.107f, yFraction = 0.421f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.5f),
+            PanelZone(label = "receive", xFraction = 0.107f, yFraction = 0.578f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.5f),
+            PanelZone(label = "transfer", xFraction = 0.107f, yFraction = 0.741f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.5f)
+        )
+    )
+
+    val vaultCircuitBoard = ThemeConfig(
+        name = "Circuit Board",
+        primaryColor = 0xFF00E080,
+        secondaryColor = 0xFF00C060,
+        backgroundColor = 0xFF0A1A10,
+        surfaceColor = 0xFF14281A,
+        textColor = 0xFFC0F0D0,
+        accentColor = 0xFF00E080,
+        useBackgroundImage = true,
+        backgroundResId = "bg_circuit_board",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.107f, yFraction = 0.264f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.6f),
+            PanelZone(label = "send", xFraction = 0.107f, yFraction = 0.421f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.6f),
+            PanelZone(label = "receive", xFraction = 0.107f, yFraction = 0.578f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.6f),
+            PanelZone(label = "transfer", xFraction = 0.107f, yFraction = 0.741f, widthFraction = 0.778f, heightFraction = 0.111f, panelOpacity = 0.6f)
+        )
+    )
+
+    val vaultForest = ThemeConfig(
+        name = "Forest",
+        primaryColor = 0xFF60C060,
+        secondaryColor = 0xFF40A040,
+        backgroundColor = 0xFF0A1A0A,
+        surfaceColor = 0xFF183018,
+        textColor = 0xFFD0F0D0,
+        accentColor = 0xFF60C060,
+        useBackgroundImage = true,
+        backgroundResId = "bg_forest",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.099f, yFraction = 0.28f, widthFraction = 0.806f, heightFraction = 0.09f, panelOpacity = 0.5f),
+            PanelZone(label = "send", xFraction = 0.099f, yFraction = 0.415f, widthFraction = 0.806f, heightFraction = 0.09f, panelOpacity = 0.5f),
+            PanelZone(label = "receive", xFraction = 0.099f, yFraction = 0.548f, widthFraction = 0.806f, heightFraction = 0.09f, panelOpacity = 0.5f),
+            PanelZone(label = "transfer", xFraction = 0.099f, yFraction = 0.678f, widthFraction = 0.806f, heightFraction = 0.09f, panelOpacity = 0.5f)
+        )
+    )
+
+    val vaultMarble = ThemeConfig(
+        name = "Marble",
+        primaryColor = 0xFFD0C8B8,
+        secondaryColor = 0xFFB0A898,
+        backgroundColor = 0xFFF0E8E0,
+        surfaceColor = 0xFFE0D8D0,
+        textColor = 0xFF2A2018,
+        accentColor = 0xFF8B7355,
+        useBackgroundImage = true,
+        backgroundResId = "bg_marble",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.049f, yFraction = 0.24f, widthFraction = 0.903f, heightFraction = 0.104f, panelOpacity = 0.45f),
+            PanelZone(label = "send", xFraction = 0.049f, yFraction = 0.382f, widthFraction = 0.903f, heightFraction = 0.104f, panelOpacity = 0.45f),
+            PanelZone(label = "receive", xFraction = 0.049f, yFraction = 0.525f, widthFraction = 0.903f, heightFraction = 0.104f, panelOpacity = 0.45f),
+            PanelZone(label = "transfer", xFraction = 0.049f, yFraction = 0.664f, widthFraction = 0.903f, heightFraction = 0.104f, panelOpacity = 0.45f)
+        )
+    )
+
+    val vaultWoodDark1 = ThemeConfig(
+        name = "Dark Wood I",
+        primaryColor = 0xFFC8A868,
+        secondaryColor = 0xFFA08848,
+        backgroundColor = 0xFF0C0804,
+        surfaceColor = 0xFF18100A,
+        textColor = 0xFFF0D8B0,
+        accentColor = 0xFFC8A868,
+        useBackgroundImage = true,
+        backgroundResId = "bg_wood_dark_01",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.061f, yFraction = 0.233f, widthFraction = 0.875f, heightFraction = 0.104f, panelOpacity = 0.55f),
+            PanelZone(label = "send", xFraction = 0.061f, yFraction = 0.382f, widthFraction = 0.875f, heightFraction = 0.104f, panelOpacity = 0.55f),
+            PanelZone(label = "receive", xFraction = 0.061f, yFraction = 0.528f, widthFraction = 0.875f, heightFraction = 0.104f, panelOpacity = 0.55f),
+            PanelZone(label = "transfer", xFraction = 0.061f, yFraction = 0.678f, widthFraction = 0.875f, heightFraction = 0.104f, panelOpacity = 0.55f)
+        )
+    )
+
+    val vaultWoodDark2 = ThemeConfig(
+        name = "Dark Wood II",
+        primaryColor = 0xFFB89858,
+        secondaryColor = 0xFF987838,
+        backgroundColor = 0xFF0C0804,
+        surfaceColor = 0xFF180E06,
+        textColor = 0xFFF0D0A0,
+        accentColor = 0xFFB89858,
+        useBackgroundImage = true,
+        backgroundResId = "bg_wood_dark_02",
+        chainLabelYFraction = 0.007f,
+        panelZones = listOf(
+            PanelZone(label = "balance", xFraction = 0.031f, yFraction = 0.243f, widthFraction = 0.944f, heightFraction = 0.16f, panelOpacity = 0.55f),
+            PanelZone(label = "send", xFraction = 0.061f, yFraction = 0.438f, widthFraction = 0.875f, heightFraction = 0.069f, panelOpacity = 0.55f),
+            PanelZone(label = "receive", xFraction = 0.061f, yFraction = 0.539f, widthFraction = 0.875f, heightFraction = 0.069f, panelOpacity = 0.55f),
+            PanelZone(label = "transfer", xFraction = 0.061f, yFraction = 0.643f, widthFraction = 0.875f, heightFraction = 0.069f, panelOpacity = 0.55f),
+            PanelZone(label = "history", xFraction = 0.061f, yFraction = 0.746f, widthFraction = 0.875f, heightFraction = 0.069f, panelOpacity = 0.55f)
+        )
+    )
+
+    val all = listOf(
+        cyberpunk, neonNervos, lightClean, midnightBlue, sunsetOrange, forestGreen,
+        vaultBlackLeather, vaultBrownLeather1, vaultBrownLeather2, vaultBrownLeather3,
+        vaultBrownLeather4, vaultCircuitBoard, vaultForest, vaultMarble,
+        vaultWoodDark1, vaultWoodDark2
+    )
+
+    val backgroundImageThemes = listOf(
+        vaultBlackLeather, vaultBrownLeather1, vaultBrownLeather2, vaultBrownLeather3,
+        vaultBrownLeather4, vaultCircuitBoard, vaultForest, vaultMarble,
+        vaultWoodDark1, vaultWoodDark2
+    )
 }
 
 class SkinManager(context: Context) {

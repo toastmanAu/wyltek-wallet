@@ -22,12 +22,12 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun WyltekWalletTheme(
+fun BlackboxVaultTheme(
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
-        typography = WalletTypography,
+        typography = BlackboxVaultTypography,
         content = content
     )
 }

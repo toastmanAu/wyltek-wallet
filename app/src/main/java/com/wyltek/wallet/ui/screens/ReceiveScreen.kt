@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.wyltek.wallet.ui.components.QrCodeImage
 import com.wyltek.wallet.ui.theme.*
 import com.wyltek.wallet.data.WalletViewModel
 
@@ -47,8 +48,15 @@ fun ReceiveScreen(
             Column(
                 modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                if (address.isNotBlank()) {
+                    QrCodeImage(
+                        content = address,
+                        modifier = Modifier.size(200.dp)
+                    )
+                }
+
                 Text(
                     text = "Your Address",
                     style = MaterialTheme.typography.labelLarge,

@@ -3,6 +3,7 @@ package com.wyltek.wallet.ui.screens
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,17 +23,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.wyltek.wallet.R
 import com.wyltek.wallet.core.skin.ThemeConfig
 import com.wyltek.wallet.core.skin.ThemePresets
 import com.wyltek.wallet.data.WalletViewModel
 import com.wyltek.wallet.ui.theme.*
 
+private val backgroundResMap = mapOf(
+    "bg_black_leather" to R.drawable.bg_black_leather,
+    "bg_brown_leather_01" to R.drawable.bg_brown_leather_01,
+    "bg_brown_leather_02" to R.drawable.bg_brown_leather_02,
+    "bg_brown_leather_03" to R.drawable.bg_brown_leather_03,
+    "bg_brown_leather_04" to R.drawable.bg_brown_leather_04,
+    "bg_circuit_board" to R.drawable.bg_circuit_board,
+    "bg_forest" to R.drawable.bg_forest,
+    "bg_marble" to R.drawable.bg_marble,
+    "bg_wood_dark_01" to R.drawable.bg_wood_dark_01,
+    "bg_wood_dark_02" to R.drawable.bg_wood_dark_02,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SkinsScreen(viewModel: WalletViewModel) {
+fun SkinsScreen(onBack: () -> Unit = {}, viewModel: WalletViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableStateOf(0) }
     var showExportDialog by remember { mutableStateOf(false) }
@@ -42,6 +60,15 @@ fun SkinsScreen(viewModel: WalletViewModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Skins") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = TextPrimary
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = DarkSurface
                 ),
@@ -76,7 +103,7 @@ fun SkinsScreen(viewModel: WalletViewModel) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Presets") }
+                    text = { Text("Themes") }
                 )
                 Tab(
                     selected = selectedTab == 1,
@@ -259,44 +286,76 @@ private fun ThemeCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Color preview
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(theme.primaryColor))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(theme.secondaryColor))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(theme.backgroundColor))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(theme.surfaceColor))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(theme.textColor))
-                )
+            // Background image preview for image themes
+            if (theme.useBackgroundImage && theme.backgroundResId != null) {
+                val resId = backgroundResMap[theme.backgroundResId]
+                if (resId != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    ) {
+                        Image(
+                            painter = painterResource(id = resId),
+                            contentDescription = theme.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        // Overlay theme info
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = theme.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            } else {
+                // Color preview for non-image themes
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(theme.primaryColor))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(theme.secondaryColor))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(theme.backgroundColor))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(theme.surfaceColor))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(theme.textColor))
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
 
             // Mini preview
             Box(
