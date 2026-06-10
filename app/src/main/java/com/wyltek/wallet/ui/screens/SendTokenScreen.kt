@@ -8,7 +8,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.core.assets.TokenInfo
+import com.wyltek.wallet.core.model.AccountType
 import com.wyltek.wallet.core.model.LockScript
+import com.wyltek.wallet.ui.security.BiometricResult
+import com.wyltek.wallet.ui.security.rememberBiometricAuth
 import com.wyltek.wallet.ui.theme.*
 import com.wyltek.wallet.data.WalletViewModel
 import java.math.BigInteger
@@ -22,7 +25,39 @@ fun SendTokenScreen(
 ) {
     var recipientAddress by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    var authError by remember { mutableStateOf<String?>(null) }
     val uiState by viewModel.uiState.collectAsState()
+    val biometric = rememberBiometricAuth()
+
+    val accountType = uiState.currentAccount?.type
+    val requiresAuth = accountType == AccountType.POST_QUANTUM || accountType == AccountType.HYBRID
+
+    val performSend: (BigInteger) -> Unit = { amountBig ->
+        val tokenLock = LockScript(
+            codeHash = token.typeScript.codeHash,
+            hashType = token.typeScript.hashType,
+            args = token.typeScript.args
+        )
+        if (requiresAuth) {
+            authError = null
+            biometric.authenticate(
+                title = "Confirm send",
+                subtitle = "Authenticate to sign this post-quantum transaction",
+                description = "Sending ${token.symbol} from a PQ account requires re-authentication."
+            ) { result ->
+                when (result) {
+                    is BiometricResult.Success -> viewModel.sendToken(recipientAddress, tokenLock, amountBig)
+                    is BiometricResult.Cancelled -> { /* silent */ }
+                    is BiometricResult.Error -> { authError = result.message }
+                    is BiometricResult.Unavailable -> {
+                        authError = "Set up a device PIN, password, or biometric to send from a PQ account."
+                    }
+                }
+            }
+        } else {
+            viewModel.sendToken(recipientAddress, tokenLock, amountBig)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -87,7 +122,7 @@ fun SendTokenScreen(
             )
         )
 
-        uiState.error?.let { error ->
+        (authError ?: uiState.error)?.let { error ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.1f))
             ) {
@@ -119,15 +154,7 @@ fun SendTokenScreen(
             onClick = {
                 val amountBig = amount.toBigIntegerOrNull()
                 if (amountBig != null && amountBig > BigInteger.ZERO && recipientAddress.isNotBlank()) {
-                    viewModel.sendToken(
-                        recipientAddress,
-                        LockScript(
-                            codeHash = token.typeScript.codeHash,
-                            hashType = token.typeScript.hashType,
-                            args = token.typeScript.args
-                        ),
-                        amountBig
-                    )
+                    performSend(amountBig)
                 }
             },
             modifier = Modifier.fillMaxWidth(),

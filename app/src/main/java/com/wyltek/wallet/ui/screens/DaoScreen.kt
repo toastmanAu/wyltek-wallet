@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wyltek.wallet.core.model.*
 import com.wyltek.wallet.data.WalletViewModel
+import com.wyltek.wallet.ui.security.BiometricResult
+import com.wyltek.wallet.ui.security.rememberBiometricAuth
 import com.wyltek.wallet.ui.theme.*
 
 private fun formatCkb(shannons: ULong): String {
@@ -62,6 +64,26 @@ fun DaoScreen(
 
     var showDepositDialog by remember { mutableStateOf(false) }
     var depositAmount by remember { mutableStateOf("") }
+    var authError by remember { mutableStateOf<String?>(null) }
+    val biometric = rememberBiometricAuth()
+
+    val onUnlockGated: (DaoDeposit) -> Unit = { dep ->
+        authError = null
+        biometric.authenticate(
+            title = "Confirm unlock",
+            subtitle = "Authenticate to release this DAO deposit",
+            description = "Phase 2 unlock returns ${formatCkb(dep.capacity)} CKB plus compensation."
+        ) { result ->
+            when (result) {
+                is BiometricResult.Success -> viewModel.unlockDao(dep)
+                is BiometricResult.Cancelled -> { /* silent — user backed out */ }
+                is BiometricResult.Error -> { authError = result.message }
+                is BiometricResult.Unavailable -> {
+                    authError = "Set up a device PIN, password, or biometric to unlock DAO deposits."
+                }
+            }
+        }
+    }
 
     LaunchedEffect(uiState.currentAccount) {
         if (uiState.currentAccount != null) {
@@ -152,7 +174,8 @@ fun DaoScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (error != null) {
+        val combinedError = authError ?: error
+        if (combinedError != null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.1f))
@@ -163,7 +186,7 @@ fun DaoScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.Warning, contentDescription = null, tint = ErrorRed)
-                    Text(error, color = ErrorRed, style = MaterialTheme.typography.bodySmall)
+                    Text(combinedError, color = ErrorRed, style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -244,7 +267,7 @@ fun DaoScreen(
                         DepositCard(
                             deposit = deposit,
                             onWithdraw = { viewModel.withdrawDaoPhase1(deposit) },
-                            onUnlock = { viewModel.unlockDao(deposit) }
+                            onUnlock = onUnlockGated
                         )
                     }
                 }
