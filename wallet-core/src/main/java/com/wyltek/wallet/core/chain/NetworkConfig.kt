@@ -64,15 +64,14 @@ object NetworkConfig {
         daoTypeCodeHash = "0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e",
         daoCellDepTxHash = "0x8e4966b8a2388243f421e0e8dda22f6c7b4a2e3e4e24e5f0939c9c2b946635d9",
         daoCellDepIndex = 2u,
-        // PLACEHOLDER: ckb-mldsa-lock testnet deployment. Replace these four
-        // values with the published deployment from
-        // https://github.com/cryptape/ckb-mldsa-lock (or the team's testnet
-        // deploy record). The wallet detects all-zero hashes as a placeholder
-        // and refuses to broadcast PQ transactions until they're set.
+        // ckb-mldsa-lock testnet deployment (mldsa65-lock-v2-rust, session 10,
+        // 2026-04-10). Type-id codeHash is stable across upgrades; tx_hash
+        // tracks the latest deploy. See sdk/js/src/index.ts in
+        // toastmanAu/ckb-mldsa-lock.
         mldsa65 = MldsaLockConfig(
-            codeHash = "0x0000000000000000000000000000000000000000000000000000000000000000",
+            codeHash = "0x8984f4230ded4ac1f5efee2b67fef45fcda08bd6344c133a2f378e2f469d310d",
             hashType = "type",
-            cellDepTxHash = "0x0000000000000000000000000000000000000000000000000000000000000000",
+            cellDepTxHash = "0xba4a6560ef719b24d170bf678611b25b799c56e6a80f18ce9c79e9561085cba7",
             cellDepIndex = 0u,
             cellDepType = "code",
         ),

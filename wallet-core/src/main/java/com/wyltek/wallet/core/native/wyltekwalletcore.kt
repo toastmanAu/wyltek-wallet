@@ -667,11 +667,17 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_sign(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_verify(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_pq_lock_args(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1(
     ): Short
@@ -728,11 +734,17 @@ external fun uniffi_wyltekwalletcore_fn_func_generate_mldsa65_keypair(uniffi_out
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_from_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mldsa65_lock_args_v2(`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_sign(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_verify(`messageHex`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_wyltekwalletcore_fn_func_pq_lock_args(`publicKeyHex`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(`txHashHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(`txHashHex`: RustBuffer.ByValue,`witnessPlaceholdersHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -911,6 +923,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 65027.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2() != 6400.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_sign() != 9642.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -918,6 +933,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_pq_lock_args() != 10651.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex() != 5582.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65() != 34299.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672.toShort()) {
@@ -1947,6 +1968,22 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     }
     
 
+        /**
+         * Build the 36-byte lock args for the deployed ckb-mldsa-lock contract.
+         * Layout: version(1) | algo_id(1) | param_id(1) | flags(1) | blake2b256(pubkey).
+         * Matches sdk/js/src/index.ts in toastmanAu/ckb-mldsa-lock.
+         */
+    @Throws(WalletException::class) fun `mldsa65LockArgsV2`(`publicKeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_mldsa65_lock_args_v2(
+    
+        FfiConverterString.lower(`publicKeyHex`),_status)
+}
+    )
+    }
+    
+
     @Throws(WalletException::class) fun `mldsa65Sign`(`messageHex`: kotlin.String, `privateKeyHex`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(WalletException) { _status ->
@@ -1975,6 +2012,43 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_pq_lock_args(
     
         FfiConverterString.lower(`publicKeyHex`),FfiConverterUByte.lower(`algorithmId`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Pre-signing witness placeholder of the exact size the final WitnessArgs
+         * will be. Use this to size witnesses[0] before computing the tx_hash so the
+         * fee estimate is accurate. Bytes are zeros — content doesn't matter since
+         * the ckb-mldsa-lock signing message only hashes the tx_hash, not witnesses.
+         */ fun `mldsa65WitnessPlaceholderHex`(): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Sign a CKB transaction with ML-DSA-65 for the deployed ckb-mldsa-lock
+         * contract. Returns the fully-formed WitnessArgs hex string (no `0x` prefix)
+         * to drop directly into witnesses[0].
+         *
+         * tx_hash_hex: 32-byte raw-transaction hash (the CKB tx_hash returned by
+         * the Rust transaction builder).
+         * private_key_hex: 4032-byte ML-DSA-65 secret key.
+         * public_key_hex:  1952-byte ML-DSA-65 public key (embedded in witness).
+         */
+    @Throws(WalletException::class) fun `signCkbMldsa65`(`txHashHex`: kotlin.String, `privateKeyHex`: kotlin.String, `publicKeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterString.lower(`privateKeyHex`),FfiConverterString.lower(`publicKeyHex`),_status)
 }
     )
     }

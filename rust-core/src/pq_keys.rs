@@ -90,6 +90,30 @@ pub fn mldsa65_verify(
     Ok(pk.verify(&message, &sig_array, &[]))
 }
 
+/// Build the 36-byte lock args for the deployed ckb-mldsa-lock contract.
+/// Layout: version(1) | algo_id(1) | param_id(1) | flags(1) | blake2b256(pubkey).
+/// Matches sdk/js/src/index.ts in toastmanAu/ckb-mldsa-lock.
+#[uniffi::export]
+pub fn mldsa65_lock_args_v2(public_key_hex: String) -> Result<String, WalletError> {
+    let pk_bytes = hex::decode(&public_key_hex)?;
+    if pk_bytes.len() != 1952 {
+        return Err(WalletError::InvalidInput(format!(
+            "Expected 1952-byte ML-DSA-65 public key, got {}",
+            pk_bytes.len()
+        )));
+    }
+    let pk_hash = ckb_blake2b(&pk_bytes);
+
+    let mut args = Vec::with_capacity(36);
+    args.push(0x01); // version
+    args.push(0x02); // algo_id  = ML-DSA
+    args.push(0x02); // param_id = ML-DSA-65
+    args.push(0x00); // flags
+    args.extend_from_slice(&pk_hash);
+
+    Ok(hex::encode(args))
+}
+
 #[uniffi::export]
 pub fn pq_lock_args(public_key_hex: String, algorithm_id: u8) -> Result<String, WalletError> {
     let pk_bytes = hex::decode(&public_key_hex)?;

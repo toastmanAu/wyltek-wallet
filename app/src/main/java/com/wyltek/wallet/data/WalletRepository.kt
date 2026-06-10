@@ -720,7 +720,7 @@ class WalletRepository(context: Context) {
 
             val sortedCells = cells.sortedBy { it.capacity }
             val minCellCapacity = 81_0000_0000uL
-            val feeEstimate = 1000uL
+            val feeEstimate = signCtx.minFeeEstimate
 
             val selected = mutableListOf<Utxo>()
             var selectedCapacity = 0uL
@@ -1217,7 +1217,9 @@ class WalletRepository(context: Context) {
         val mldsa = NetworkConfig.forNetwork(network).mldsa65 ?: return null
         if (mldsa.isPlaceholder()) return null
         val pqKey = mldsa65FromSeed(seedHex)
-        val args = "0x" + pqLockArgs(pqKey.publicKeyHex, mldsa.algorithmFlag)
+        // mldsa65LockArgsV2 produces the 36-byte args layout the deployed
+        // ckb-mldsa-lock contract verifies against.
+        val args = "0x" + mldsa65LockArgsV2(pqKey.publicKeyHex)
         val bech32m = encodeAddress(mldsa.codeHash, mldsa.hashType, args, networkStr(network))
         return CkbAddress(
             bech32m = bech32m,
@@ -1247,6 +1249,8 @@ class WalletRepository(context: Context) {
     private class SigningContext(
         val cellDeps: List<TxCellDep>,
         val cellDepsForJson: List<JsonCellDep>,
+        /** Lower-bound fee to reserve for this algorithm, in shannons. */
+        val minFeeEstimate: ULong,
         val signWitness0: (built: BuiltTransaction, inputCount: Int) -> String
     )
 
@@ -1262,13 +1266,16 @@ class WalletRepository(context: Context) {
             codeHash == mldsa.codeHash.lowercase()
 
         return if (isPq) {
-            // ML-DSA-65 path. NOTE(integration): the on-chain ckb-mldsa-lock
-            // contract expects a specific witness/sighash protocol. The
-            // current implementation uses sign_transaction(raw_tx, sk, "mldsa65")
-            // as a working scaffold — verify against the deployed contract's
-            // verifier code path before broadcasting on testnet.
+            // ML-DSA-65 path. signCkbMldsa65 produces the fully-formed
+            // WitnessArgs(MldsaWitness(...)) bytes the deployed ckb-mldsa-lock
+            // contract verifies. Signing digest is
+            // blake2b("ckb-default-hash", "CKB-MLDSA-LOCK" || tx_hash).
             val pqKey = mldsa65FromSeed(seedHex)
             val mldsaCfg = mldsa!! // non-null when isPq is true
+            // PQ witness is ~5337 bytes vs secp's ~85, so the per-tx fee at
+            // the default 1 shannon/byte feeRate is at least ~5337 shannons.
+            // Reserve a margin above that to cover other tx-size contributions.
+            val pqFeeEstimate = 10_000uL
             SigningContext(
                 cellDeps = listOf(
                     TxCellDep(
@@ -1280,9 +1287,14 @@ class WalletRepository(context: Context) {
                 cellDepsForJson = listOf(
                     JsonCellDep(mldsaCfg.cellDepTxHash, mldsaCfg.cellDepIndex, mldsaCfg.cellDepType)
                 ),
+                minFeeEstimate = pqFeeEstimate,
                 signWitness0 = { built, _ ->
-                    val sig = signTransaction(built.rawTransactionHex, pqKey.privateKeyHex, "mldsa65")
-                    "0x$sig"
+                    val witnessHex = signCkbMldsa65(
+                        built.txHashHex,
+                        pqKey.privateKeyHex,
+                        pqKey.publicKeyHex
+                    )
+                    "0x$witnessHex"
                 }
             )
         } else if (codeHash == "0x0000000000000000000000000000000000000000000000000000000000000000" && from.bech32m.isNotBlank()) {
@@ -1303,6 +1315,7 @@ class WalletRepository(context: Context) {
                 cellDepsForJson = listOf(
                     JsonCellDep(cfg.secp256k1DepGroupTxHash, cfg.secp256k1DepGroupIndex, "dep_group")
                 ),
+                minFeeEstimate = 1000uL,
                 signWitness0 = { built, inputCount ->
                     val witnessPlaceholders = List(inputCount) { i ->
                         if (i == 0) "0x" + "00".repeat(65) else "0x"
