@@ -329,11 +329,13 @@ Each panel supports:
 * ✅ Signing dispatch wired in `Repository.sendCkb` — selects secp or ML-DSA-65 path from chosen sub-address's lockScript codeHash.
 * ✅ UI picker in SendScreen for hybrid accounts ("Sign with Classic / PQ").
 * ✅ Biometric gate fires for any PQ sub-account selection.
-* ✅ **Real `ckb-mldsa-lock` testnet deployment wired** — `mldsa65-lock-v2-rust` (session 10, 2026-04-10) at code_hash `0x8984f4…d310d` (type_id) and tx_hash `0xba4a6560…cba7`.
-* ✅ **Protocol-correct signing** — `sign_ckb_mldsa65` produces `WitnessArgs(MldsaWitness(version=1, algo=2, param=2, flags=0, pubkey, sig))` with the signing digest `blake2b("ckb-default-hash", "CKB-MLDSA-LOCK" || tx_hash)` and `CKB-MLDSA-LOCK` as the ML-DSA context. Matches `sdk/js/src/index.ts` in `toastmanAu/ckb-mldsa-lock`.
-* ✅ **Lock-args format** — `mldsa65_lock_args_v2` produces the 36-byte layout `[version, algo_id, param_id, flags, blake2b256(pubkey)]` the deployed contract verifies.
-* ✅ **Fee estimate** — PQ sends reserve 10k shannons (vs 1k for secp) to cover the ~5337-byte WitnessArgs.
-* ⏳ **Live testnet verification** — wired end-to-end but not yet broadcast. First send from a hybrid PQ sub-account on testnet will confirm or reveal any protocol divergences.
+* ✅ **Real `ckb-mldsa-lock` testnet deployment wired** — `mldsa65-lock-v2-rust` at code_hash `0xd70653f7…78a4` (Script hash, hash_type `type`), cell_dep = session-10 deploy tx `0x1074b1ac…70cb1` @ index 3. **NOTE:** the app previously pointed at the legacy C lock `0x8984f4…d310d` (deprecated — sighash gap, lost owner) which the bundled JS SDK also targets; corrected 2026-06-14.
+* ✅ **Protocol-correct signing (v2-rust)** — `sign_ckb_mldsa65` produces `WitnessArgs(lock = [flag(0x7b) | pubkey | sig])` (flat, not a molecule table). Signing digest = `blake2b("ckb-mldsa-msg", generate_ckb_tx_message_all stream)`; ML-DSA context = `CKB-MLDSA-LOCK`. The signer reconstructs the CighashAll stream over all input cells (via `MldsaInputCell`). Matches `contracts/mldsa-lock-v2-rust/src/{entry,helpers,streamer}.rs`.
+* ✅ **Lock-args format** — `mldsa65_lock_args_v2` produces the 37-byte layout `[0x80, 0x01, 0x01, 0x01, flag(0x7a), blake2b256_personal("ckb-mldsa-sct", pubkey)]`.
+* ✅ **Molecule serializer fixed** — the prior `molecule.rs` wrote `item_count` where `full_size` belongs and encoded dynvecs as fixvecs, producing a non-canonical `tx_hash`. Rewritten per spec and validated against a real on-chain `tx_hash`. (This bug meant NO send — secp or PQ — could ever have verified on-chain.)
+* ✅ **Fee estimate** — PQ sends reserve 10k shannons (vs 1k for secp) to cover the ~5.3 KB witness.
+* ✅ **Live testnet verification** — confirmed on-chain 2026-06-14 via `rust-core/examples/pq_testnet.rs` (a harness reusing the app's exact Rust). Spend tx `0x51ccf4cfed7b003a3d1538a5913cf15bbd11053c04960f3b7beba5c86cb3601e` committed; PQ change returned to the lock. App layer (NetworkConfig + WalletRepository + regenerated UniFFI bindings + rebuilt arm64 `.so`) compiles.
+* ⚠️ **Classic secp send is now suspect** — appears to emit a bare-65-byte witness instead of WitnessArgs-wrapped; unverified on-chain. Needs its own testnet check (see memory `wyltek-wallet-secp-witness-suspect`).
 * ⏳ sUDT sends from a PQ sub-account — currently refused with a clear UI hint pointing the user to the Classic sub-account.
 * ⏳ Internal transfer screen still a UI stub (`InternalTransferScreen.kt` button is `/* TODO */`).
 

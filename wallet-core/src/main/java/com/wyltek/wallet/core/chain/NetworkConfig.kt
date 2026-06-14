@@ -64,16 +64,22 @@ object NetworkConfig {
         daoTypeCodeHash = "0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e",
         daoCellDepTxHash = "0x8e4966b8a2388243f421e0e8dda22f6c7b4a2e3e4e24e5f0939c9c2b946635d9",
         daoCellDepIndex = 2u,
-        // ckb-mldsa-lock testnet deployment (mldsa65-lock-v2-rust, session 10,
-        // 2026-04-10). Type-id codeHash is stable across upgrades; tx_hash
-        // tracks the latest deploy. See sdk/js/src/index.ts in
-        // toastmanAu/ckb-mldsa-lock.
+        // ckb-mldsa-lock testnet deployment: mldsa65-lock-v2-rust (the live,
+        // supported contract). code_hash is the Script hash (hash_type "type",
+        // stable across type_id upgrades). cellDep points at the session-10
+        // deploy tx; the mldsa65-lock-v2-rust binary sits at output index 3.
+        // Verified on-chain 2026-06-14 (spend tx 0x51ccf4cf…601e).
+        //
+        // NOTE: the legacy C lock 0x8984f4…d310d (the bundled JS SDK's target)
+        // is DEPRECATED — sighash coverage gap, lost owner — do not use.
+        // See contracts/mldsa-lock-v2-rust in toastmanAu/ckb-mldsa-lock.
         mldsa65 = MldsaLockConfig(
-            codeHash = "0x8984f4230ded4ac1f5efee2b67fef45fcda08bd6344c133a2f378e2f469d310d",
+            codeHash = "0xd70653f7fd51e173ec506b76081f37bf4acebb8a15dc79e6d4ad43ca4d3b78a4",
             hashType = "type",
-            cellDepTxHash = "0xba4a6560ef719b24d170bf678611b25b799c56e6a80f18ce9c79e9561085cba7",
-            cellDepIndex = 0u,
+            cellDepTxHash = "0x1074b1ac79213c22b5e32a0fde44a858a47f9575c9f54006a1deb80d32070cb1",
+            cellDepIndex = 3u,
             cellDepType = "code",
+            algorithmFlag = 61u, // ML-DSA-65 param id
         ),
     )
 

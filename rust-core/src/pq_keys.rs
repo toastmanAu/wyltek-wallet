@@ -3,16 +3,6 @@ use blake2b_ref::Blake2bBuilder;
 use fips204::ml_dsa_65;
 use fips204::traits::{KeyGen, SerDes, Signer, Verifier};
 
-fn ckb_blake2b(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Blake2bBuilder::new(32)
-        .personal(b"ckb-default-hash")
-        .build();
-    hasher.update(data);
-    let mut out = [0u8; 32];
-    hasher.finalize(&mut out);
-    out
-}
-
 #[derive(uniffi::Record)]
 pub struct PQKeyPair {
     pub public_key_hex: String,
@@ -90,9 +80,12 @@ pub fn mldsa65_verify(
     Ok(pk.verify(&message, &sig_array, &[]))
 }
 
-/// Build the 36-byte lock args for the deployed ckb-mldsa-lock contract.
-/// Layout: version(1) | algo_id(1) | param_id(1) | flags(1) | blake2b256(pubkey).
-/// Matches sdk/js/src/index.ts in toastmanAu/ckb-mldsa-lock.
+/// Build the 37-byte lock args for the deployed `mldsa65-lock-v2-rust`
+/// contract (code_hash 0xd70653f7…78a4).
+/// Layout: [0x80, 0x01, 0x01, 0x01, flag, blake2b256_personal("ckb-mldsa-sct", pubkey)]
+/// where flag = (param_id(61) << 1) | has_signature(0) = 0x7a.
+/// Matches contracts/mldsa-lock-v2-rust/src/{entry,helpers}.rs in
+/// toastmanAu/ckb-mldsa-lock — NOT the legacy C lock the JS SDK targets.
 #[uniffi::export]
 pub fn mldsa65_lock_args_v2(public_key_hex: String) -> Result<String, WalletError> {
     let pk_bytes = hex::decode(&public_key_hex)?;
@@ -102,13 +95,25 @@ pub fn mldsa65_lock_args_v2(public_key_hex: String) -> Result<String, WalletErro
             pk_bytes.len()
         )));
     }
-    let pk_hash = ckb_blake2b(&pk_bytes);
+    // Script-args pubkey hash uses the "ckb-mldsa-sct" personalization
+    // (helpers::Hasher::script_args_hasher), NOT "ckb-default-hash".
+    let pk_hash = {
+        let mut hasher = Blake2bBuilder::new(32).personal(b"ckb-mldsa-sct").build();
+        hasher.update(&pk_bytes);
+        let mut out = [0u8; 32];
+        hasher.finalize(&mut out);
+        out
+    };
 
-    let mut args = Vec::with_capacity(36);
-    args.push(0x01); // version
-    args.push(0x02); // algo_id  = ML-DSA
-    args.push(0x02); // param_id = ML-DSA-65
-    args.push(0x00); // flags
+    const MLDSA65_PARAM_ID: u8 = 61;
+    let flag = (MLDSA65_PARAM_ID << 1) | 0; // no-signature bit in args
+
+    let mut args = Vec::with_capacity(37);
+    args.push(0x80);
+    args.push(0x01);
+    args.push(0x01);
+    args.push(0x01);
+    args.push(flag);
     args.extend_from_slice(&pk_hash);
 
     Ok(hex::encode(args))

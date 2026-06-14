@@ -20,7 +20,7 @@ pub struct TxInput {
     pub capacity: u64,
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct TxOutput {
     pub capacity: u64,
     pub lock_code_hash: String,

@@ -744,7 +744,7 @@ external fun uniffi_wyltekwalletcore_fn_func_pq_lock_args(`publicKeyHex`: RustBu
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(`txHashHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(`txHashHex`: RustBuffer.ByValue,`inputs`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(`txHashHex`: RustBuffer.ByValue,`witnessPlaceholdersHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -923,7 +923,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 65027.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2() != 6400.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2() != 3289.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_sign() != 9642.toShort()) {
@@ -935,10 +935,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_pq_lock_args() != 10651.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex() != 5582.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex() != 59935.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65() != 34299.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65() != 3907.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672.toShort()) {
@@ -1349,6 +1349,63 @@ public object FfiConverterTypeKeyPair: FfiConverterRustBuffer<KeyPair> {
 
 
 
+/**
+ * A live input cell being spent, as needed to reconstruct the CighashAll
+ * stream off-chain. `data` is hex (empty / "0x" for a pure-CKB cell).
+ */
+data class MldsaInputCell (
+    var `capacity`: kotlin.ULong
+    , 
+    var `lockCodeHash`: kotlin.String
+    , 
+    var `lockHashType`: kotlin.String
+    , 
+    var `lockArgs`: kotlin.String
+    , 
+    var `data`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMldsaInputCell: FfiConverterRustBuffer<MldsaInputCell> {
+    override fun read(buf: ByteBuffer): MldsaInputCell {
+        return MldsaInputCell(
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MldsaInputCell) = (
+            FfiConverterULong.allocationSize(value.`capacity`) +
+            FfiConverterString.allocationSize(value.`lockCodeHash`) +
+            FfiConverterString.allocationSize(value.`lockHashType`) +
+            FfiConverterString.allocationSize(value.`lockArgs`) +
+            FfiConverterString.allocationSize(value.`data`)
+    )
+
+    override fun write(value: MldsaInputCell, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`capacity`, buf)
+            FfiConverterString.write(value.`lockCodeHash`, buf)
+            FfiConverterString.write(value.`lockHashType`, buf)
+            FfiConverterString.write(value.`lockArgs`, buf)
+            FfiConverterString.write(value.`data`, buf)
+    }
+}
+
+
+
 data class MnemonicResult (
     var `mnemonic`: kotlin.String
     , 
@@ -1720,6 +1777,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeMldsaInputCell: FfiConverterRustBuffer<List<MldsaInputCell>> {
+    override fun read(buf: ByteBuffer): List<MldsaInputCell> {
+        val len = buf.getInt()
+        return List<MldsaInputCell>(len) {
+            FfiConverterTypeMldsaInputCell.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MldsaInputCell>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMldsaInputCell.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MldsaInputCell>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMldsaInputCell.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeTxCellDep: FfiConverterRustBuffer<List<TxCellDep>> {
     override fun read(buf: ByteBuffer): List<TxCellDep> {
         val len = buf.getInt()
@@ -1969,9 +2054,12 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     
 
         /**
-         * Build the 36-byte lock args for the deployed ckb-mldsa-lock contract.
-         * Layout: version(1) | algo_id(1) | param_id(1) | flags(1) | blake2b256(pubkey).
-         * Matches sdk/js/src/index.ts in toastmanAu/ckb-mldsa-lock.
+         * Build the 37-byte lock args for the deployed `mldsa65-lock-v2-rust`
+         * contract (code_hash 0xd70653f7…78a4).
+         * Layout: [0x80, 0x01, 0x01, 0x01, flag, blake2b256_personal("ckb-mldsa-sct", pubkey)]
+         * where flag = (param_id(61) << 1) | has_signature(0) = 0x7a.
+         * Matches contracts/mldsa-lock-v2-rust/src/{entry,helpers}.rs in
+         * toastmanAu/ckb-mldsa-lock — NOT the legacy C lock the JS SDK targets.
          */
     @Throws(WalletException::class) fun `mldsa65LockArgsV2`(`publicKeyHex`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
@@ -2018,10 +2106,8 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     
 
         /**
-         * Pre-signing witness placeholder of the exact size the final WitnessArgs
-         * will be. Use this to size witnesses[0] before computing the tx_hash so the
-         * fee estimate is accurate. Bytes are zeros — content doesn't matter since
-         * the ckb-mldsa-lock signing message only hashes the tx_hash, not witnesses.
+         * Pre-signing witness placeholder of the exact size of the final WitnessArgs,
+         * for fee sizing. WitnessArgs(lock = [flag | pubkey | sig]).
          */ fun `mldsa65WitnessPlaceholderHex`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -2034,21 +2120,20 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     
 
         /**
-         * Sign a CKB transaction with ML-DSA-65 for the deployed ckb-mldsa-lock
-         * contract. Returns the fully-formed WitnessArgs hex string (no `0x` prefix)
-         * to drop directly into witnesses[0].
+         * Sign a CKB transaction for the deployed `mldsa65-lock-v2-rust` contract.
+         * Returns the fully-formed WitnessArgs hex (no `0x` prefix) for witnesses[0].
          *
-         * tx_hash_hex: 32-byte raw-transaction hash (the CKB tx_hash returned by
-         * the Rust transaction builder).
+         * tx_hash_hex:     32-byte raw-transaction hash (from `build_transaction`).
+         * inputs:          every input cell being spent (all locked by this PQ lock).
          * private_key_hex: 4032-byte ML-DSA-65 secret key.
-         * public_key_hex:  1952-byte ML-DSA-65 public key (embedded in witness).
+         * public_key_hex:  1952-byte ML-DSA-65 public key (embedded flat in the lock).
          */
-    @Throws(WalletException::class) fun `signCkbMldsa65`(`txHashHex`: kotlin.String, `privateKeyHex`: kotlin.String, `publicKeyHex`: kotlin.String): kotlin.String {
+    @Throws(WalletException::class) fun `signCkbMldsa65`(`txHashHex`: kotlin.String, `inputs`: List<MldsaInputCell>, `privateKeyHex`: kotlin.String, `publicKeyHex`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(WalletException) { _status ->
     UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(
     
-        FfiConverterString.lower(`txHashHex`),FfiConverterString.lower(`privateKeyHex`),FfiConverterString.lower(`publicKeyHex`),_status)
+        FfiConverterString.lower(`txHashHex`),FfiConverterSequenceTypeMldsaInputCell.lower(`inputs`),FfiConverterString.lower(`privateKeyHex`),FfiConverterString.lower(`publicKeyHex`),_status)
 }
     )
     }

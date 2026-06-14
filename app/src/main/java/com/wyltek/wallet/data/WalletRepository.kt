@@ -772,7 +772,20 @@ class WalletRepository(context: Context) {
             )
 
             val built = buildTransaction(request)
-            val witness0 = signCtx.signWitness0(built, selected.size)
+            // All inputs share the from-address lock (cells were fetched by it).
+            // The ML-DSA-65 v2 lock signs a CighashAll digest over every input
+            // cell, so the signer needs each input's CellOutput shape; secp
+            // ignores this and only uses the count.
+            val mldsaInputs = selected.map {
+                MldsaInputCell(
+                    capacity = it.capacity,
+                    lockCodeHash = fromInfo.lockCodeHash,
+                    lockHashType = fromInfo.lockHashType,
+                    lockArgs = fromInfo.lockArgs,
+                    data = ""
+                )
+            }
+            val witness0 = signCtx.signWitness0(built, mldsaInputs)
 
             val txJson = buildJsonObject {
                 put("version", "0x0")
@@ -1251,7 +1264,7 @@ class WalletRepository(context: Context) {
         val cellDepsForJson: List<JsonCellDep>,
         /** Lower-bound fee to reserve for this algorithm, in shannons. */
         val minFeeEstimate: ULong,
-        val signWitness0: (built: BuiltTransaction, inputCount: Int) -> String
+        val signWitness0: (built: BuiltTransaction, inputs: List<MldsaInputCell>) -> String
     )
 
     private fun resolveSigningContext(
@@ -1288,9 +1301,10 @@ class WalletRepository(context: Context) {
                     JsonCellDep(mldsaCfg.cellDepTxHash, mldsaCfg.cellDepIndex, mldsaCfg.cellDepType)
                 ),
                 minFeeEstimate = pqFeeEstimate,
-                signWitness0 = { built, _ ->
+                signWitness0 = { built, inputs ->
                     val witnessHex = signCkbMldsa65(
                         built.txHashHex,
+                        inputs,
                         pqKey.privateKeyHex,
                         pqKey.publicKeyHex
                     )
@@ -1316,8 +1330,8 @@ class WalletRepository(context: Context) {
                     JsonCellDep(cfg.secp256k1DepGroupTxHash, cfg.secp256k1DepGroupIndex, "dep_group")
                 ),
                 minFeeEstimate = 1000uL,
-                signWitness0 = { built, inputCount ->
-                    val witnessPlaceholders = List(inputCount) { i ->
+                signWitness0 = { built, inputs ->
+                    val witnessPlaceholders = List(inputs.size) { i ->
                         if (i == 0) "0x" + "00".repeat(65) else "0x"
                     }
                     val sig = signCkbSecp256k1(

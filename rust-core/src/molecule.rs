@@ -1,29 +1,74 @@
-// Minimal CKB Molecule serialization helpers for a simple transfer transaction.
-// Molecule spec: https://github.com/nervosnetwork/molecule
+// CKB Molecule serialization. Spec: https://github.com/nervosnetwork/molecule
+//
+// Encoding rules (the parts CKB transactions use):
+//   • struct  — fixed-size fields, raw concatenation, NO header.
+//   • fixvec  — vector of fixed-size items: item_count(u32 LE) ++ items.
+//   • dynvec  — vector of dynamic items: full_size(u32) ++ offset_i(u32 each) ++ items.
+//   • table   — full_size(u32) ++ offset_i(u32 each) ++ fields (in declared order).
+//   • Bytes   — fixvec of byte: len(u32 LE) ++ raw bytes.
+//   • option  — empty for None, the item's own bytes for Some.
+//
+// A previous hand-rolled version wrote item_count where full_size belongs and
+// encoded dynvecs as fixvecs, producing a non-canonical tx_hash that no node
+// agreed with. These helpers implement the spec; validated against a real
+// on-chain tx_hash (see examples/pq_testnet.rs `checkhash`).
 
 fn write_u32(buf: &mut Vec<u8>, val: u32) {
     buf.extend_from_slice(&val.to_le_bytes());
 }
 
-fn write_u64(buf: &mut Vec<u8>, val: u64) {
-    buf.extend_from_slice(&val.to_le_bytes());
-}
-
+/// Molecule `Bytes` (fixvec of byte): len prefix + raw bytes.
 fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) {
     write_u32(buf, data.len() as u32);
     buf.extend_from_slice(data);
 }
 
-fn write_byte32(buf: &mut Vec<u8>, data: &[u8; 32]) {
-    buf.extend_from_slice(data);
+/// Encode a molecule `table` from its already-serialized fields, in order.
+fn serialize_table(fields: &[Vec<u8>]) -> Vec<u8> {
+    let n = fields.len();
+    let header = 4 + n * 4; // full_size + n offsets
+    let full_size = header + fields.iter().map(Vec::len).sum::<usize>();
+
+    let mut buf = Vec::with_capacity(full_size);
+    write_u32(&mut buf, full_size as u32);
+    let mut offset = header;
+    for f in fields {
+        write_u32(&mut buf, offset as u32);
+        offset += f.len();
+    }
+    for f in fields {
+        buf.extend_from_slice(f);
+    }
+    buf
 }
 
-// option<T>: empty for None, item bytes for Some
-fn write_option_script(buf: &mut Vec<u8>, script: Option<&ScriptSer>) {
-    match script {
-        Some(s) => s.serialize(buf),
-        None => {}
+/// Encode a molecule `dynvec` from its already-serialized items.
+fn serialize_dynvec(items: &[Vec<u8>]) -> Vec<u8> {
+    let n = items.len();
+    let header = 4 + n * 4; // full_size + n offsets
+    let full_size = header + items.iter().map(Vec::len).sum::<usize>();
+
+    let mut buf = Vec::with_capacity(full_size);
+    write_u32(&mut buf, full_size as u32);
+    let mut offset = header;
+    for it in items {
+        write_u32(&mut buf, offset as u32);
+        offset += it.len();
     }
+    for it in items {
+        buf.extend_from_slice(it);
+    }
+    buf
+}
+
+/// Encode a molecule `fixvec` from fixed-size items (already serialized).
+fn serialize_fixvec(items: &[Vec<u8>]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    write_u32(&mut buf, items.len() as u32);
+    for it in items {
+        buf.extend_from_slice(it);
+    }
+    buf
 }
 
 #[derive(Clone)]
@@ -34,22 +79,23 @@ pub struct ScriptSer {
 }
 
 impl ScriptSer {
+    /// `Script` table: code_hash (Byte32), hash_type (byte), args (Bytes).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut args_field = Vec::new();
+        write_bytes(&mut args_field, &self.args);
+        serialize_table(&[
+            self.code_hash.to_vec(),
+            vec![self.hash_type],
+            args_field,
+        ])
+    }
+
     pub fn serialize(&self, buf: &mut Vec<u8>) {
-        let item_count = 3u32;
-        let offset_0 = 4 + item_count * 4; // 16
-        let offset_1 = offset_0 + 32; // 48
-        let offset_2 = offset_1 + 1; // 49
-        write_u32(buf, item_count);
-        write_u32(buf, offset_0);
-        write_u32(buf, offset_1);
-        write_u32(buf, offset_2);
-        write_byte32(buf, &self.code_hash);
-        buf.push(self.hash_type);
-        write_bytes(buf, &self.args);
+        buf.extend_from_slice(&self.to_bytes());
     }
 
     pub fn serialized_size(&self) -> usize {
-        16 + 32 + 1 + 4 + self.args.len()
+        self.to_bytes().len()
     }
 }
 
@@ -60,32 +106,25 @@ pub struct CellOutputSer {
 }
 
 impl CellOutputSer {
-    pub fn serialize(&self, buf: &mut Vec<u8>) {
-        let lock_size = self.lock.serialized_size();
-        let _ = match &self.type_ {
-            Some(t) => t.serialized_size(),
-            None => 0,
+    /// `CellOutput` table: capacity (Uint64), lock (Script), type (ScriptOpt).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let type_field = match &self.type_ {
+            Some(t) => t.to_bytes(),
+            None => Vec::new(), // option None = empty
         };
-        let item_count = 3u32;
-        let offset_0 = 4 + item_count * 4; // 16
-        let offset_1 = offset_0 + 8; // 24
-        let offset_2 = offset_1 + lock_size as u32;
-        write_u32(buf, item_count);
-        write_u32(buf, offset_0);
-        write_u32(buf, offset_1);
-        write_u32(buf, offset_2);
-        write_u64(buf, self.capacity);
-        self.lock.serialize(buf);
-        write_option_script(buf, self.type_.as_ref());
+        serialize_table(&[
+            self.capacity.to_le_bytes().to_vec(),
+            self.lock.to_bytes(),
+            type_field,
+        ])
+    }
+
+    pub fn serialize(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.to_bytes());
     }
 
     pub fn serialized_size(&self) -> usize {
-        let lock_size = self.lock.serialized_size();
-        let type_size = match &self.type_ {
-            Some(t) => t.serialized_size(),
-            None => 0,
-        };
-        16 + 8 + lock_size + type_size
+        self.to_bytes().len()
     }
 }
 
@@ -95,9 +134,12 @@ pub struct OutPointSer {
 }
 
 impl OutPointSer {
-    pub fn serialize(&self, buf: &mut Vec<u8>) {
-        write_byte32(buf, &self.tx_hash);
-        write_u32(buf, self.index);
+    /// `OutPoint` struct: tx_hash (Byte32) ++ index (Uint32). Fixed 36 bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(36);
+        buf.extend_from_slice(&self.tx_hash);
+        write_u32(&mut buf, self.index);
+        buf
     }
 }
 
@@ -107,9 +149,11 @@ pub struct CellDepSer {
 }
 
 impl CellDepSer {
-    pub fn serialize(&self, buf: &mut Vec<u8>) {
-        self.out_point.serialize(buf);
+    /// `CellDep` struct: out_point (OutPoint) ++ dep_type (byte). Fixed 37 bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = self.out_point.to_bytes();
         buf.push(self.dep_type);
+        buf
     }
 }
 
@@ -119,9 +163,12 @@ pub struct CellInputSer {
 }
 
 impl CellInputSer {
-    pub fn serialize(&self, buf: &mut Vec<u8>) {
-        write_u64(buf, self.since);
-        self.previous_output.serialize(buf);
+    /// `CellInput` struct: since (Uint64) ++ previous_output (OutPoint). Fixed 44 bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(44);
+        buf.extend_from_slice(&self.since.to_le_bytes());
+        buf.extend_from_slice(&self.previous_output.to_bytes());
+        buf
     }
 }
 
@@ -135,50 +182,49 @@ pub struct RawTransactionSer {
 }
 
 impl RawTransactionSer {
+    /// `RawTransaction` table: version, cell_deps (CellDepVec fixvec),
+    /// header_deps (Byte32Vec fixvec), inputs (CellInputVec fixvec),
+    /// outputs (CellOutputVec dynvec), outputs_data (BytesVec dynvec).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let cell_deps = serialize_fixvec(
+            &self.cell_deps.iter().map(CellDepSer::to_bytes).collect::<Vec<_>>(),
+        );
+        let header_deps = serialize_fixvec(
+            &self.header_deps.iter().map(|h| h.to_vec()).collect::<Vec<_>>(),
+        );
+        let inputs = serialize_fixvec(
+            &self.inputs.iter().map(CellInputSer::to_bytes).collect::<Vec<_>>(),
+        );
+        let outputs = serialize_dynvec(
+            &self.outputs.iter().map(CellOutputSer::to_bytes).collect::<Vec<_>>(),
+        );
+        let outputs_data = serialize_dynvec(
+            &self
+                .outputs_data
+                .iter()
+                .map(|d| {
+                    let mut b = Vec::new();
+                    write_bytes(&mut b, d);
+                    b
+                })
+                .collect::<Vec<_>>(),
+        );
+        serialize_table(&[
+            self.version.to_le_bytes().to_vec(),
+            cell_deps,
+            header_deps,
+            inputs,
+            outputs,
+            outputs_data,
+        ])
+    }
+
     pub fn serialize(&self, buf: &mut Vec<u8>) {
-        let item_count = 6u32;
-        let header_size = 4 + item_count * 4; // 28
-        let cell_deps_size = 4 + self.cell_deps.len() * 37;
-        let header_deps_size = 4 + self.header_deps.len() * 32;
-        let inputs_size = 4 + self.inputs.len() * 44;
-        let outputs_size: usize = 4 + self.outputs.iter().map(|o| o.serialized_size()).sum::<usize>();
-        let _outputs_data_size: usize = 4 + self.outputs_data.iter().map(|d| 4 + d.len()).sum::<usize>();
-
-        let offset_0 = header_size as u32;
-        let offset_1 = offset_0 + 4;
-        let offset_2 = offset_1 + cell_deps_size as u32;
-        let offset_3 = offset_2 + header_deps_size as u32;
-        let offset_4 = offset_3 + inputs_size as u32;
-        let offset_5 = offset_4 + outputs_size as u32;
-
-        write_u32(buf, item_count);
-        write_u32(buf, offset_0);
-        write_u32(buf, offset_1);
-        write_u32(buf, offset_2);
-        write_u32(buf, offset_3);
-        write_u32(buf, offset_4);
-        write_u32(buf, offset_5);
-
-        write_u32(buf, self.version);
-        write_u32(buf, self.cell_deps.len() as u32);
-        for dep in &self.cell_deps { dep.serialize(buf); }
-        write_u32(buf, self.header_deps.len() as u32);
-        for hd in &self.header_deps { write_byte32(buf, hd); }
-        write_u32(buf, self.inputs.len() as u32);
-        for input in &self.inputs { input.serialize(buf); }
-        write_u32(buf, self.outputs.len() as u32);
-        for output in &self.outputs { output.serialize(buf); }
-        write_u32(buf, self.outputs_data.len() as u32);
-        for data in &self.outputs_data { write_bytes(buf, data); }
+        buf.extend_from_slice(&self.to_bytes());
     }
 
     pub fn serialized_size(&self) -> usize {
-        let cell_deps_size = 4 + self.cell_deps.len() * 37;
-        let header_deps_size = 4 + self.header_deps.len() * 32;
-        let inputs_size = 4 + self.inputs.len() * 44;
-        let outputs_size: usize = 4 + self.outputs.iter().map(|o| o.serialized_size()).sum::<usize>();
-        let outputs_data_size: usize = 4 + self.outputs_data.iter().map(|d| 4 + d.len()).sum::<usize>();
-        28 + 4 + cell_deps_size + header_deps_size + inputs_size + outputs_size + outputs_data_size
+        self.to_bytes().len()
     }
 }
 
@@ -188,31 +234,28 @@ pub struct TransactionSer {
 }
 
 impl TransactionSer {
+    /// `Transaction` table: raw (RawTransaction) ++ witnesses (BytesVec dynvec).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let witnesses = serialize_dynvec(
+            &self
+                .witnesses
+                .iter()
+                .map(|w| {
+                    let mut b = Vec::new();
+                    write_bytes(&mut b, w);
+                    b
+                })
+                .collect::<Vec<_>>(),
+        );
+        serialize_table(&[self.raw.to_bytes(), witnesses])
+    }
+
     pub fn serialize(&self, buf: &mut Vec<u8>) {
-        // CKB Transaction is a table with 2 fields: raw (RawTransaction) and witnesses (BytesVec)
-        let item_count = 2u32;
-        let header_size = 4 + item_count * 4; // 12
-        let raw_size = self.raw.serialized_size();
-
-        let offset_0 = header_size as u32;
-        let offset_1 = offset_0 + raw_size as u32;
-
-        write_u32(buf, item_count);
-        write_u32(buf, offset_0);
-        write_u32(buf, offset_1);
-
-        self.raw.serialize(buf);
-
-        write_u32(buf, self.witnesses.len() as u32);
-        for witness in &self.witnesses {
-            write_bytes(buf, witness);
-        }
+        buf.extend_from_slice(&self.to_bytes());
     }
 
     pub fn serialized_size(&self) -> usize {
-        let raw_size = self.raw.serialized_size();
-        let witnesses_size: usize = 4 + self.witnesses.iter().map(|w| 4 + w.len()).sum::<usize>();
-        12 + raw_size + witnesses_size
+        self.to_bytes().len()
     }
 }
 

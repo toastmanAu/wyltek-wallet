@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+# cdylib for the Android JNI .so; rlib so the testnet harness example can link the crate.
+crate-type = ["cdylib", "rlib"]
 name = "wyltekwalletcore"
 
 [dependencies]
@@ -33,6 +34,10 @@ serde_json = "1"
 
 # Zeroize sensitive data
 zeroize = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Blocking HTTP client for the pq_testnet example harness (CKB JSON-RPC over https).
+ureq = { version = "2", features = ["json"] }
 
 [build-dependencies]
 uniffi = { version = "0.31.1", features = ["build"] }

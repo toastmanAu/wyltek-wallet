@@ -68,140 +68,183 @@ fn sign_mldsa65(raw_tx: Vec<u8>, private_key_hex: String) -> Result<String, Wall
     Ok(hex::encode(sig))
 }
 
-// ── ckb-mldsa-lock witness construction ─────────────────────────────────────
+// ── ckb-mldsa-lock-v2-rust witness construction ─────────────────────────────
 //
-// Matches the deployed contract at toastmanAu/ckb-mldsa-lock (sdk/js/src).
-// Signing message = blake2b("ckb-default-hash", DOMAIN || tx_hash).
-// Signature is then ML-DSA over that digest with DOMAIN as ctx.
-// Returned witness bytes are WitnessArgs(MldsaWitness(...)) ready for the
-// witnesses[0] slot of the JSON-RPC transaction envelope.
+// Matches the DEPLOYED contract `mldsa65-lock-v2-rust`
+// (code_hash 0xd70653f7…78a4) at toastmanAu/ckb-mldsa-lock — see
+// contracts/mldsa-lock-v2-rust/src/{entry,helpers,streamer}.rs.
+//
+// NOT the legacy C lock (0x8984f4…d310d) the bundled JS SDK targets — that
+// lock is deprecated, has a known sighash coverage gap, and has a lost owner.
+//
+// Protocol:
+//   • digest  = blake2b("ckb-mldsa-msg", generate_ckb_tx_message_all stream)
+//   • sign    = ML-DSA-65 over `digest` with ctx = "CKB-MLDSA-LOCK"
+//               (FIPS-204 §5.4 M' framing applied by the signer)
+//   • witness = WitnessArgs(lock = [flag(0x7b) | pubkey(1952) | sig(3309)])
+//
+// The CighashAll stream (streamer.rs::generate_ckb_tx_message_all) is, for a
+// transaction whose inputs are ALL locked by this single PQ lock (one script
+// group) and carry empty data:
+//
+//   tx_hash(32)
+//   for each input cell:  CellOutput_molecule_bytes  ‖ u32le(data_len) ‖ data
+//   u32le(0) ‖ u32le(0)                  // first group witness input_type/output_type (absent)
+//   for inputs 1..N:      u32le(0)        // remaining group-input witnesses (empty "0x")
+//
+// (No orphan witnesses: witnesses.len() == inputs.len() in our envelope.)
 
+use crate::molecule::{hex_to_bytes, CellOutputSer, ScriptSer};
+
+/// FIPS-204 §5.4 context string the lock passes to verify_with_context.
 const CKB_MLDSA_DOMAIN: &[u8] = b"CKB-MLDSA-LOCK";
-const ARGS_VERSION: u8 = 0x01;
-const ARGS_ALGO_ID: u8 = 0x02;
-const ARGS_PARAM_ID: u8 = 0x02;
+/// blake2b personalization for the v2 signing digest (helpers::message_hasher).
+const MLDSA_MSG_PERSONAL: &[u8] = b"ckb-mldsa-msg";
+/// ML-DSA-65 param id (FIPS-204). Flag byte = (param_id << 1) | has_signature.
+const MLDSA65_PARAM_ID: u8 = 61;
+/// Witness flag: param 65 + signature bit set → (61 << 1) | 1 = 0x7b.
+const MLDSA65_WITNESS_FLAG: u8 = (MLDSA65_PARAM_ID << 1) | 1;
 const MLDSA65_PUBKEY_BYTES: usize = 1952;
 const MLDSA65_SIG_BYTES: usize = 3309;
 
-fn ckb_mldsa_signing_message(tx_hash: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Blake2bBuilder::new(32)
-        .personal(b"ckb-default-hash")
-        .build();
-    hasher.update(CKB_MLDSA_DOMAIN);
-    hasher.update(tx_hash);
-    let mut out = [0u8; 32];
-    hasher.finalize(&mut out);
-    out
+/// A live input cell being spent, as needed to reconstruct the CighashAll
+/// stream off-chain. `data` is hex (empty / "0x" for a pure-CKB cell).
+#[derive(uniffi::Record, Clone)]
+pub struct MldsaInputCell {
+    pub capacity: u64,
+    pub lock_code_hash: String,
+    pub lock_hash_type: String,
+    pub lock_args: String,
+    pub data: String,
 }
 
-fn serialize_mldsa_witness(pubkey: &[u8], sig: &[u8]) -> Vec<u8> {
-    // Layout: full_size(4) | offsets[6](24) | version(1) | algo_id(1) |
-    //         param_id(1) | flags(1) | pubkey_len(4)+pubkey | sig_len(4)+sig
-    const HDR: usize = 4 + 6 * 4;
-    let total = HDR + 1 + 1 + 1 + 1 + 4 + MLDSA65_PUBKEY_BYTES + 4 + MLDSA65_SIG_BYTES;
+fn hash_type_byte(hash_type: &str) -> u8 {
+    match hash_type {
+        "type" => 1,
+        "data1" => 2,
+        _ => 0, // "data"
+    }
+}
 
-    let mut buf = vec![0u8; total];
-    buf[0..4].copy_from_slice(&(total as u32).to_le_bytes());
+/// Serialize the molecule `CellOutput` of an input cell (no type script for a
+/// pure-CKB cell), matching what `load_cell(Source::Input)` returns on-chain.
+fn input_cell_output_bytes(cell: &MldsaInputCell) -> Result<Vec<u8>, WalletError> {
+    let lock = ScriptSer {
+        code_hash: crate::molecule::hex_to_byte32(&cell.lock_code_hash)
+            .map_err(WalletError::InvalidInput)?,
+        hash_type: hash_type_byte(&cell.lock_hash_type),
+        args: hex_to_bytes(&cell.lock_args).map_err(WalletError::InvalidInput)?,
+    };
+    let out = CellOutputSer { capacity: cell.capacity, lock, type_: None };
+    let mut buf = Vec::new();
+    out.serialize(&mut buf);
+    Ok(buf)
+}
 
-    let mut off = HDR as u32;
-    buf[4..8].copy_from_slice(&off.to_le_bytes());      // version
-    off += 1;
-    buf[8..12].copy_from_slice(&off.to_le_bytes());     // algo_id
-    off += 1;
-    buf[12..16].copy_from_slice(&off.to_le_bytes());    // param_id
-    off += 1;
-    buf[16..20].copy_from_slice(&off.to_le_bytes());    // flags
-    off += 1;
-    buf[20..24].copy_from_slice(&off.to_le_bytes());    // pubkey
-    off += 4 + MLDSA65_PUBKEY_BYTES as u32;
-    buf[24..28].copy_from_slice(&off.to_le_bytes());    // sig
-
-    let mut cursor = HDR;
-    buf[cursor] = ARGS_VERSION;   cursor += 1;
-    buf[cursor] = ARGS_ALGO_ID;   cursor += 1;
-    buf[cursor] = ARGS_PARAM_ID;  cursor += 1;
-    buf[cursor] = 0x00;           cursor += 1;
-    buf[cursor..cursor + 4].copy_from_slice(&(MLDSA65_PUBKEY_BYTES as u32).to_le_bytes());
-    cursor += 4;
-    buf[cursor..cursor + MLDSA65_PUBKEY_BYTES].copy_from_slice(pubkey);
-    cursor += MLDSA65_PUBKEY_BYTES;
-    buf[cursor..cursor + 4].copy_from_slice(&(MLDSA65_SIG_BYTES as u32).to_le_bytes());
-    cursor += 4;
-    buf[cursor..cursor + MLDSA65_SIG_BYTES].copy_from_slice(sig);
-
-    buf
+/// Reconstruct `blake2b("ckb-mldsa-msg", generate_ckb_tx_message_all)` for a
+/// single-script-group transaction with empty-data inputs.
+fn cighash_all_digest(
+    tx_hash: &[u8; 32],
+    inputs: &[MldsaInputCell],
+) -> Result<[u8; 32], WalletError> {
+    let mut h = Blake2bBuilder::new(32).personal(MLDSA_MSG_PERSONAL).build();
+    h.update(tx_hash);
+    for cell in inputs {
+        let co = input_cell_output_bytes(cell)?;
+        h.update(&co);
+        let data = hex_to_bytes(&cell.data).map_err(WalletError::InvalidInput)?;
+        h.update(&(data.len() as u32).to_le_bytes());
+        h.update(&data);
+    }
+    // First group witness: input_type + output_type fields, both absent → len 0.
+    h.update(&0u32.to_le_bytes());
+    h.update(&0u32.to_le_bytes());
+    // Remaining group-input witnesses (inputs 1..N) are empty "0x" → full_length 0.
+    for _ in 1..inputs.len() {
+        h.update(&0u32.to_le_bytes());
+    }
+    let mut out = [0u8; 32];
+    h.finalize(&mut out);
+    Ok(out)
 }
 
 fn serialize_witness_args(lock_data: &[u8]) -> Vec<u8> {
-    // Layout: total(4) | offsets[3](12) | lock_len(4) | lock_data
+    // WitnessArgs table, lock field only: total(4) | offsets[3](12) | lock_len(4) | lock_data
     const HDR: usize = 4 + 3 * 4;
     let total = HDR + 4 + lock_data.len();
 
     let mut buf = vec![0u8; total];
     buf[0..4].copy_from_slice(&(total as u32).to_le_bytes());
-    buf[4..8].copy_from_slice(&(HDR as u32).to_le_bytes());                              // lock offset
+    buf[4..8].copy_from_slice(&(HDR as u32).to_le_bytes()); // lock offset
     let after_lock = HDR + 4 + lock_data.len();
-    buf[8..12].copy_from_slice(&(after_lock as u32).to_le_bytes());                      // input_type (absent)
-    buf[12..16].copy_from_slice(&(after_lock as u32).to_le_bytes());                     // output_type (absent)
+    buf[8..12].copy_from_slice(&(after_lock as u32).to_le_bytes()); // input_type (absent)
+    buf[12..16].copy_from_slice(&(after_lock as u32).to_le_bytes()); // output_type (absent)
     buf[HDR..HDR + 4].copy_from_slice(&(lock_data.len() as u32).to_le_bytes());
     buf[HDR + 4..].copy_from_slice(lock_data);
 
     buf
 }
 
-/// Sign a CKB transaction with ML-DSA-65 for the deployed ckb-mldsa-lock
-/// contract. Returns the fully-formed WitnessArgs hex string (no `0x` prefix)
-/// to drop directly into witnesses[0].
+/// Sign a CKB transaction for the deployed `mldsa65-lock-v2-rust` contract.
+/// Returns the fully-formed WitnessArgs hex (no `0x` prefix) for witnesses[0].
 ///
-/// tx_hash_hex: 32-byte raw-transaction hash (the CKB tx_hash returned by
-///              the Rust transaction builder).
+/// tx_hash_hex:     32-byte raw-transaction hash (from `build_transaction`).
+/// inputs:          every input cell being spent (all locked by this PQ lock).
 /// private_key_hex: 4032-byte ML-DSA-65 secret key.
-/// public_key_hex:  1952-byte ML-DSA-65 public key (embedded in witness).
+/// public_key_hex:  1952-byte ML-DSA-65 public key (embedded flat in the lock).
 #[uniffi::export]
 pub fn sign_ckb_mldsa65(
     tx_hash_hex: String,
+    inputs: Vec<MldsaInputCell>,
     private_key_hex: String,
     public_key_hex: String,
 ) -> Result<String, WalletError> {
+    if inputs.is_empty() {
+        return Err(WalletError::InvalidInput("no input cells supplied".into()));
+    }
+
     let tx_hash_bytes = hex::decode(tx_hash_hex.trim_start_matches("0x"))?;
-    let tx_hash: [u8; 32] = tx_hash_bytes.try_into()
+    let tx_hash: [u8; 32] = tx_hash_bytes
+        .try_into()
         .map_err(|_| WalletError::InvalidInput("tx_hash must be 32 bytes".into()))?;
 
     let pk_bytes = hex::decode(public_key_hex.trim_start_matches("0x"))?;
     if pk_bytes.len() != MLDSA65_PUBKEY_BYTES {
         return Err(WalletError::InvalidInput(format!(
             "Expected {}-byte ML-DSA-65 public key, got {}",
-            MLDSA65_PUBKEY_BYTES, pk_bytes.len()
+            MLDSA65_PUBKEY_BYTES,
+            pk_bytes.len()
         )));
     }
 
     let sk_bytes = hex::decode(private_key_hex.trim_start_matches("0x"))?;
-    let sk_array: [u8; 4032] = sk_bytes.try_into()
+    let sk_array: [u8; 4032] = sk_bytes
+        .try_into()
         .map_err(|_| WalletError::InvalidInput("ML-DSA-65 secret key must be 4032 bytes".into()))?;
     let sk = ml_dsa_65::PrivateKey::try_from_bytes(sk_array)
         .map_err(|e| WalletError::CryptoError(format!("Invalid ML-DSA-65 secret key: {}", e)))?;
 
-    let msg = ckb_mldsa_signing_message(&tx_hash);
-    let sig = sk.try_sign(&msg, CKB_MLDSA_DOMAIN)
+    let digest = cighash_all_digest(&tx_hash, &inputs)?;
+    let sig = sk
+        .try_sign(&digest, CKB_MLDSA_DOMAIN)
         .map_err(|e| WalletError::CryptoError(format!("ML-DSA-65 signing failed: {}", e)))?;
 
-    let mldsa_witness = serialize_mldsa_witness(&pk_bytes, &sig);
-    let witness_args = serialize_witness_args(&mldsa_witness);
+    // Flat lock: [flag | pubkey | sig].
+    let mut lock = Vec::with_capacity(1 + MLDSA65_PUBKEY_BYTES + MLDSA65_SIG_BYTES);
+    lock.push(MLDSA65_WITNESS_FLAG);
+    lock.extend_from_slice(&pk_bytes);
+    lock.extend_from_slice(&sig);
 
-    Ok(hex::encode(witness_args))
+    Ok(hex::encode(serialize_witness_args(&lock)))
 }
 
-/// Pre-signing witness placeholder of the exact size the final WitnessArgs
-/// will be. Use this to size witnesses[0] before computing the tx_hash so the
-/// fee estimate is accurate. Bytes are zeros — content doesn't matter since
-/// the ckb-mldsa-lock signing message only hashes the tx_hash, not witnesses.
+/// Pre-signing witness placeholder of the exact size of the final WitnessArgs,
+/// for fee sizing. WitnessArgs(lock = [flag | pubkey | sig]).
 #[uniffi::export]
 pub fn mldsa65_witness_placeholder_hex() -> String {
-    const HDR_WITNESS: usize = 4 + 6 * 4;
-    const MLDSA_WITNESS_LEN: usize =
-        HDR_WITNESS + 1 + 1 + 1 + 1 + 4 + MLDSA65_PUBKEY_BYTES + 4 + MLDSA65_SIG_BYTES;
+    const FLAT_LOCK_LEN: usize = 1 + MLDSA65_PUBKEY_BYTES + MLDSA65_SIG_BYTES;
     const HDR_ARGS: usize = 4 + 3 * 4;
-    const WITNESS_ARGS_LEN: usize = HDR_ARGS + 4 + MLDSA_WITNESS_LEN;
+    const WITNESS_ARGS_LEN: usize = HDR_ARGS + 4 + FLAT_LOCK_LEN;
     hex::encode(vec![0u8; WITNESS_ARGS_LEN])
 }
 
@@ -337,5 +380,80 @@ pub fn verify_signature(
             Ok(pk.verify(&message, &sig_array, &[]))
         }
         _ => Err(WalletError::InvalidInput(format!("Unsupported algorithm: {}", algorithm))),
+    }
+}
+
+#[cfg(test)]
+mod mldsa_v2_tests {
+    use super::*;
+    use crate::pq_keys::{mldsa65_from_seed, mldsa65_lock_args_v2};
+
+    fn sample_input(pq_args: &str) -> MldsaInputCell {
+        MldsaInputCell {
+            capacity: 100_0000_0000,
+            lock_code_hash:
+                "0xd70653f7fd51e173ec506b76081f37bf4acebb8a15dc79e6d4ad43ca4d3b78a4".into(),
+            lock_hash_type: "type".into(),
+            lock_args: format!("0x{pq_args}"),
+            data: String::new(),
+        }
+    }
+
+    /// The witness the contract verifies must be WitnessArgs(lock=[flag|pk|sig]),
+    /// flag = 0x7b, lock length exactly 1 + 1952 + 3309.
+    #[test]
+    fn witness_has_flat_lock_layout() {
+        let seed = "11".repeat(32);
+        let kp = mldsa65_from_seed(seed.clone()).unwrap();
+        let args = mldsa65_lock_args_v2(kp.public_key_hex.clone()).unwrap();
+        let tx_hash = "22".repeat(32);
+
+        let witness_hex = sign_ckb_mldsa65(
+            tx_hash,
+            vec![sample_input(&args)],
+            kp.private_key_hex,
+            kp.public_key_hex,
+        )
+        .unwrap();
+        let witness = hex::decode(&witness_hex).unwrap();
+
+        // WitnessArgs: total(4) | lock_off(4)=16 | input_type_off | output_type_off | lock_len(4) | lock
+        let lock_len = u32::from_le_bytes(witness[16..20].try_into().unwrap()) as usize;
+        assert_eq!(lock_len, 1 + 1952 + 3309, "flat lock length");
+        assert_eq!(witness[20], 0x7b, "flag = (61<<1)|1");
+        // args side: 37-byte v2-rust layout
+        let args_bytes = hex::decode(&args).unwrap();
+        assert_eq!(args_bytes.len(), 37);
+        assert_eq!(&args_bytes[0..4], &[0x80, 0x01, 0x01, 0x01]);
+        assert_eq!(args_bytes[4], 0x7a, "args flag = (61<<1)|0");
+    }
+
+    /// The signature in the witness must verify against the SAME CighashAll
+    /// digest under the FIPS-204 context — proves the sign side is self-consistent.
+    #[test]
+    fn signature_verifies_over_cighash_digest() {
+        let seed = "33".repeat(32);
+        let kp = mldsa65_from_seed(seed).unwrap();
+        let args = mldsa65_lock_args_v2(kp.public_key_hex.clone()).unwrap();
+        let tx_hash_hex = "44".repeat(32);
+        let inputs = vec![sample_input(&args)];
+
+        let witness_hex = sign_ckb_mldsa65(
+            tx_hash_hex.clone(),
+            inputs.clone(),
+            kp.private_key_hex,
+            kp.public_key_hex.clone(),
+        )
+        .unwrap();
+        let witness = hex::decode(&witness_hex).unwrap();
+        let sig = &witness[20 + 1 + MLDSA65_PUBKEY_BYTES..];
+
+        let tx_hash: [u8; 32] = hex::decode(&tx_hash_hex).unwrap().try_into().unwrap();
+        let digest = cighash_all_digest(&tx_hash, &inputs).unwrap();
+
+        let pk_bytes = hex::decode(&kp.public_key_hex).unwrap();
+        let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_bytes.try_into().unwrap()).unwrap();
+        let sig_arr: [u8; MLDSA65_SIG_BYTES] = sig.try_into().unwrap();
+        assert!(pk.verify(&digest, &sig_arr, CKB_MLDSA_DOMAIN), "sig verifies over digest+ctx");
     }
 }
