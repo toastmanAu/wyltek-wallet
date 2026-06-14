@@ -293,6 +293,60 @@ pub fn sign_ckb_secp256k1(
     Ok(hex::encode(result))
 }
 
+/// secp256k1_blake160_sighash_all witness builder. Computes the canonical CKB
+/// sighash and returns the FULL `WitnessArgs(lock = 65-byte recoverable sig)`
+/// hex (no `0x`) to drop straight into witnesses[0].
+///
+/// The standard lock expects: message =
+///   ckbhash(tx_hash || u64le(len(W0)) || W0 || [u64le(len(Wi)) || Wi ...])
+/// where W0 is the WitnessArgs with its lock field zeroed to 65 bytes (85 bytes
+/// serialized), and Wi are the remaining same-group witnesses. The final
+/// witnesses[0] is the same WitnessArgs with lock = the real signature.
+///
+/// Assumes a single script group: all `num_inputs` inputs share this secp lock
+/// and witnesses[1..num_inputs] are empty. (The previous code hashed a bare
+/// 65-byte placeholder with un-personalized blake2b and emitted a bare sig —
+/// both wrong; the secp lock rejected it.)
+#[uniffi::export]
+pub fn sign_ckb_secp256k1_witness(
+    tx_hash_hex: String,
+    num_inputs: u32,
+    private_key_hex: String,
+) -> Result<String, WalletError> {
+    let tx_hash = hex::decode(tx_hash_hex.trim_start_matches("0x"))?;
+    if tx_hash.len() != 32 {
+        return Err(WalletError::InvalidInput(format!(
+            "tx_hash must be 32 bytes, got {}",
+            tx_hash.len()
+        )));
+    }
+
+    // W0 = WitnessArgs(lock = 65 zero bytes), input_type/output_type absent → 85 bytes.
+    let placeholder = serialize_witness_args(&[0u8; 65]);
+
+    let mut hasher = Blake2bBuilder::new(32).personal(b"ckb-default-hash").build();
+    hasher.update(&tx_hash);
+    hasher.update(&(placeholder.len() as u64).to_le_bytes());
+    hasher.update(&placeholder);
+    // Remaining same-group witnesses (inputs 1..num_inputs) are empty.
+    for _ in 1..num_inputs.max(1) {
+        hasher.update(&0u64.to_le_bytes());
+    }
+    let mut message = [0u8; 32];
+    hasher.finalize(&mut message);
+
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&hex::decode(private_key_hex.trim_start_matches("0x"))?)?;
+    let signature = secp.sign_ecdsa_recoverable(&Message::from_digest(message), &sk);
+    let (recovery_id, serialized) = signature.serialize_compact();
+
+    let mut lock = Vec::with_capacity(65);
+    lock.extend_from_slice(&serialized);
+    lock.push(recovery_id.to_i32() as u8);
+
+    Ok(hex::encode(serialize_witness_args(&lock)))
+}
+
 #[uniffi::export]
 pub fn sign_message(
     message_hex: String,
@@ -455,5 +509,46 @@ mod mldsa_v2_tests {
         let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_bytes.try_into().unwrap()).unwrap();
         let sig_arr: [u8; MLDSA65_SIG_BYTES] = sig.try_into().unwrap();
         assert!(pk.verify(&digest, &sig_arr, CKB_MLDSA_DOMAIN), "sig verifies over digest+ctx");
+    }
+}
+
+#[cfg(test)]
+mod secp_witness_tests {
+    use super::*;
+    use crate::keys::generate_secp256k1_keypair;
+    use secp256k1::{ecdsa::RecoverableSignature, ecdsa::RecoveryId, Message, Secp256k1};
+
+    /// Witness must be WitnessArgs(lock=65 bytes) = 85 bytes, and the embedded
+    /// signature must recover to the signing key over the canonical sighash.
+    #[test]
+    fn secp_witness_layout_and_recovery() {
+        let kp = generate_secp256k1_keypair("ab".repeat(32), "m/44'/302'/0'/0/0".into()).unwrap();
+        let tx_hash_hex = "cd".repeat(32);
+
+        let witness_hex =
+            sign_ckb_secp256k1_witness(tx_hash_hex.clone(), 1, kp.private_key_hex).unwrap();
+        let witness = hex::decode(&witness_hex).unwrap();
+
+        // WitnessArgs(lock=65): total 85, lock offset 16, lock_len 65.
+        assert_eq!(witness.len(), 85);
+        assert_eq!(u32::from_le_bytes(witness[16..20].try_into().unwrap()), 65);
+        let sig = &witness[20..85];
+
+        // Recompute the canonical sighash and confirm the sig recovers to our key.
+        let tx_hash = hex::decode(&tx_hash_hex).unwrap();
+        let placeholder = serialize_witness_args(&[0u8; 65]);
+        let mut h = Blake2bBuilder::new(32).personal(b"ckb-default-hash").build();
+        h.update(&tx_hash);
+        h.update(&(placeholder.len() as u64).to_le_bytes());
+        h.update(&placeholder);
+        let mut msg = [0u8; 32];
+        h.finalize(&mut msg);
+
+        let secp = Secp256k1::new();
+        let rid = RecoveryId::from_i32(sig[64] as i32).unwrap();
+        let rsig = RecoverableSignature::from_compact(&sig[..64], rid).unwrap();
+        let recovered = secp.recover_ecdsa(&Message::from_digest(msg), &rsig).unwrap();
+        let expected = secp256k1::PublicKey::from_slice(&hex::decode(&kp.public_key_hex).unwrap()).unwrap();
+        assert_eq!(recovered, expected, "sig recovers to signing key over canonical sighash");
     }
 }

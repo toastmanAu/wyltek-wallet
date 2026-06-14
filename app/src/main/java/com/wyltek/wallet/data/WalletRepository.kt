@@ -1331,15 +1331,16 @@ class WalletRepository(context: Context) {
                 ),
                 minFeeEstimate = 1000uL,
                 signWitness0 = { built, inputs ->
-                    val witnessPlaceholders = List(inputs.size) { i ->
-                        if (i == 0) "0x" + "00".repeat(65) else "0x"
-                    }
-                    val sig = signCkbSecp256k1(
+                    // Canonical secp256k1_blake160_sighash_all: the signer
+                    // computes the ckb-default-hash sighash over the
+                    // WitnessArgs-wrapped placeholder and returns the full
+                    // WitnessArgs(lock = 65-byte sig) for witnesses[0].
+                    val witnessHex = signCkbSecp256k1Witness(
                         built.txHashHex,
-                        witnessPlaceholders,
+                        inputs.size.toUInt(),
                         keyPair.privateKeyHex
                     )
-                    "0x$sig"
+                    "0x$witnessHex"
                 }
             )
         }

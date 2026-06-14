@@ -260,7 +260,8 @@ impl TransactionSer {
 }
 
 // Testnet / mainnet cell dep constants for SECP256K1_BLAKE160_SIGHASH_ALL dep_group
-pub const TESTNET_SECP256K1_DEP_TX_HASH: &str = "f8de3bb47d055c46ebd0ddbd51c390d5818c9133f385013cde9c99d02f640995";
+// Testnet genesis secp256k1 dep group (Lumos AGGRON4). Prior value was wrong.
+pub const TESTNET_SECP256K1_DEP_TX_HASH: &str = "f8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37";
 pub const MAINNET_SECP256K1_DEP_TX_HASH: &str = "71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c";
 pub const SECP256K1_DEP_INDEX: u32 = 0;
 pub const DEP_TYPE_DEP_GROUP: u8 = 1;

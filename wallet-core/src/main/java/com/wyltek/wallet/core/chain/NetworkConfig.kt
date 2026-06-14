@@ -54,7 +54,10 @@ object NetworkConfig {
     private val testnet = NetworkConstants(
         rpcUrl = "https://testnet.ckbapp.dev",
         rpcName = "CKB Testnet (public)",
-        secp256k1DepGroupTxHash = "0xf8de3bb47d055c46ebd0ddbd51c390d5818c9133f385013cde9c99d02f640995",
+        // Testnet genesis secp256k1_blake160_sighash_all dep group (Lumos
+        // AGGRON4). The prior value (…c46ebd0…f640995) does not exist on Pudge
+        // — classic sends failed to resolve the dep. Verified 2026-06-15.
+        secp256k1DepGroupTxHash = "0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37",
         secp256k1DepGroupIndex = 0u,
         sudtTypeCodeHash = "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4",
         sudtCellDepTxHash = "0xe12877ebd2c3c364dc46c5c992bcfaf4fee33fa13eebdf82c591fc9825aab769",

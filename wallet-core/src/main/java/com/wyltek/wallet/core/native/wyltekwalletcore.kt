@@ -681,6 +681,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_message(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_transaction(
@@ -747,6 +749,8 @@ external fun uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(uni
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(`txHashHex`: RustBuffer.ByValue,`inputs`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(`txHashHex`: RustBuffer.ByValue,`witnessPlaceholdersHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1_witness(`txHashHex`: RustBuffer.ByValue,`numInputs`: Int,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_message(`messageHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`algorithm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -942,6 +946,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness() != 18497.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_message() != 35259.toShort()) {
@@ -2154,6 +2161,33 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(
     
         FfiConverterString.lower(`txHashHex`),FfiConverterSequenceString.lower(`witnessPlaceholdersHex`),FfiConverterString.lower(`privateKeyHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * secp256k1_blake160_sighash_all witness builder. Computes the canonical CKB
+         * sighash and returns the FULL `WitnessArgs(lock = 65-byte recoverable sig)`
+         * hex (no `0x`) to drop straight into witnesses[0].
+         *
+         * The standard lock expects: message =
+         * ckbhash(tx_hash || u64le(len(W0)) || W0 || [u64le(len(Wi)) || Wi ...])
+         * where W0 is the WitnessArgs with its lock field zeroed to 65 bytes (85 bytes
+         * serialized), and Wi are the remaining same-group witnesses. The final
+         * witnesses[0] is the same WitnessArgs with lock = the real signature.
+         *
+         * Assumes a single script group: all `num_inputs` inputs share this secp lock
+         * and witnesses[1..num_inputs] are empty. (The previous code hashed a bare
+         * 65-byte placeholder with un-personalized blake2b and emitted a bare sig —
+         * both wrong; the secp lock rejected it.)
+         */
+    @Throws(WalletException::class) fun `signCkbSecp256k1Witness`(`txHashHex`: kotlin.String, `numInputs`: kotlin.UInt, `privateKeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1_witness(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterUInt.lower(`numInputs`),FfiConverterString.lower(`privateKeyHex`),_status)
 }
     )
     }

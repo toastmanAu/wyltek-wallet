@@ -18,7 +18,7 @@
 
 use serde_json::{json, Value};
 use wyltekwalletcore::pq_keys::{mldsa65_from_seed, mldsa65_lock_args_v2};
-use wyltekwalletcore::signing::{sign_ckb_mldsa65, MldsaInputCell};
+use wyltekwalletcore::signing::{sign_ckb_mldsa65, sign_ckb_secp256k1_witness, MldsaInputCell};
 use wyltekwalletcore::transaction::{
     build_transaction, TransactionRequest, TxCellDep, TxInput, TxOutput,
 };
@@ -44,6 +44,12 @@ const MLDSA_DEP_INDEX: u32 = 3;
 // Deployed as a plain code cell (not a dep_group).
 const DEP_TYPE_CODE: u8 = 0;
 
+// Classic secp256k1_blake160_sighash_all dep group (testnet system cells).
+const SECP_DEP_TX_HASH: &str =
+    "0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37";
+const SECP_DEP_INDEX: u32 = 0;
+const SECP_FEE_ESTIMATE: u64 = 1_000;
+
 // Cell-selection knobs lifted verbatim from WalletRepository.sendCkb.
 const MIN_CELL_CAPACITY: u64 = 81_0000_0000; // 81 CKB
 const PQ_FEE_ESTIMATE: u64 = 10_000; // shannons reserved for the ~5.4 KB PQ witness
@@ -61,9 +67,14 @@ fn main() {
             arg(&args, 2, "to_address"),
             arg(&args, 3, "amount_ckb"),
         ),
+        "spend-secp" => cmd_spend_secp(
+            arg(&args, 1, "seed_hex"),
+            arg(&args, 2, "to_address"),
+            arg(&args, 3, "amount_ckb"),
+        ),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  checkhash <tx_hash>",
             other
         )),
     };
@@ -274,9 +285,104 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
     .map_err(|e| format!("sign_ckb_mldsa65: {e}"))?;
 
     // 6. Assemble the JSON-RPC envelope exactly as WalletRepository.sendCkb does.
-    let tx_json = build_tx_json(&selected, &outputs, &witness0);
+    let tx_json = build_tx_json(&selected, &outputs, &witness0, MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code");
     println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
 
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ accepted by pool — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("send_transaction rejected: {e}")),
+    }
+}
+
+/// Classic secp256k1 spend — verifies sign_ckb_secp256k1_witness on-chain.
+fn cmd_spend_secp(seed_hex: String, to_address: String, amount_ckb: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let amount: u64 = amount_ckb
+        .parse::<u64>()
+        .map_err(|_| "amount_ckb must be a whole number of CKB".to_string())?
+        .checked_mul(1_0000_0000)
+        .ok_or("amount overflow")?;
+
+    let kp = generate_secp256k1_keypair(seed_hex.clone(), SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from_addr = public_key_to_ckb_address(kp.public_key_hex.clone(), "testnet".to_string())
+        .map_err(|e| format!("classic address: {e}"))?;
+    let from = decode_address(from_addr).map_err(|e| format!("decode from: {e}"))?;
+    let to = decode_address(to_address).map_err(|e| format!("decode to: {e}"))?;
+
+    let cells = get_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    if cells.is_empty() {
+        return Err("no spendable cells at the classic lock — fund it first".into());
+    }
+
+    let mut sorted = cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let mut selected: Vec<&Cell> = Vec::new();
+    let mut selected_cap: u64 = 0;
+    for c in &sorted {
+        selected.push(c);
+        selected_cap += c.capacity;
+        if selected_cap >= amount + SECP_FEE_ESTIMATE + MIN_CELL_CAPACITY {
+            break;
+        }
+    }
+    if selected_cap < amount + SECP_FEE_ESTIMATE {
+        return Err(format!("insufficient balance: have {selected_cap}, need {}", amount + SECP_FEE_ESTIMATE));
+    }
+    let needs_change = selected_cap >= amount + SECP_FEE_ESTIMATE + MIN_CELL_CAPACITY;
+
+    let mut outputs = vec![TxOutput {
+        capacity: amount,
+        lock_code_hash: to.lock_code_hash.clone(),
+        lock_hash_type: to.lock_hash_type.clone(),
+        lock_args: to.lock_args.clone(),
+        type_code_hash: String::new(),
+        type_hash_type: String::new(),
+        type_args: String::new(),
+        data: String::new(),
+    }];
+    if needs_change {
+        outputs.push(TxOutput {
+            capacity: selected_cap - amount - SECP_FEE_ESTIMATE,
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    }
+
+    let request = TransactionRequest {
+        inputs: selected
+            .iter()
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity })
+            .collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![TxCellDep {
+            tx_hash: SECP_DEP_TX_HASH.to_string(),
+            index: SECP_DEP_INDEX,
+            dep_type: 1, // dep_group
+        }],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    let witness0 = sign_ckb_secp256k1_witness(
+        built.tx_hash_hex.clone(),
+        selected.len() as u32,
+        kp.private_key_hex.clone(),
+    )
+    .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
+
+    let tx_json = build_tx_json(&selected, &outputs, &witness0, SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group");
+    println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
     match send_transaction(&tx_json) {
         Ok(hash) => {
             println!("\n✅ accepted by pool — tx_hash: {hash}");
@@ -403,7 +509,14 @@ fn cmd_checkhash(tx_hash: String) -> Result<(), String> {
 
 // ── JSON-RPC envelope ────────────────────────────────────────────────────────
 
-fn build_tx_json(selected: &[&Cell], outputs: &[TxOutput], witness0_hex: &str) -> Value {
+fn build_tx_json(
+    selected: &[&Cell],
+    outputs: &[TxOutput],
+    witness0_hex: &str,
+    dep_tx_hash: &str,
+    dep_index: u32,
+    dep_type: &str,
+) -> Value {
     let inputs: Vec<Value> = selected
         .iter()
         .map(|c| {
@@ -438,8 +551,8 @@ fn build_tx_json(selected: &[&Cell], outputs: &[TxOutput], witness0_hex: &str) -
     json!({
         "version": "0x0",
         "cell_deps": [{
-            "out_point": { "tx_hash": MLDSA_DEP_TX_HASH, "index": hex_u32(MLDSA_DEP_INDEX) },
-            "dep_type": "code"
+            "out_point": { "tx_hash": dep_tx_hash, "index": hex_u32(dep_index) },
+            "dep_type": dep_type
         }],
         "header_deps": [],
         "inputs": inputs,
