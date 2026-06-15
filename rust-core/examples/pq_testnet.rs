@@ -50,6 +50,15 @@ const SECP_DEP_TX_HASH: &str =
 const SECP_DEP_INDEX: u32 = 0;
 const SECP_FEE_ESTIMATE: u64 = 1_000;
 
+// Nervos DAO (testnet): type script + genesis dep (tx[0] @ index 2).
+const DAO_TYPE_CODE_HASH: &str =
+    "0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e";
+const DAO_DEP_TX_HASH: &str =
+    "0x8f8c79eb6671709633fe6a46de93c0fedc9c1b8a6527a18d3983879542635c9f";
+const DAO_DEP_INDEX: u32 = 2;
+// A DAO cell occupies ~102 CKB (8 cap + 53 lock + 33 type + 8 data).
+const DAO_MIN_CAPACITY: u64 = 102_0000_0000;
+
 // Cell-selection knobs lifted verbatim from WalletRepository.sendCkb.
 const MIN_CELL_CAPACITY: u64 = 81_0000_0000; // 81 CKB
 const PQ_FEE_ESTIMATE: u64 = 10_000; // shannons reserved for the ~5.4 KB PQ witness
@@ -72,9 +81,10 @@ fn main() {
             arg(&args, 2, "to_address"),
             arg(&args, 3, "amount_ckb"),
         ),
+        "deposit-dao" => cmd_deposit_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount_ckb")),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  checkhash <tx_hash>",
             other
         )),
     };
@@ -285,7 +295,7 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
     .map_err(|e| format!("sign_ckb_mldsa65: {e}"))?;
 
     // 6. Assemble the JSON-RPC envelope exactly as WalletRepository.sendCkb does.
-    let tx_json = build_tx_json(&selected, &outputs, &witness0, MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code");
+    let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code")]);
     println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
 
     match send_transaction(&tx_json) {
@@ -381,8 +391,106 @@ fn cmd_spend_secp(seed_hex: String, to_address: String, amount_ckb: String) -> R
     )
     .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
 
-    let tx_json = build_tx_json(&selected, &outputs, &witness0, SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group");
+    let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group")]);
     println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ accepted by pool — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("send_transaction rejected: {e}")),
+    }
+}
+
+/// Nervos DAO deposit — secp-signed tx that creates a DAO cell. Verifies the
+/// secp signer on a type-script output + the corrected testnet DAO cell dep.
+fn cmd_deposit_dao(seed_hex: String, amount_ckb: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let amount: u64 = amount_ckb
+        .parse::<u64>()
+        .map_err(|_| "amount_ckb must be a whole number of CKB".to_string())?
+        .checked_mul(1_0000_0000)
+        .ok_or("amount overflow")?;
+    if amount < DAO_MIN_CAPACITY {
+        return Err(format!("DAO deposit must be ≥ 102 CKB, got {}", amount / 1_0000_0000));
+    }
+
+    let kp = generate_secp256k1_keypair(seed_hex.clone(), SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from_addr = public_key_to_ckb_address(kp.public_key_hex.clone(), "testnet".to_string())
+        .map_err(|e| format!("classic address: {e}"))?;
+    let from = decode_address(from_addr).map_err(|e| format!("decode from: {e}"))?;
+
+    let cells = get_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    if cells.is_empty() {
+        return Err("no spendable cells at the classic lock".into());
+    }
+    let mut sorted = cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let mut selected: Vec<&Cell> = Vec::new();
+    let mut selected_cap: u64 = 0;
+    for c in &sorted {
+        selected.push(c);
+        selected_cap += c.capacity;
+        if selected_cap >= amount + SECP_FEE_ESTIMATE + MIN_CELL_CAPACITY {
+            break;
+        }
+    }
+    if selected_cap < amount + SECP_FEE_ESTIMATE {
+        return Err(format!("insufficient balance: have {selected_cap}, need {}", amount + SECP_FEE_ESTIMATE));
+    }
+    let needs_change = selected_cap >= amount + SECP_FEE_ESTIMATE + MIN_CELL_CAPACITY;
+
+    // Output 0: the DAO cell — secp self-lock, DAO type, 8 zero bytes of data.
+    let mut outputs = vec![TxOutput {
+        capacity: amount,
+        lock_code_hash: from.lock_code_hash.clone(),
+        lock_hash_type: from.lock_hash_type.clone(),
+        lock_args: from.lock_args.clone(),
+        type_code_hash: DAO_TYPE_CODE_HASH.to_string(),
+        type_hash_type: "type".to_string(),
+        type_args: String::new(),
+        data: "0000000000000000".to_string(), // 8-byte deposit number = 0
+    }];
+    if needs_change {
+        outputs.push(TxOutput {
+            capacity: selected_cap - amount - SECP_FEE_ESTIMATE,
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    }
+
+    let request = TransactionRequest {
+        inputs: selected
+            .iter()
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity })
+            .collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![
+            TxCellDep { tx_hash: SECP_DEP_TX_HASH.to_string(), index: SECP_DEP_INDEX, dep_type: 1 },
+            TxCellDep { tx_hash: DAO_DEP_TX_HASH.to_string(), index: DAO_DEP_INDEX, dep_type: 0 },
+        ],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    let witness0 = sign_ckb_secp256k1_witness(built.tx_hash_hex.clone(), selected.len() as u32, kp.private_key_hex.clone())
+        .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
+
+    let tx_json = build_tx_json(
+        &selected,
+        &outputs,
+        &witness0,
+        &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group"), (DAO_DEP_TX_HASH, DAO_DEP_INDEX, "code")],
+    );
+    println!("broadcasting DAO deposit ({} CKB)…", amount / 1_0000_0000);
     match send_transaction(&tx_json) {
         Ok(hash) => {
             println!("\n✅ accepted by pool — tx_hash: {hash}");
@@ -509,14 +617,10 @@ fn cmd_checkhash(tx_hash: String) -> Result<(), String> {
 
 // ── JSON-RPC envelope ────────────────────────────────────────────────────────
 
-fn build_tx_json(
-    selected: &[&Cell],
-    outputs: &[TxOutput],
-    witness0_hex: &str,
-    dep_tx_hash: &str,
-    dep_index: u32,
-    dep_type: &str,
-) -> Value {
+/// A cell dep: (tx_hash, output index, dep_type "code"|"dep_group").
+type Dep<'a> = (&'a str, u32, &'a str);
+
+fn build_tx_json(selected: &[&Cell], outputs: &[TxOutput], witness0_hex: &str, deps: &[Dep]) -> Value {
     let inputs: Vec<Value> = selected
         .iter()
         .map(|c| {
@@ -530,18 +634,45 @@ fn build_tx_json(
     let out_json: Vec<Value> = outputs
         .iter()
         .map(|o| {
-            json!({
+            let mut cell = json!({
                 "capacity": hex_u64(o.capacity),
                 "lock": {
                     "code_hash": o.lock_code_hash,
                     "hash_type": o.lock_hash_type,
                     "args": o.lock_args
-                }
-            })
+                },
+                "type": null
+            });
+            if !o.type_code_hash.is_empty() {
+                let type_args = if o.type_args.is_empty() {
+                    "0x".to_string()
+                } else {
+                    format!("0x{}", o.type_args.trim_start_matches("0x"))
+                };
+                cell["type"] = json!({
+                    "code_hash": o.type_code_hash,
+                    "hash_type": o.type_hash_type,
+                    "args": type_args
+                });
+            }
+            cell
         })
         .collect();
 
-    let outputs_data: Vec<Value> = outputs.iter().map(|_| json!("0x")).collect();
+    let outputs_data: Vec<Value> = outputs
+        .iter()
+        .map(|o| json!(if o.data.is_empty() { "0x".to_string() } else { format!("0x{}", o.data.trim_start_matches("0x")) }))
+        .collect();
+
+    let cell_deps: Vec<Value> = deps
+        .iter()
+        .map(|(tx, idx, dt)| {
+            json!({
+                "out_point": { "tx_hash": tx, "index": hex_u32(*idx) },
+                "dep_type": dt
+            })
+        })
+        .collect();
 
     let mut witnesses = vec![json!(format!("0x{witness0_hex}"))];
     for _ in 1..selected.len() {
@@ -550,10 +681,7 @@ fn build_tx_json(
 
     json!({
         "version": "0x0",
-        "cell_deps": [{
-            "out_point": { "tx_hash": dep_tx_hash, "index": hex_u32(dep_index) },
-            "dep_type": dep_type
-        }],
+        "cell_deps": cell_deps,
         "header_deps": [],
         "inputs": inputs,
         "outputs": out_json,

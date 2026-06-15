@@ -65,7 +65,9 @@ object NetworkConfig {
         explorerBaseUrl = "https://testnet.explorer.nervos.org",
         addressPrefix = "ckt",
         daoTypeCodeHash = "0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e",
-        daoCellDepTxHash = "0x8e4966b8a2388243f421e0e8dda22f6c7b4a2e3e4e24e5f0939c9c2b946635d9",
+        // Testnet Nervos DAO dep = genesis tx[0] @ index 2 (Lumos AGGRON4). The
+        // prior value (0x8e4966b8…) does not exist on Pudge. Verified 2026-06-15.
+        daoCellDepTxHash = "0x8f8c79eb6671709633fe6a46de93c0fedc9c1b8a6527a18d3983879542635c9f",
         daoCellDepIndex = 2u,
         // ckb-mldsa-lock testnet deployment: mldsa65-lock-v2-rust (the live,
         // supported contract). code_hash is the Script hash (hash_type "type",

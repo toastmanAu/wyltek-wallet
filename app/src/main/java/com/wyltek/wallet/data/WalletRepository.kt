@@ -226,13 +226,11 @@ class WalletRepository(context: Context) {
 
             val built = buildTransaction(request)
 
-            val witnessPlaceholders = List(selected.size) { index ->
-                if (index == 0) "0x" + "00".repeat(65) else "0x"
-            }
-
-            val signature = signCkbSecp256k1(
+            // Canonical secp256k1_blake160_sighash_all: full WitnessArgs(lock=sig)
+            // for witnesses[0] (single secp group; same proven primitive as sendCkb).
+            val signature = signCkbSecp256k1Witness(
                 built.txHashHex,
-                witnessPlaceholders,
+                selected.size.toUInt(),
                 keyPair.privateKeyHex
             )
 
@@ -421,13 +419,11 @@ class WalletRepository(context: Context) {
 
             val built = buildTransaction(request)
 
-            val witnessPlaceholders = List(allInputs.size) { index ->
-                if (index == 0) "0x" + "00".repeat(65) else "0x"
-            }
-
-            val signature = signCkbSecp256k1(
+            // Canonical secp256k1_blake160_sighash_all: full WitnessArgs(lock=sig)
+            // for witnesses[0] (single secp group; same proven primitive as sendCkb).
+            val signature = signCkbSecp256k1Witness(
                 built.txHashHex,
-                witnessPlaceholders,
+                allInputs.size.toUInt(),
                 keyPair.privateKeyHex
             )
 
@@ -1026,13 +1022,11 @@ class WalletRepository(context: Context) {
 
             val built = buildTransaction(request)
 
-            val witnessPlaceholders = List(allInputs.size) { index ->
-                if (index == 0) "0x" + "00".repeat(65) else "0x"
-            }
-
-            val signature = signCkbSecp256k1(
+            // Canonical secp256k1_blake160_sighash_all: full WitnessArgs(lock=sig)
+            // for witnesses[0] (single secp group; same proven primitive as sendCkb).
+            val signature = signCkbSecp256k1Witness(
                 built.txHashHex,
-                witnessPlaceholders,
+                allInputs.size.toUInt(),
                 keyPair.privateKeyHex
             )
 
