@@ -681,6 +681,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_dao_witness(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_sign_message(
@@ -749,6 +751,8 @@ external fun uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(uni
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(`txHashHex`: RustBuffer.ByValue,`inputs`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(`txHashHex`: RustBuffer.ByValue,`witnessPlaceholdersHex`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1_dao_witness(`txHashHex`: RustBuffer.ByValue,`numInputs`: Int,`depositHeaderIndex`: Long,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1_witness(`txHashHex`: RustBuffer.ByValue,`numInputs`: Int,`privateKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -946,6 +950,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_dao_witness() != 29228.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness() != 18497.toShort()) {
@@ -2171,6 +2178,26 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1(
     
         FfiConverterString.lower(`txHashHex`),FfiConverterSequenceString.lower(`witnessPlaceholdersHex`),FfiConverterString.lower(`privateKeyHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * NervosDAO phase-2 (unlock/claim) witness builder. The withdrawing cell's
+         * `witnesses[0]` must carry the secp signature (lock) AND an `input_type`
+         * field = the u64 LE index of the deposit block header within header_deps.
+         *
+         * Assumes the withdrawing cell is input 0 of a single secp group. The sighash
+         * is computed over the WitnessArgs with its lock zeroed but `input_type`
+         * PRESENT (the index is part of the signed message).
+         */
+    @Throws(WalletException::class) fun `signCkbSecp256k1DaoWitness`(`txHashHex`: kotlin.String, `numInputs`: kotlin.UInt, `depositHeaderIndex`: kotlin.ULong, `privateKeyHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_sign_ckb_secp256k1_dao_witness(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterUInt.lower(`numInputs`),FfiConverterULong.lower(`depositHeaderIndex`),FfiConverterString.lower(`privateKeyHex`),_status)
 }
     )
     }

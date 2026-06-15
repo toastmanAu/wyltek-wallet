@@ -18,7 +18,9 @@
 
 use serde_json::{json, Value};
 use wyltekwalletcore::pq_keys::{mldsa65_from_seed, mldsa65_lock_args_v2};
-use wyltekwalletcore::signing::{sign_ckb_mldsa65, sign_ckb_secp256k1_witness, MldsaInputCell};
+use wyltekwalletcore::signing::{
+    sign_ckb_mldsa65, sign_ckb_secp256k1_dao_witness, sign_ckb_secp256k1_witness, MldsaInputCell,
+};
 use wyltekwalletcore::transaction::{
     build_transaction, TransactionRequest, TxCellDep, TxInput, TxOutput,
 };
@@ -83,9 +85,10 @@ fn main() {
         ),
         "deposit-dao" => cmd_deposit_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount_ckb")),
         "withdraw-dao-phase1" => cmd_withdraw_dao_phase1(arg(&args, 1, "seed_hex"), arg(&args, 2, "deposit_tx_hash")),
+        "claim-dao" => cmd_claim_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "withdraw_tx_hash"), args.get(3).cloned()),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  checkhash <tx_hash>",
             other
         )),
     };
@@ -373,7 +376,7 @@ fn cmd_spend_secp(seed_hex: String, to_address: String, amount_ckb: String) -> R
     let request = TransactionRequest {
         inputs: selected
             .iter()
-            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity })
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: c.since, capacity: c.capacity })
             .collect(),
         outputs: outputs.clone(),
         cell_deps: vec![TxCellDep {
@@ -472,7 +475,7 @@ fn cmd_deposit_dao(seed_hex: String, amount_ckb: String) -> Result<(), String> {
     let request = TransactionRequest {
         inputs: selected
             .iter()
-            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity })
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: c.since, capacity: c.capacity })
             .collect(),
         outputs: outputs.clone(),
         cell_deps: vec![
@@ -547,7 +550,7 @@ fn cmd_withdraw_dao_phase1(seed_hex: String, deposit_tx_hash: String) -> Result<
 
     // Inputs: deposit cell (index 0 — must positionally match the withdrawing
     // output) then the fee cell. Both share the classic secp lock (one group).
-    let deposit_cell = Cell { tx_hash: deposit_tx_hash.clone(), index: 0, capacity: deposit_cap };
+    let deposit_cell = Cell { tx_hash: deposit_tx_hash.clone(), index: 0, capacity: deposit_cap, since: 0 };
     let selected: Vec<&Cell> = vec![&deposit_cell, &fee_cell];
 
     // Withdrawing cell data = deposit block number, u64 little-endian (8 bytes).
@@ -579,7 +582,7 @@ fn cmd_withdraw_dao_phase1(seed_hex: String, deposit_tx_hash: String) -> Result<
     let request = TransactionRequest {
         inputs: selected
             .iter()
-            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity })
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: c.since, capacity: c.capacity })
             .collect(),
         outputs: outputs.clone(),
         cell_deps: vec![
@@ -603,6 +606,120 @@ fn cmd_withdraw_dao_phase1(seed_hex: String, deposit_tx_hash: String) -> Result<
         &[&block_hash],
     );
     println!("broadcasting DAO withdraw phase 1 (deposit block {block_number})…");
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ accepted by pool — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("send_transaction rejected: {e}")),
+    }
+}
+
+/// NervosDAO phase-2 (unlock/claim). Consumes a withdrawing cell and releases
+/// deposit + interest as plain CKB. Requires: both deposit & withdraw block
+/// headers in header_deps; witnesses[0].input_type = deposit-header index;
+/// the input `since` = the absolute-epoch unlock point (deposit_epoch + 180).
+///
+/// Pass "probe" as the 3rd arg to force since=0 — that makes the tx mature so
+/// the node RUNS the scripts (instead of rejecting at the time-lock), exposing
+/// any witness/header/capacity error vs. the expected DAO since-period failure.
+fn cmd_claim_dao(seed_hex: String, withdraw_tx_hash: String, mode: Option<String>) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let probe = mode.as_deref() == Some("probe");
+
+    let kp = generate_secp256k1_keypair(seed_hex.clone(), SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from_addr = public_key_to_ckb_address(kp.public_key_hex.clone(), "testnet".to_string())
+        .map_err(|e| format!("classic address: {e}"))?;
+    let from = decode_address(from_addr).map_err(|e| format!("decode from: {e}"))?;
+
+    // Fetch the phase-1 withdraw tx: its block, the withdrawing cell, the
+    // original deposit out_point, and the deposit block number (cell data).
+    let wtx = rpc("get_transaction", json!([withdraw_tx_hash]))?;
+    if wtx.pointer("/tx_status/status").and_then(Value::as_str) != Some("committed") {
+        return Err("withdraw tx not committed yet".into());
+    }
+    let withdraw_block_hash = wtx.pointer("/tx_status/block_hash").and_then(Value::as_str).ok_or("no withdraw block")?.to_string();
+    let withdrawing_cap = parse_hex_u64(wtx.pointer("/transaction/outputs/0/capacity").and_then(Value::as_str).ok_or("no cap")?)?;
+    let deposit_out_tx = wtx.pointer("/transaction/inputs/0/previous_output/tx_hash").and_then(Value::as_str).ok_or("no deposit outpoint")?.to_string();
+    let deposit_out_idx = wtx.pointer("/transaction/inputs/0/previous_output/index").and_then(Value::as_str).unwrap_or("0x0").to_string();
+    let data_hex = wtx.pointer("/transaction/outputs_data/0").and_then(Value::as_str).ok_or("no data")?.trim_start_matches("0x").to_string();
+    let deposit_block_number = {
+        let b = hex::decode(&data_hex).map_err(|e| format!("data hex: {e}"))?;
+        let mut a = [0u8; 8];
+        a.copy_from_slice(&b[..8]);
+        u64::from_le_bytes(a)
+    };
+
+    // Deposit block header → hash + epoch.
+    let dhdr = rpc("get_header_by_number", json!([format!("0x{:x}", deposit_block_number)]))?;
+    let deposit_block_hash = dhdr.get("hash").and_then(Value::as_str).ok_or("no deposit hash")?.to_string();
+    let deposit_epoch = parse_hex_u64(dhdr.get("epoch").and_then(Value::as_str).ok_or("no epoch")?)?;
+
+    // Max withdraw (deposit + interest) from the node.
+    let max_withdraw = parse_hex_u64(
+        rpc("calculate_dao_maximum_withdraw", json!([
+            { "tx_hash": deposit_out_tx, "index": deposit_out_idx },
+            withdraw_block_hash
+        ]))?
+        .as_str()
+        .ok_or("max_withdraw not a string")?,
+    )?;
+
+    // Unlock `since` = absolute epoch (deposit_epoch_number + 180), same fraction.
+    let number = deposit_epoch & 0xff_ffff;
+    let index = (deposit_epoch >> 24) & 0xffff;
+    let length = (deposit_epoch >> 40) & 0xffff;
+    let lock_until = (length << 40) | (index << 24) | (number + 180);
+    let since = if probe { 0 } else { 0x2000_0000_0000_0000u64 | lock_until };
+
+    println!("deposit block {deposit_block_number} epoch_number {number}; unlock epoch {}", number + 180);
+    println!("withdrawing {} CKB → max withdraw {} shannons (interest {})",
+        withdrawing_cap / 1_0000_0000, max_withdraw, max_withdraw - withdrawing_cap);
+    if probe { println!("PROBE: since=0 (force scripts to run; expect a DAO since-period failure)"); }
+
+    // Single input: the withdrawing cell, carrying the unlock `since`.
+    let withdrawing = Cell { tx_hash: withdraw_tx_hash.clone(), index: 0, capacity: withdrawing_cap, since };
+    let selected: Vec<&Cell> = vec![&withdrawing];
+
+    let outputs = vec![TxOutput {
+        capacity: max_withdraw - SECP_FEE_ESTIMATE,
+        lock_code_hash: from.lock_code_hash.clone(),
+        lock_hash_type: from.lock_hash_type.clone(),
+        lock_args: from.lock_args.clone(),
+        type_code_hash: String::new(),
+        type_hash_type: String::new(),
+        type_args: String::new(),
+        data: String::new(),
+    }];
+
+    let request = TransactionRequest {
+        inputs: vec![TxInput { tx_hash: withdraw_tx_hash.clone(), index: 0, since, capacity: withdrawing_cap }],
+        outputs: outputs.clone(),
+        cell_deps: vec![
+            TxCellDep { tx_hash: SECP_DEP_TX_HASH.to_string(), index: SECP_DEP_INDEX, dep_type: 1 },
+            TxCellDep { tx_hash: DAO_DEP_TX_HASH.to_string(), index: DAO_DEP_INDEX, dep_type: 0 },
+        ],
+        // Deposit header at index 0 (referenced by input_type), withdraw at 1.
+        header_deps: vec![deposit_block_hash.clone(), withdraw_block_hash.clone()],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    // input_type = deposit header index (0) within header_deps.
+    let witness0 = sign_ckb_secp256k1_dao_witness(built.tx_hash_hex.clone(), 1, 0, kp.private_key_hex.clone())
+        .map_err(|e| format!("sign_ckb_secp256k1_dao_witness: {e}"))?;
+
+    let tx_json = build_tx_json(
+        &selected,
+        &outputs,
+        &witness0,
+        &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group"), (DAO_DEP_TX_HASH, DAO_DEP_INDEX, "code")],
+        &[&deposit_block_hash, &withdraw_block_hash],
+    );
+    println!("broadcasting DAO claim…");
     match send_transaction(&tx_json) {
         Ok(hash) => {
             println!("\n✅ accepted by pool — tx_hash: {hash}");
@@ -744,7 +861,7 @@ fn build_tx_json(
         .map(|c| {
             json!({
                 "previous_output": { "tx_hash": c.tx_hash, "index": hex_u32(c.index) },
-                "since": "0x0"
+                "since": hex_u64(c.since)
             })
         })
         .collect();
@@ -815,6 +932,7 @@ struct Cell {
     tx_hash: String,
     index: u32,
     capacity: u64,
+    since: u64,
 }
 
 fn rpc(method: &str, params: Value) -> Result<Value, String> {
@@ -859,6 +977,7 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
             tx_hash: tx_hash.to_string(),
             index: parse_hex_u32(idx_hex)?,
             capacity: parse_hex_u64(cap_hex)?,
+            since: 0,
         });
     }
     Ok(cells)

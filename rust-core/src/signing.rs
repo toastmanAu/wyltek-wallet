@@ -347,6 +347,76 @@ pub fn sign_ckb_secp256k1_witness(
     Ok(hex::encode(serialize_witness_args(&lock)))
 }
 
+/// WitnessArgs with both `lock` and `input_type` set (output_type absent).
+/// Used for the NervosDAO phase-2 unlock witness.
+fn serialize_witness_args_with_input_type(lock: &[u8], input_type: &[u8]) -> Vec<u8> {
+    const HDR: usize = 4 + 3 * 4; // full_size(4) + 3 offsets(12)
+    let lock_field = 4 + lock.len();
+    let it_field = 4 + input_type.len();
+    let total = HDR + lock_field + it_field; // output_type absent (empty)
+
+    let mut buf = vec![0u8; total];
+    buf[0..4].copy_from_slice(&(total as u32).to_le_bytes());
+    let off0 = HDR;
+    let off1 = off0 + lock_field;
+    let off2 = off1 + it_field;
+    buf[4..8].copy_from_slice(&(off0 as u32).to_le_bytes()); // lock
+    buf[8..12].copy_from_slice(&(off1 as u32).to_le_bytes()); // input_type
+    buf[12..16].copy_from_slice(&(off2 as u32).to_le_bytes()); // output_type (== total, absent)
+    buf[off0..off0 + 4].copy_from_slice(&(lock.len() as u32).to_le_bytes());
+    buf[off0 + 4..off0 + 4 + lock.len()].copy_from_slice(lock);
+    buf[off1..off1 + 4].copy_from_slice(&(input_type.len() as u32).to_le_bytes());
+    buf[off1 + 4..off1 + 4 + input_type.len()].copy_from_slice(input_type);
+    buf
+}
+
+/// NervosDAO phase-2 (unlock/claim) witness builder. The withdrawing cell's
+/// `witnesses[0]` must carry the secp signature (lock) AND an `input_type`
+/// field = the u64 LE index of the deposit block header within header_deps.
+///
+/// Assumes the withdrawing cell is input 0 of a single secp group. The sighash
+/// is computed over the WitnessArgs with its lock zeroed but `input_type`
+/// PRESENT (the index is part of the signed message).
+#[uniffi::export]
+pub fn sign_ckb_secp256k1_dao_witness(
+    tx_hash_hex: String,
+    num_inputs: u32,
+    deposit_header_index: u64,
+    private_key_hex: String,
+) -> Result<String, WalletError> {
+    let tx_hash = hex::decode(tx_hash_hex.trim_start_matches("0x"))?;
+    if tx_hash.len() != 32 {
+        return Err(WalletError::InvalidInput(format!(
+            "tx_hash must be 32 bytes, got {}",
+            tx_hash.len()
+        )));
+    }
+
+    let idx = deposit_header_index.to_le_bytes(); // 8-byte LE header index
+    let placeholder = serialize_witness_args_with_input_type(&[0u8; 65], &idx);
+
+    let mut hasher = Blake2bBuilder::new(32).personal(b"ckb-default-hash").build();
+    hasher.update(&tx_hash);
+    hasher.update(&(placeholder.len() as u64).to_le_bytes());
+    hasher.update(&placeholder);
+    for _ in 1..num_inputs.max(1) {
+        hasher.update(&0u64.to_le_bytes());
+    }
+    let mut message = [0u8; 32];
+    hasher.finalize(&mut message);
+
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&hex::decode(private_key_hex.trim_start_matches("0x"))?)?;
+    let signature = secp.sign_ecdsa_recoverable(&Message::from_digest(message), &sk);
+    let (recovery_id, serialized) = signature.serialize_compact();
+
+    let mut lock = Vec::with_capacity(65);
+    lock.extend_from_slice(&serialized);
+    lock.push(recovery_id.to_i32() as u8);
+
+    Ok(hex::encode(serialize_witness_args_with_input_type(&lock, &idx)))
+}
+
 #[uniffi::export]
 pub fn sign_message(
     message_hex: String,
@@ -550,5 +620,43 @@ mod secp_witness_tests {
         let recovered = secp.recover_ecdsa(&Message::from_digest(msg), &rsig).unwrap();
         let expected = secp256k1::PublicKey::from_slice(&hex::decode(&kp.public_key_hex).unwrap()).unwrap();
         assert_eq!(recovered, expected, "sig recovers to signing key over canonical sighash");
+    }
+
+    /// DAO phase-2 witness: WitnessArgs(lock=65 sig, input_type=8-byte LE index).
+    /// The signature must recover over the sighash that includes input_type.
+    #[test]
+    fn dao_witness_layout_and_recovery() {
+        let kp = generate_secp256k1_keypair("cd".repeat(32), "m/44'/302'/0'/0/0".into()).unwrap();
+        let tx_hash_hex = "ef".repeat(32);
+        let header_index: u64 = 0;
+
+        let witness_hex =
+            sign_ckb_secp256k1_dao_witness(tx_hash_hex.clone(), 1, header_index, kp.private_key_hex).unwrap();
+        let witness = hex::decode(&witness_hex).unwrap();
+
+        // total(4) | off_lock(4)=16 | off_it(4)=16+4+65=85 | off_ot(4)=85+4+8=97 | lock(4+65) | it(4+8)
+        assert_eq!(u32::from_le_bytes(witness[4..8].try_into().unwrap()), 16);
+        assert_eq!(u32::from_le_bytes(witness[8..12].try_into().unwrap()), 85);
+        assert_eq!(u32::from_le_bytes(witness[12..16].try_into().unwrap()), 97);
+        assert_eq!(u32::from_le_bytes(witness[16..20].try_into().unwrap()), 65, "lock len");
+        let sig = &witness[20..85];
+        assert_eq!(u32::from_le_bytes(witness[85..89].try_into().unwrap()), 8, "input_type len");
+        assert_eq!(&witness[89..97], &header_index.to_le_bytes(), "input_type = LE header index");
+
+        // Recompute the sighash over the zeroed-lock placeholder (with input_type) and recover.
+        let placeholder = serialize_witness_args_with_input_type(&[0u8; 65], &header_index.to_le_bytes());
+        let mut h = Blake2bBuilder::new(32).personal(b"ckb-default-hash").build();
+        h.update(&hex::decode(&tx_hash_hex).unwrap());
+        h.update(&(placeholder.len() as u64).to_le_bytes());
+        h.update(&placeholder);
+        let mut msg = [0u8; 32];
+        h.finalize(&mut msg);
+
+        let secp = Secp256k1::new();
+        let rid = RecoveryId::from_i32(sig[64] as i32).unwrap();
+        let rsig = RecoverableSignature::from_compact(&sig[..64], rid).unwrap();
+        let recovered = secp.recover_ecdsa(&Message::from_digest(msg), &rsig).unwrap();
+        let expected = secp256k1::PublicKey::from_slice(&hex::decode(&kp.public_key_hex).unwrap()).unwrap();
+        assert_eq!(recovered, expected, "DAO witness sig recovers over input_type-bearing sighash");
     }
 }
