@@ -357,7 +357,11 @@ class WalletRepository(context: Context) {
             allInputs.addAll(changeCells)
             val totalInput = allInputs.sumOf { it.capacity }
 
-            val depositBlockNumberHex = "0x${deposit.depositBlockNumber.toString(16)}"
+            // DAO withdrawing-cell data = deposit block number as u64 little-endian
+            // (8 bytes) — NOT a minimal big-endian hex, which the DAO script rejects.
+            val n = deposit.depositBlockNumber
+            val depositBlockNumberHex = "0x" + ByteArray(8) { ((n shr (it * 8)) and 0xFFu).toByte() }
+                .joinToString("") { "%02x".format(it) }
 
             val outputs = mutableListOf(
                 com.wyltek.wallet.core.native.TxOutput(
@@ -414,6 +418,9 @@ class WalletRepository(context: Context) {
                 },
                 outputs = outputs,
                 cellDeps = cellDeps,
+                // Hash the deposit block header into the tx_hash so the signed
+                // hash matches the broadcast tx (the JSON envelope includes it).
+                headerDeps = headerDeps,
                 feeRate = feeRate
             )
 

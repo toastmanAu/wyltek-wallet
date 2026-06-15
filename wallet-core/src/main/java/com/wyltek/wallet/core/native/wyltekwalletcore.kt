@@ -1496,6 +1496,13 @@ data class TransactionRequest (
     , 
     var `cellDeps`: List<TxCellDep>
     , 
+    /**
+     * Block hashes referenced as header_deps (e.g. NervosDAO deposit/withdraw
+     * headers). MUST be included so the hashed RawTransaction — and therefore
+     * the signing tx_hash — matches the broadcast transaction.
+     */
+    var `headerDeps`: List<kotlin.String> = listOf() 
+    , 
     var `feeRate`: kotlin.ULong
     
 ){
@@ -1516,6 +1523,7 @@ public object FfiConverterTypeTransactionRequest: FfiConverterRustBuffer<Transac
             FfiConverterSequenceTypeTxInput.read(buf),
             FfiConverterSequenceTypeTxOutput.read(buf),
             FfiConverterSequenceTypeTxCellDep.read(buf),
+            FfiConverterSequenceString.read(buf),
             FfiConverterULong.read(buf),
         )
     }
@@ -1524,6 +1532,7 @@ public object FfiConverterTypeTransactionRequest: FfiConverterRustBuffer<Transac
             FfiConverterSequenceTypeTxInput.allocationSize(value.`inputs`) +
             FfiConverterSequenceTypeTxOutput.allocationSize(value.`outputs`) +
             FfiConverterSequenceTypeTxCellDep.allocationSize(value.`cellDeps`) +
+            FfiConverterSequenceString.allocationSize(value.`headerDeps`) +
             FfiConverterULong.allocationSize(value.`feeRate`)
     )
 
@@ -1531,6 +1540,7 @@ public object FfiConverterTypeTransactionRequest: FfiConverterRustBuffer<Transac
             FfiConverterSequenceTypeTxInput.write(value.`inputs`, buf)
             FfiConverterSequenceTypeTxOutput.write(value.`outputs`, buf)
             FfiConverterSequenceTypeTxCellDep.write(value.`cellDeps`, buf)
+            FfiConverterSequenceString.write(value.`headerDeps`, buf)
             FfiConverterULong.write(value.`feeRate`, buf)
     }
 }

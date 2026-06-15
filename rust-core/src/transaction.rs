@@ -44,6 +44,11 @@ pub struct TransactionRequest {
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
     pub cell_deps: Vec<TxCellDep>,
+    /// Block hashes referenced as header_deps (e.g. NervosDAO deposit/withdraw
+    /// headers). MUST be included so the hashed RawTransaction — and therefore
+    /// the signing tx_hash — matches the broadcast transaction.
+    #[uniffi(default = [])]
+    pub header_deps: Vec<String>,
     pub fee_rate: u64,
 }
 
@@ -116,10 +121,15 @@ pub fn build_transaction(request: TransactionRequest) -> Result<BuiltTransaction
         .map(|o| hex_to_bytes(&o.data).unwrap_or_default())
         .collect();
 
+    let header_deps: Vec<[u8; 32]> = request.header_deps.iter()
+        .map(|h| hex_to_byte32(h))
+        .collect::<Result<Vec<_>, String>>()
+        .map_err(WalletError::InvalidInput)?;
+
     let raw = RawTransactionSer {
         version: 0,
         cell_deps,
-        header_deps: vec![],
+        header_deps,
         inputs,
         outputs,
         outputs_data,

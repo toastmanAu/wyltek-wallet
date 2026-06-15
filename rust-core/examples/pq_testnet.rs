@@ -82,9 +82,10 @@ fn main() {
             arg(&args, 3, "amount_ckb"),
         ),
         "deposit-dao" => cmd_deposit_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount_ckb")),
+        "withdraw-dao-phase1" => cmd_withdraw_dao_phase1(arg(&args, 1, "seed_hex"), arg(&args, 2, "deposit_tx_hash")),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  checkhash <tx_hash>",
             other
         )),
     };
@@ -269,6 +270,7 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
             index: MLDSA_DEP_INDEX,
             dep_type: DEP_TYPE_CODE,
         }],
+        header_deps: vec![],
         fee_rate: 1000,
     };
     let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
@@ -295,7 +297,7 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
     .map_err(|e| format!("sign_ckb_mldsa65: {e}"))?;
 
     // 6. Assemble the JSON-RPC envelope exactly as WalletRepository.sendCkb does.
-    let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code")]);
+    let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code")], &[]);
     println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
 
     match send_transaction(&tx_json) {
@@ -379,6 +381,7 @@ fn cmd_spend_secp(seed_hex: String, to_address: String, amount_ckb: String) -> R
             index: SECP_DEP_INDEX,
             dep_type: 1, // dep_group
         }],
+        header_deps: vec![],
         fee_rate: 1000,
     };
     let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
@@ -391,7 +394,7 @@ fn cmd_spend_secp(seed_hex: String, to_address: String, amount_ckb: String) -> R
     )
     .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
 
-    let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group")]);
+    let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group")], &[]);
     println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
     match send_transaction(&tx_json) {
         Ok(hash) => {
@@ -476,6 +479,7 @@ fn cmd_deposit_dao(seed_hex: String, amount_ckb: String) -> Result<(), String> {
             TxCellDep { tx_hash: SECP_DEP_TX_HASH.to_string(), index: SECP_DEP_INDEX, dep_type: 1 },
             TxCellDep { tx_hash: DAO_DEP_TX_HASH.to_string(), index: DAO_DEP_INDEX, dep_type: 0 },
         ],
+        header_deps: vec![],
         fee_rate: 1000,
     };
     let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
@@ -489,8 +493,116 @@ fn cmd_deposit_dao(seed_hex: String, amount_ckb: String) -> Result<(), String> {
         &outputs,
         &witness0,
         &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group"), (DAO_DEP_TX_HASH, DAO_DEP_INDEX, "code")],
+        &[],
     );
     println!("broadcasting DAO deposit ({} CKB)…", amount / 1_0000_0000);
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ accepted by pool — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("send_transaction rejected: {e}")),
+    }
+}
+
+/// Nervos DAO withdraw phase 1 (start withdraw) — consumes a deposit cell and
+/// creates a withdrawing cell whose data = deposit block number (u64 LE). Adds
+/// the deposit block header to header_deps (so build_transaction hashes it into
+/// the tx_hash) and verifies on-chain. Exercises header_deps + a DAO transition.
+fn cmd_withdraw_dao_phase1(seed_hex: String, deposit_tx_hash: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let kp = generate_secp256k1_keypair(seed_hex.clone(), SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from_addr = public_key_to_ckb_address(kp.public_key_hex.clone(), "testnet".to_string())
+        .map_err(|e| format!("classic address: {e}"))?;
+    let from = decode_address(from_addr).map_err(|e| format!("decode from: {e}"))?;
+
+    // Fetch the deposit tx: its commit block + the DAO cell at output 0.
+    let result = rpc("get_transaction", json!([deposit_tx_hash]))?;
+    let status = result.pointer("/tx_status/status").and_then(Value::as_str).unwrap_or("");
+    if status != "committed" {
+        return Err(format!("deposit tx not committed yet (status: {status})"));
+    }
+    let block_hash = result
+        .pointer("/tx_status/block_hash")
+        .and_then(Value::as_str)
+        .ok_or("no block_hash")?
+        .to_string();
+    let block_number = parse_hex_u64(
+        result.pointer("/tx_status/block_number").and_then(Value::as_str).ok_or("no block_number")?,
+    )?;
+    let deposit_cap = parse_hex_u64(
+        result.pointer("/transaction/outputs/0/capacity").and_then(Value::as_str).ok_or("no deposit capacity")?,
+    )?;
+
+    // Fee cell(s) from the classic lock (pure-CKB; the DAO cell is filtered out).
+    let fee_cells = get_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    let fee_cell = fee_cells
+        .iter()
+        .filter(|c| c.capacity >= SECP_FEE_ESTIMATE + MIN_CELL_CAPACITY)
+        .min_by_key(|c| c.capacity)
+        .ok_or("no fee cell large enough at the classic lock")?
+        .clone();
+
+    // Inputs: deposit cell (index 0 — must positionally match the withdrawing
+    // output) then the fee cell. Both share the classic secp lock (one group).
+    let deposit_cell = Cell { tx_hash: deposit_tx_hash.clone(), index: 0, capacity: deposit_cap };
+    let selected: Vec<&Cell> = vec![&deposit_cell, &fee_cell];
+
+    // Withdrawing cell data = deposit block number, u64 little-endian (8 bytes).
+    let data_hex = hex::encode(block_number.to_le_bytes());
+
+    let outputs = vec![
+        TxOutput {
+            capacity: deposit_cap, // phase 1 preserves the deposit capacity exactly
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: DAO_TYPE_CODE_HASH.to_string(),
+            type_hash_type: "type".to_string(),
+            type_args: String::new(),
+            data: data_hex,
+        },
+        TxOutput {
+            capacity: fee_cell.capacity - SECP_FEE_ESTIMATE,
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        },
+    ];
+
+    let request = TransactionRequest {
+        inputs: selected
+            .iter()
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity })
+            .collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![
+            TxCellDep { tx_hash: SECP_DEP_TX_HASH.to_string(), index: SECP_DEP_INDEX, dep_type: 1 },
+            TxCellDep { tx_hash: DAO_DEP_TX_HASH.to_string(), index: DAO_DEP_INDEX, dep_type: 0 },
+        ],
+        header_deps: vec![block_hash.clone()],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    let witness0 = sign_ckb_secp256k1_witness(built.tx_hash_hex.clone(), selected.len() as u32, kp.private_key_hex.clone())
+        .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
+
+    let tx_json = build_tx_json(
+        &selected,
+        &outputs,
+        &witness0,
+        &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group"), (DAO_DEP_TX_HASH, DAO_DEP_INDEX, "code")],
+        &[&block_hash],
+    );
+    println!("broadcasting DAO withdraw phase 1 (deposit block {block_number})…");
     match send_transaction(&tx_json) {
         Ok(hash) => {
             println!("\n✅ accepted by pool — tx_hash: {hash}");
@@ -620,7 +732,13 @@ fn cmd_checkhash(tx_hash: String) -> Result<(), String> {
 /// A cell dep: (tx_hash, output index, dep_type "code"|"dep_group").
 type Dep<'a> = (&'a str, u32, &'a str);
 
-fn build_tx_json(selected: &[&Cell], outputs: &[TxOutput], witness0_hex: &str, deps: &[Dep]) -> Value {
+fn build_tx_json(
+    selected: &[&Cell],
+    outputs: &[TxOutput],
+    witness0_hex: &str,
+    deps: &[Dep],
+    header_deps: &[&str],
+) -> Value {
     let inputs: Vec<Value> = selected
         .iter()
         .map(|c| {
@@ -682,7 +800,7 @@ fn build_tx_json(selected: &[&Cell], outputs: &[TxOutput], witness0_hex: &str, d
     json!({
         "version": "0x0",
         "cell_deps": cell_deps,
-        "header_deps": [],
+        "header_deps": header_deps,
         "inputs": inputs,
         "outputs": out_json,
         "outputs_data": outputs_data,
