@@ -61,6 +61,17 @@ const DAO_DEP_INDEX: u32 = 2;
 // A DAO cell occupies ~102 CKB (8 cap + 53 lock + 33 type + 8 data).
 const DAO_MIN_CAPACITY: u64 = 102_0000_0000;
 
+// Simple UDT (testnet): standard sUDT type script + its code cell dep.
+// Mirrors NetworkConfig.testnet.{sudtTypeCodeHash, sudtCellDepTxHash}.
+const SUDT_CODE_HASH: &str =
+    "0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4";
+const SUDT_DEP_TX_HASH: &str =
+    "0xe12877ebd2c3c364dc46c5c992bcfaf4fee33fa13eebdf82c591fc9825aab769";
+const SUDT_DEP_INDEX: u32 = 0;
+// sUDT cell occupies ~142 bytes; WalletRepository reserves 200 CKB per cell.
+const SUDT_CELL_CAPACITY: u64 = 200_0000_0000;
+const SUDT_FEE_ESTIMATE: u64 = 2_000;
+
 // Cell-selection knobs lifted verbatim from WalletRepository.sendCkb.
 const MIN_CELL_CAPACITY: u64 = 81_0000_0000; // 81 CKB
 const PQ_FEE_ESTIMATE: u64 = 10_000; // shannons reserved for the ~5.4 KB PQ witness
@@ -86,9 +97,12 @@ fn main() {
         "deposit-dao" => cmd_deposit_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount_ckb")),
         "withdraw-dao-phase1" => cmd_withdraw_dao_phase1(arg(&args, 1, "seed_hex"), arg(&args, 2, "deposit_tx_hash")),
         "claim-dao" => cmd_claim_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "withdraw_tx_hash"), args.get(3).cloned()),
+        "sudt-balance" => cmd_sudt_balance(arg(&args, 1, "seed_hex")),
+        "mint-sudt" => cmd_mint_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount")),
+        "send-sudt" => cmd_send_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "to_address"), arg(&args, 3, "amount")),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>",
             other
         )),
     };
@@ -730,6 +744,262 @@ fn cmd_claim_dao(seed_hex: String, withdraw_tx_hash: String, mode: Option<String
     }
 }
 
+// ── sUDT (simple UDT) mint + transfer — verifies WalletRepository.sendToken ──
+
+fn cmd_sudt_balance(seed_hex: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let kp = generate_secp256k1_keypair(seed_hex, SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from = decode_address(
+        public_key_to_ckb_address(kp.public_key_hex, "testnet".to_string())
+            .map_err(|e| format!("address: {e}"))?,
+    )
+    .map_err(|e| format!("decode: {e}"))?;
+    let type_args = owner_lock_hash(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    let cells = get_sudt_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args, &type_args)?;
+    let total: u128 = cells.iter().map(|c| c.amount).sum();
+    println!("owner sUDT type args: {type_args}");
+    println!("{} sUDT cell(s), total {total} tokens", cells.len());
+    Ok(())
+}
+
+/// Mint sUDT to our own classic lock. Authorized because our owner lock (the
+/// type args' preimage) is present as an input, so output amount may exceed 0.
+fn cmd_mint_sudt(seed_hex: String, amount_str: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let amount: u128 = amount_str.parse().map_err(|_| "amount must be a whole number of tokens".to_string())?;
+
+    let kp = generate_secp256k1_keypair(seed_hex, SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from = decode_address(
+        public_key_to_ckb_address(kp.public_key_hex.clone(), "testnet".to_string())
+            .map_err(|e| format!("address: {e}"))?,
+    )
+    .map_err(|e| format!("decode: {e}"))?;
+    let type_args = owner_lock_hash(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+
+    // Fund the sUDT cell + fee from pure-CKB cells at the owner lock.
+    let cells = get_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    if cells.is_empty() {
+        return Err("no spendable CKB cells — fund the classic lock first".into());
+    }
+    let mut sorted = cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let need = SUDT_CELL_CAPACITY + SUDT_FEE_ESTIMATE + MIN_CELL_CAPACITY;
+    let mut selected: Vec<&Cell> = Vec::new();
+    let mut cap: u64 = 0;
+    for c in &sorted {
+        selected.push(c);
+        cap += c.capacity;
+        if cap >= need {
+            break;
+        }
+    }
+    if cap < SUDT_CELL_CAPACITY + SUDT_FEE_ESTIMATE {
+        return Err(format!("insufficient CKB: have {cap}, need ≥ {}", SUDT_CELL_CAPACITY + SUDT_FEE_ESTIMATE));
+    }
+    let needs_change = cap >= SUDT_CELL_CAPACITY + SUDT_FEE_ESTIMATE + MIN_CELL_CAPACITY;
+
+    let mut outputs = vec![TxOutput {
+        capacity: SUDT_CELL_CAPACITY,
+        lock_code_hash: from.lock_code_hash.clone(),
+        lock_hash_type: from.lock_hash_type.clone(),
+        lock_args: from.lock_args.clone(),
+        type_code_hash: SUDT_CODE_HASH.to_string(),
+        type_hash_type: "type".to_string(),
+        type_args: type_args.clone(),
+        data: u128_le_hex(amount),
+    }];
+    if needs_change {
+        outputs.push(TxOutput {
+            capacity: cap - SUDT_CELL_CAPACITY - SUDT_FEE_ESTIMATE,
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    }
+
+    let request = TransactionRequest {
+        inputs: selected
+            .iter()
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: c.since, capacity: c.capacity })
+            .collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![
+            TxCellDep { tx_hash: SECP_DEP_TX_HASH.to_string(), index: SECP_DEP_INDEX, dep_type: 1 },
+            TxCellDep { tx_hash: SUDT_DEP_TX_HASH.to_string(), index: SUDT_DEP_INDEX, dep_type: 0 },
+        ],
+        header_deps: vec![],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("minting {amount} tokens; sUDT type args {type_args}");
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    let witness0 = sign_ckb_secp256k1_witness(built.tx_hash_hex.clone(), selected.len() as u32, kp.private_key_hex.clone())
+        .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
+    let tx_json = build_tx_json(
+        &selected,
+        &outputs,
+        &witness0,
+        &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group"), (SUDT_DEP_TX_HASH, SUDT_DEP_INDEX, "code")],
+        &[],
+    );
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ minted — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("send_transaction rejected: {e}")),
+    }
+}
+
+/// Transfer sUDT — faithful port of WalletRepository.sendToken (incl. the fee
+/// reserved from CKB change). sUDT inputs first, then pure-CKB inputs for
+/// capacity; outputs = recipient sUDT, [sUDT change], [CKB change].
+fn cmd_send_sudt(seed_hex: String, to_address: String, amount_str: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let amount: u128 = amount_str.parse().map_err(|_| "amount must be a whole number of tokens".to_string())?;
+
+    let kp = generate_secp256k1_keypair(seed_hex, SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from = decode_address(
+        public_key_to_ckb_address(kp.public_key_hex.clone(), "testnet".to_string())
+            .map_err(|e| format!("address: {e}"))?,
+    )
+    .map_err(|e| format!("decode from: {e}"))?;
+    let to = decode_address(to_address).map_err(|e| format!("decode to: {e}"))?;
+    let type_args = owner_lock_hash(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+
+    let sudt_cells = get_sudt_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args, &type_args)?;
+    if sudt_cells.is_empty() {
+        return Err("no sUDT cells at the classic lock — mint first".into());
+    }
+    let total: u128 = sudt_cells.iter().map(|c| c.amount).sum();
+    if total < amount {
+        return Err(format!("insufficient tokens: have {total}, need {amount}"));
+    }
+
+    let mut sudt_inputs: Vec<SudtCell> = Vec::new();
+    let mut sel_amount: u128 = 0;
+    for c in &sudt_cells {
+        sudt_inputs.push(c.clone());
+        sel_amount += c.amount;
+        if sel_amount >= amount {
+            break;
+        }
+    }
+    let sudt_out_count: u64 = if sel_amount > amount { 2 } else { 1 };
+    let sudt_input_cap: u64 = sudt_inputs.iter().map(|c| c.capacity).sum();
+
+    // Pure-CKB cells to top up the sUDT output capacity + fee.
+    let ckb_cells = get_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    let needed_ckb = sudt_out_count * SUDT_CELL_CAPACITY + SUDT_FEE_ESTIMATE;
+    let mut sorted = ckb_cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let mut selected_ckb: Vec<&Cell> = Vec::new();
+    let mut sel_ckb_cap: u64 = 0;
+    for c in &sorted {
+        if sel_ckb_cap + sudt_input_cap >= needed_ckb + MIN_CELL_CAPACITY {
+            break;
+        }
+        selected_ckb.push(c);
+        sel_ckb_cap += c.capacity;
+    }
+    let total_in_cap = sel_ckb_cap + sudt_input_cap;
+    if total_in_cap < needed_ckb {
+        return Err(format!("insufficient CKB for transfer: have {total_in_cap}, need {needed_ckb}"));
+    }
+
+    let mut outputs = vec![TxOutput {
+        capacity: SUDT_CELL_CAPACITY,
+        lock_code_hash: to.lock_code_hash.clone(),
+        lock_hash_type: to.lock_hash_type.clone(),
+        lock_args: to.lock_args.clone(),
+        type_code_hash: SUDT_CODE_HASH.to_string(),
+        type_hash_type: "type".to_string(),
+        type_args: type_args.clone(),
+        data: u128_le_hex(amount),
+    }];
+    if sel_amount > amount {
+        outputs.push(TxOutput {
+            capacity: SUDT_CELL_CAPACITY,
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: SUDT_CODE_HASH.to_string(),
+            type_hash_type: "type".to_string(),
+            type_args: type_args.clone(),
+            data: u128_le_hex(sel_amount - amount),
+        });
+    }
+    let ckb_change = total_in_cap as i64
+        - (sudt_out_count as i64) * (SUDT_CELL_CAPACITY as i64)
+        - (SUDT_FEE_ESTIMATE as i64);
+    if ckb_change >= MIN_CELL_CAPACITY as i64 {
+        outputs.push(TxOutput {
+            capacity: ckb_change as u64,
+            lock_code_hash: from.lock_code_hash.clone(),
+            lock_hash_type: from.lock_hash_type.clone(),
+            lock_args: from.lock_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    } else if ckb_change < 0 {
+        return Err("insufficient CKB capacity for token transfer".into());
+    }
+
+    // Unified input list (sUDT first, then CKB) for build_transaction + build_tx_json.
+    let mut all_cells: Vec<Cell> = sudt_inputs.iter().map(SudtCell::as_cell).collect();
+    all_cells.extend(selected_ckb.iter().map(|c| (*c).clone()));
+    let input_refs: Vec<&Cell> = all_cells.iter().collect();
+
+    let request = TransactionRequest {
+        inputs: all_cells
+            .iter()
+            .map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: c.since, capacity: c.capacity })
+            .collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![
+            TxCellDep { tx_hash: SECP_DEP_TX_HASH.to_string(), index: SECP_DEP_INDEX, dep_type: 1 },
+            TxCellDep { tx_hash: SUDT_DEP_TX_HASH.to_string(), index: SUDT_DEP_INDEX, dep_type: 0 },
+        ],
+        header_deps: vec![],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!(
+        "sending {amount} tokens to {} ({} sUDT in, {} out)",
+        to.bech32m, sudt_inputs.len(), sudt_out_count
+    );
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    let witness0 = sign_ckb_secp256k1_witness(built.tx_hash_hex.clone(), input_refs.len() as u32, kp.private_key_hex.clone())
+        .map_err(|e| format!("sign_ckb_secp256k1_witness: {e}"))?;
+    let tx_json = build_tx_json(
+        &input_refs,
+        &outputs,
+        &witness0,
+        &[(SECP_DEP_TX_HASH, SECP_DEP_INDEX, "dep_group"), (SUDT_DEP_TX_HASH, SUDT_DEP_INDEX, "code")],
+        &[],
+    );
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ accepted by pool — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("send_transaction rejected: {e}")),
+    }
+}
+
 // ── Molecule canonicality check against a real on-chain tx ───────────────────
 
 fn h32(s: &str) -> Result<[u8; 32], String> {
@@ -981,6 +1251,87 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
         });
     }
     Ok(cells)
+}
+
+#[derive(Clone)]
+struct SudtCell {
+    tx_hash: String,
+    index: u32,
+    capacity: u64,
+    amount: u128,
+}
+
+impl SudtCell {
+    fn as_cell(&self) -> Cell {
+        Cell { tx_hash: self.tx_hash.clone(), index: self.index, capacity: self.capacity, since: 0 }
+    }
+}
+
+/// Indexer `get_cells` for a lock script, filtered to the given sUDT type
+/// (args = owner lock hash), returning capacity + decoded u128 token amount.
+fn get_sudt_cells(
+    lock_code_hash: &str,
+    lock_hash_type: &str,
+    lock_args: &str,
+    type_args: &str,
+) -> Result<Vec<SudtCell>, String> {
+    let search_key = json!({
+        "script": { "code_hash": lock_code_hash, "hash_type": lock_hash_type, "args": lock_args },
+        "script_type": "lock",
+        "filter": { "script": { "code_hash": SUDT_CODE_HASH, "hash_type": "type", "args": type_args } },
+        "with_data": true
+    });
+    let result = rpc("get_cells", json!([search_key, "asc", "0x3e8"]))?;
+    let empty = vec![];
+    let objects = result.get("objects").and_then(Value::as_array).unwrap_or(&empty);
+
+    let mut cells = Vec::new();
+    for o in objects {
+        // Defensive: confirm the type script is the sUDT we asked for.
+        let matches = o
+            .pointer("/output/type/code_hash")
+            .and_then(Value::as_str)
+            .map(|c| c.eq_ignore_ascii_case(SUDT_CODE_HASH))
+            .unwrap_or(false);
+        if !matches {
+            continue;
+        }
+        let cap_hex = o.pointer("/output/capacity").and_then(Value::as_str).unwrap_or("0x0");
+        let tx_hash = o.pointer("/out_point/tx_hash").and_then(Value::as_str).unwrap_or("");
+        let idx_hex = o.pointer("/out_point/index").and_then(Value::as_str).unwrap_or("0x0");
+        let data = o.get("output_data").and_then(Value::as_str).unwrap_or("0x");
+        cells.push(SudtCell {
+            tx_hash: tx_hash.to_string(),
+            index: parse_hex_u32(idx_hex)?,
+            capacity: parse_hex_u64(cap_hex)?,
+            amount: parse_u128_le(data),
+        });
+    }
+    Ok(cells)
+}
+
+fn u128_le_hex(amount: u128) -> String {
+    hex::encode(amount.to_le_bytes())
+}
+
+fn parse_u128_le(data_hex: &str) -> u128 {
+    let b = hex::decode(data_hex.trim_start_matches("0x")).unwrap_or_default();
+    let mut a = [0u8; 16];
+    let n = b.len().min(16);
+    a[..n].copy_from_slice(&b[..n]);
+    u128::from_le_bytes(a)
+}
+
+/// sUDT type args = ckbhash(owner lock script molecule). The owner lock is the
+/// authority that may mint; carrying it as an input authorizes output > input.
+fn owner_lock_hash(code_hash: &str, hash_type: &str, args: &str) -> Result<String, String> {
+    let script = ScriptSer {
+        code_hash: h32(code_hash)?,
+        hash_type: hash_type_to_byte(hash_type),
+        args: hex::decode(args.trim_start_matches("0x")).map_err(|e| format!("lock args: {e}"))?,
+    };
+    let h = ckb_hash(hex::encode(script.to_bytes())).map_err(|e| format!("ckb_hash: {e}"))?;
+    Ok(format!("0x{h}"))
 }
 
 fn send_transaction(tx: &Value) -> Result<String, String> {

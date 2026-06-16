@@ -1140,13 +1140,19 @@ class WalletRepository(context: Context) {
             // Minimum capacity for sUDT cell (occupied ~182 bytes)
             val minSudtCellCapacity = 200_0000_0000uL // 200 CKB in shannons
 
+            // Fee reserved for the transfer. build_transaction only *reports*
+            // estimated_fee — it never deducts it — so the caller MUST hold back
+            // a fee from the CKB change, or the tx pays zero fee and the pool
+            // rejects it (PoolRejectedTransactionByMinFeeRate).
+            val sudtFeeEstimate = 2000uL
+
             // Fetch CKB cells for capacity
             val ckbCells = chainManager.getCellsByLock(fromLock).filter {
                 it.type_ == null && it.data.isNullOrEmpty()
             }
 
             val sudtOutputCount = if (selectedSudtAmount > amount) 2uL else 1uL
-            val neededCkb = sudtOutputCount * minSudtCellCapacity + 2000uL
+            val neededCkb = sudtOutputCount * minSudtCellCapacity + sudtFeeEstimate
 
             val selectedCkb = mutableListOf<Utxo>()
             var selectedCkbCapacity = 0uL
@@ -1192,7 +1198,10 @@ class WalletRepository(context: Context) {
 
             val allInputs = sudtInputs + selectedCkb
             val totalInputCapacity = selectedCkbCapacity + sudtInputs.sumOf { it.capacity }
-            val ckbChangeLong = totalInputCapacity.toLong() - (sudtOutputCount.toLong() * minSudtCellCapacity.toLong())
+            // Reserve the fee here so outputs sum to (inputs - fee), not inputs.
+            val ckbChangeLong = totalInputCapacity.toLong() -
+                (sudtOutputCount.toLong() * minSudtCellCapacity.toLong()) -
+                sudtFeeEstimate.toLong()
 
             if (ckbChangeLong >= 81_0000_0000L) {
                 outputs.add(TxOutput(
