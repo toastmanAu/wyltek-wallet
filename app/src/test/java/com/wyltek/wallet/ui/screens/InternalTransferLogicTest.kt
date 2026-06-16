@@ -37,6 +37,22 @@ class InternalTransferLogicTest {
         assertNull(InternalTransferLogic.parseCkbToShannons("abc"))
     }
 
+    @Test fun rejects_scientific_notation_ckb() {
+        assertNull(InternalTransferLogic.parseCkbToShannons("1e2"))
+        assertNull(InternalTransferLogic.parseCkbToShannons("1E8"))
+    }
+
+    @Test fun rejects_whitespace_only_ckb() {
+        assertNull(InternalTransferLogic.parseCkbToShannons("   "))
+    }
+
+    @Test fun ckb_ulong_overflow_boundary() {
+        // ULong max shannons = 18446744073709551615 = 184467440737.09551615 CKB
+        assertEquals(18446744073709551615uL, InternalTransferLogic.parseCkbToShannons("184467440737.09551615"))
+        // One shannon over ULong max must be rejected.
+        assertNull(InternalTransferLogic.parseCkbToShannons("184467440737.09551616"))
+    }
+
     @Test fun parses_token_units() {
         assertEquals(BigInteger("30000"), InternalTransferLogic.parseTokenUnits("30000"))
     }

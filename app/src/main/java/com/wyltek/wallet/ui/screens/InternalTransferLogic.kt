@@ -25,9 +25,16 @@ object InternalTransferLogic {
      * beyond ULong range.
      */
     fun parseCkbToShannons(input: String): ULong? {
-        val ckb = input.trim().toBigDecimalOrNull() ?: return null
+        val trimmed = input.trim()
+        // Reject scientific notation (e.g. "1e2"): an amount field expects plain
+        // decimal strings, and e-notation produces negative BigDecimal.scale()
+        // that would slip past the 8-dp precision guard below.
+        if (trimmed.contains('e', ignoreCase = true)) return null
+        val ckb = trimmed.toBigDecimalOrNull() ?: return null
         if (ckb <= BigDecimal.ZERO) return null
         if (ckb.scale() > 8) return null
+        // toBigIntegerExact() is safe here: the scale<=8 guard plus the 1e8
+        // multiply guarantee the product is always an exact integer.
         val shannons = ckb.multiply(SHANNONS_PER_CKB).toBigIntegerExact()
         if (shannons > ULONG_MAX) return null
         return shannons.toString().toULong()
