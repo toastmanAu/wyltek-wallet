@@ -8,7 +8,7 @@ App branding finalised as **Blackbox Vault** (under the Wyltek umbrella). All si
 |-----------|--------|
 | MVP 1 — Native wallet core | ✅ Complete |
 | MVP 2 — Light client / chain access | 🔄 Public RPC + failover + health checks shipped; embedded `ckb-light-client-lite` binary still pending |
-| MVP 3 — PQ accounts (ML-DSA-65) | 🔄 Hybrid creation + signing dispatch + real testnet deployment all wired (mldsa65-lock-v2-rust). Pending: live testnet send to confirm on-chain verification; sUDT-from-PQ; internal-transfer UI |
+| MVP 3 — PQ accounts (ML-DSA-65) | 🔄 Hybrid creation + signing dispatch + real testnet deployment all wired (mldsa65-lock-v2-rust); internal-transfer screen wired. Pending: sUDT-from-PQ; device test of internal transfer |
 | MVP 4 — Assets gallery | ✅ Complete (Spore/CoTA/CKBFS scanners + gallery + inspector) |
 | MVP 5 — Marketplace (LSDL) | ✅ Complete (list / cancel / buy) |
 | MVP 6 — Messaging (CEMP-PQ) | ✅ Complete (profile + contacts + encrypted send/receive + notification scanner) |
@@ -340,7 +340,7 @@ Each panel supports:
 * 🔄 **DAO unlock (phase 2)** — signing primitive + tx construction **built and on-chain-verified** (2026-06-15) via `sign_ckb_secp256k1_dao_witness` + harness `claim-dao`. The bespoke witness (`witnesses[0]` = secp lock sig + `input_type` = deposit-header index), both header_deps, header resolution, epoch math, and `since` encoding (deposit_epoch + 180) are all proven: a `since=0` probe ran the DAO type script to error **−17 (ERROR_INCORRECT_SINCE)** on `Inputs[0].Type` (not `.Lock`), and the correct-`since` tx is rejected only as `Immature`. **Cannot be fully broadcast-verified for ~180 epochs (~weeks)** — the post-`since` capacity check and the wall-clock lock are unprovable until then. **App UI wiring still a stub** (`WalletViewModel.unlockDao`): needs the withdrawing cell's block hash + max-withdraw (compute from headers or RPC) wired into a `WalletRepository.claimDao`; also audit the DAO scanner's withdraw/deposit field labeling first.
 * ⏳ `sendToken` (sUDT) migrated to the canonical secp signer but not independently broadcast (needs minting); same proven signer/shape as the verified DAO deposit.
 * ⏳ sUDT sends from a PQ sub-account — currently refused with a clear UI hint pointing the user to the Classic sub-account.
-* ⏳ Internal transfer screen still a UI stub (`InternalTransferScreen.kt` button is `/* TODO */`).
+* ✅ **Internal transfer screen wired (2026-06-16)** — `InternalTransferScreen.kt` resolves the wallet's classic + PQ sub-accounts (`NetworkConfig.isPqLock`), offers a swap-direction toggle (Classic→PQ default), and reuses the send path via `viewModel.sendCkb(to.bech32m, amount, fromCkbAddress = from)` so the source sub-account drives the secp-vs-ML-DSA signing dispatch. PQ-source transfers fire the biometric gate. Compiles clean; awaiting device test + live testnet broadcast.
 
 ### MVP 4 — assets ✅ COMPLETE
 

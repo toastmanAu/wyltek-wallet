@@ -224,7 +224,10 @@ fun AppNavigation() {
                 }
             }
             composable(Screen.InternalTransfer.route) {
-                InternalTransferScreen(onBack = { navController.popBackStack() })
+                InternalTransferScreen(
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
             }
             composable(Screen.Dao.route) {
                 DaoScreen(
