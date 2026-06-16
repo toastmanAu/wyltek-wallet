@@ -97,6 +97,7 @@ fn main() {
         "deposit-dao" => cmd_deposit_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount_ckb")),
         "withdraw-dao-phase1" => cmd_withdraw_dao_phase1(arg(&args, 1, "seed_hex"), arg(&args, 2, "deposit_tx_hash")),
         "claim-dao" => cmd_claim_dao(arg(&args, 1, "seed_hex"), arg(&args, 2, "withdraw_tx_hash"), args.get(3).cloned()),
+        "secp-balance" => cmd_secp_balance(arg(&args, 1, "seed_hex")),
         "sudt-balance" => cmd_sudt_balance(arg(&args, 1, "seed_hex")),
         "mint-sudt" => cmd_mint_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount")),
         "send-sudt" => cmd_send_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "to_address"), arg(&args, 3, "amount")),
@@ -745,6 +746,23 @@ fn cmd_claim_dao(seed_hex: String, withdraw_tx_hash: String, mode: Option<String
 }
 
 // ── sUDT (simple UDT) mint + transfer — verifies WalletRepository.sendToken ──
+
+fn cmd_secp_balance(seed_hex: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let kp = generate_secp256k1_keypair(seed_hex, SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let from = decode_address(
+        public_key_to_ckb_address(kp.public_key_hex, "testnet".to_string())
+            .map_err(|e| format!("address: {e}"))?,
+    )
+    .map_err(|e| format!("decode: {e}"))?;
+    let cells = get_cells(&from.lock_code_hash, &from.lock_hash_type, &from.lock_args)?;
+    let total: u64 = cells.iter().map(|c| c.capacity).sum();
+    println!("classic address: {}", from.bech32m);
+    println!("live CKB cells:  {}", cells.len());
+    println!("balance:         {} CKB ({} shannons)", total / 1_0000_0000, total);
+    Ok(())
+}
 
 fn cmd_sudt_balance(seed_hex: String) -> Result<(), String> {
     let seed_hex = seed_hex.trim_start_matches("0x").to_string();
