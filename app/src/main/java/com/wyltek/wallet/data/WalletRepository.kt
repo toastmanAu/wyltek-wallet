@@ -240,7 +240,7 @@ class WalletRepository(context: Context) {
                     for (dep in cellDeps) {
                         add(buildJsonObject {
                             put("out_point", buildJsonObject {
-                                put("tx_hash", "0x${dep.txHash}")
+                                put("tx_hash", dep.txHash)
                                 put("index", "0x${dep.index.toString(16)}")
                             })
                             put("dep_type", if (dep.depType.toInt() == 1) "dep_group" else "code")
@@ -440,7 +440,7 @@ class WalletRepository(context: Context) {
                     for (dep in cellDeps) {
                         add(buildJsonObject {
                             put("out_point", buildJsonObject {
-                                put("tx_hash", "0x${dep.txHash}")
+                                put("tx_hash", dep.txHash)
                                 put("index", "0x${dep.index.toString(16)}")
                             })
                             put("dep_type", if (dep.depType.toInt() == 1) "dep_group" else "code")
@@ -502,6 +502,216 @@ class WalletRepository(context: Context) {
         } catch (e: Exception) {
             WalletResult.Error("Phase 1 withdrawal failed: ${e.message}")
         }
+    }
+
+    /**
+     * NervosDAO phase-2 unlock (claim). Consumes the phase-1 withdrawing cell and
+     * pays the deposit + accrued compensation back to the owner's lock. Faithful
+     * port of the on-chain-proven harness `cmd_claim_dao`:
+     *
+     *  - The withdrawing cell's own outpoint IS the phase-1 withdraw tx, so a single
+     *    `get_transaction` recovers the deposit outpoint, capacity, and deposit block.
+     *  - `since` is an absolute-epoch lock at deposit_epoch + 180 (see [computeDaoUnlockSince]).
+     *  - `witnesses[0]` carries the secp signature (lock) AND `input_type` = the deposit
+     *    header's index (0) within header_deps, signed via [signCkbSecp256k1DaoWitness].
+     *  - header_deps = [deposit block, withdraw block] in that order (input_type → 0).
+     */
+    suspend fun claimDao(
+        fromAccount: WalletAccount,
+        deposit: DaoDeposit,
+        feeRate: ULong = 1000u
+    ): WalletResult<String> = withContext(Dispatchers.IO) {
+        try {
+            val seed = seedVault.loadSeed(fromAccount.id)
+                ?: return@withContext WalletResult.Error("Seed not found")
+            val keyPair = generateSecp256k1Keypair(seed, "m/44'/302'/0'/0/0")
+
+            val fromAddress = fromAccount.addresses.firstOrNull()?.bech32m
+                ?: return@withContext WalletResult.Error("No from address")
+            val fromInfo = decodeAddress(fromAddress)
+            val networkConfig = NetworkConfig.forNetwork(fromAccount.network)
+
+            // The withdrawing cell's outpoint is the phase-1 withdraw tx.
+            val withdrawTxHash = deposit.outPoint.txHash
+            val withdrawIndex = deposit.outPoint.index
+
+            val detail = chainManager.getTransactionDetail(withdrawTxHash)
+                ?: return@withContext WalletResult.Error("Could not fetch phase-1 withdraw tx")
+            if (detail.tx_status.status != "committed") {
+                return@withContext WalletResult.Error(
+                    "Phase-1 withdraw not committed yet (status=${detail.tx_status.status})"
+                )
+            }
+            val withdrawBlockHash = detail.tx_status.block_hash
+                ?: return@withContext WalletResult.Error("Withdraw tx has no block hash")
+            val tx = detail.transaction
+                ?: return@withContext WalletResult.Error("Withdraw tx body missing")
+
+            val idx = withdrawIndex.toInt()
+            val withdrawingCell = tx.outputs.getOrNull(idx)
+                ?: return@withContext WalletResult.Error("Withdrawing output not found")
+            val withdrawingCap = withdrawingCell.capacity.removePrefix("0x").toULong(16)
+
+            // Original deposit outpoint = the withdraw tx's first input.
+            val depositOut = tx.inputs.firstOrNull()?.previous_output
+                ?: return@withContext WalletResult.Error("Deposit outpoint not found")
+
+            // Deposit block number is stored LE in the withdrawing cell's data.
+            val dataHex = tx.outputs_data.getOrNull(idx)?.removePrefix("0x") ?: ""
+            if (dataHex.length < 16) {
+                return@withContext WalletResult.Error("Withdrawing cell data malformed")
+            }
+            val depositBlockNumber = dataHex.substring(0, 16)
+                .chunked(2).reversed().joinToString("").toULong(16)
+
+            // Deposit block header → hash (header_dep[0]) + epoch (for since).
+            val depositHeader = chainManager.getHeaderByNumber("0x${depositBlockNumber.toString(16)}")
+                ?: return@withContext WalletResult.Error("Deposit header not found")
+            val depositBlockHash = depositHeader.hash
+            val depositEpochRaw = depositHeader.epoch.removePrefix("0x").toULong(16)
+
+            // Maximum withdraw (deposit + interest) as of the withdraw block.
+            val maxWithdrawHex = chainManager.calculateDaoMaximumWithdraw(
+                depositOut.tx_hash, depositOut.index, withdrawBlockHash
+            ) ?: return@withContext WalletResult.Error("calculate_dao_maximum_withdraw failed")
+            val maxWithdraw = maxWithdrawHex.removePrefix("0x").toULong(16)
+
+            // Absolute-epoch unlock lock: deposit_epoch + 180 epochs.
+            val since = computeDaoUnlockSince(depositEpochRaw)
+
+            val feeEstimate = 1000uL
+            val outputs = listOf(
+                com.wyltek.wallet.core.native.TxOutput(
+                    capacity = maxWithdraw - feeEstimate,
+                    lockCodeHash = fromInfo.lockCodeHash,
+                    lockHashType = fromInfo.lockHashType,
+                    lockArgs = fromInfo.lockArgs,
+                    typeCodeHash = "",
+                    typeHashType = "",
+                    typeArgs = "",
+                    data = ""
+                )
+            )
+
+            val cellDeps = listOf(
+                com.wyltek.wallet.core.native.TxCellDep(
+                    txHash = networkConfig.secp256k1DepGroupTxHash,
+                    index = networkConfig.secp256k1DepGroupIndex,
+                    depType = 1u
+                ),
+                com.wyltek.wallet.core.native.TxCellDep(
+                    txHash = networkConfig.daoCellDepTxHash,
+                    index = networkConfig.daoCellDepIndex,
+                    depType = 0u
+                )
+            )
+
+            // Deposit header at index 0 (referenced by input_type), withdraw at 1.
+            val headerDeps = listOf(depositBlockHash, withdrawBlockHash)
+
+            val request = com.wyltek.wallet.core.native.TransactionRequest(
+                inputs = listOf(
+                    com.wyltek.wallet.core.native.TxInput(
+                        txHash = withdrawTxHash,
+                        index = withdrawIndex,
+                        since = since,
+                        capacity = withdrawingCap
+                    )
+                ),
+                outputs = outputs,
+                cellDeps = cellDeps,
+                headerDeps = headerDeps,
+                feeRate = feeRate
+            )
+
+            val built = buildTransaction(request)
+
+            // witnesses[0] = WitnessArgs(lock = secp sig, input_type = LE header index 0).
+            val witness0 = signCkbSecp256k1DaoWitness(built.txHashHex, 1u, 0uL, keyPair.privateKeyHex)
+
+            val txJson = buildJsonObject {
+                put("version", "0x0")
+                put("cell_deps", buildJsonArray {
+                    for (dep in cellDeps) {
+                        add(buildJsonObject {
+                            put("out_point", buildJsonObject {
+                                put("tx_hash", dep.txHash)
+                                put("index", "0x${dep.index.toString(16)}")
+                            })
+                            put("dep_type", if (dep.depType.toInt() == 1) "dep_group" else "code")
+                        })
+                    }
+                })
+                put("header_deps", buildJsonArray {
+                    for (header in headerDeps) add(header)
+                })
+                put("inputs", buildJsonArray {
+                    add(buildJsonObject {
+                        put("previous_output", buildJsonObject {
+                            put("tx_hash", withdrawTxHash)
+                            put("index", "0x${withdrawIndex.toString(16)}")
+                        })
+                        put("since", "0x${since.toString(16)}")
+                    })
+                })
+                put("outputs", buildJsonArray {
+                    for (output in outputs) {
+                        add(buildJsonObject {
+                            put("capacity", "0x${output.capacity.toString(16)}")
+                            put("lock", buildJsonObject {
+                                put("code_hash", output.lockCodeHash)
+                                put("hash_type", output.lockHashType)
+                                put("args", output.lockArgs)
+                            })
+                        })
+                    }
+                })
+                put("outputs_data", buildJsonArray {
+                    for (output in outputs) add(output.data.ifEmpty { "0x" })
+                })
+                put("witnesses", buildJsonArray {
+                    add("0x$witness0")
+                })
+            }
+
+            val txHash = chainManager.sendTransactionJson(txJson)
+                ?: return@withContext WalletResult.Error("DAO claim broadcast failed")
+
+            WalletResult.Success(txHash)
+        } catch (e: Exception) {
+            Log.e("WalletRepo", "claimDao failed: ${e.message}", e)
+            WalletResult.Error("DAO unlock failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Encode the NervosDAO phase-2 unlock `since` value for a deposit whose deposit
+     * block sits at [depositEpochRaw] (the raw 64-bit epoch field from the deposit
+     * block header: bits [0..24)=number, [24..40)=index, [40..56)=length).
+     *
+     * The DAO type script requires the unlock `since` to be an ABSOLUTE EPOCH lock
+     * of at least deposit_epoch + 180 epochs, keeping the same epoch fraction
+     * (index/length). The proven harness (`cmd_claim_dao`) does exactly:
+     *
+     *   let number = deposit_epoch & 0xff_ffff;
+     *   let index  = (deposit_epoch >> 24) & 0xffff;
+     *   let length = (deposit_epoch >> 40) & 0xffff;
+     *   let lock_until = (length << 40) | (index << 24) | (number + 180);
+     *   let since = 0x2000_0000_0000_0000u64 | lock_until;  // absolute, epoch metric
+     *
+     * The high flag byte 0x20 sets metric_flag = epoch (bit 61) with relative_flag
+     * cleared (bit 63 = 0 → absolute).
+     *
+     * TODO(you): implement this to return the `since` ULong. Watch the Kotlin
+     * literal suffixes (ULong needs `u`/`uL`), and that `0x2000_0000_0000_0000uL`
+     * is OR-ed onto the re-encoded epoch.
+     */
+    private fun computeDaoUnlockSince(depositEpochRaw: ULong): ULong {
+        val number = depositEpochRaw and 0xff_ffffuL
+        val index = (depositEpochRaw shr 24) and 0xffffuL
+        val length = (depositEpochRaw shr 40) and 0xffffuL
+        val lockUntil = (length shl 40) or (index shl 24) or (number + 180uL)
+        return 0x2000_0000_0000_0000uL or lockUntil
     }
 
     suspend fun refreshBalance(lockScript: LockScript): WalletResult<CellsCapacity> {
@@ -1043,7 +1253,7 @@ class WalletRepository(context: Context) {
                     for (dep in cellDeps) {
                         add(buildJsonObject {
                             put("out_point", buildJsonObject {
-                                put("tx_hash", "0x${dep.txHash}")
+                                put("tx_hash", dep.txHash)
                                 put("index", "0x${dep.index.toString(16)}")
                             })
                             put("dep_type", if (dep.depType.toInt() == 1) "dep_group" else "code")

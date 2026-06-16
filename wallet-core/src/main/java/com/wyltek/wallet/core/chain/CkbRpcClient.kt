@@ -226,6 +226,32 @@ class CkbRpcClient(private val url: String) {
         }
     }
 
+    /**
+     * NervosDAO maximum withdraw (deposit + accrued compensation) for a deposit
+     * cell, evaluated as of [withdrawBlockHash]. Mirrors the proven harness call
+     * `calculate_dao_maximum_withdraw([{tx_hash, index}, withdraw_block_hash])`.
+     * Returns the hex shannon string (e.g. "0x...") or null on error.
+     */
+    suspend fun calculateDaoMaximumWithdraw(
+        depositTxHash: String,
+        depositIndex: String,
+        withdrawBlockHash: String
+    ): String? {
+        val params = buildJsonArray {
+            add(buildJsonObject {
+                put("tx_hash", depositTxHash)
+                put("index", depositIndex)
+            })
+            add(json.parseToJsonElement("\"$withdrawBlockHash\""))
+        }
+        return try {
+            call("calculate_dao_maximum_withdraw", params).jsonPrimitive.content
+        } catch (e: Exception) {
+            Log.e("CkbRpc", "calculateDaoMaximumWithdraw failed: ${e.message}")
+            null
+        }
+    }
+
     private fun Int.toHexString(): String = "0x${this.toString(16)}"
 }
 
@@ -325,7 +351,9 @@ data class TransactionStatusResponse(
 @Serializable
 data class TxStatusInfo(
     val status: String,
-    val status_reason: String = ""
+    val status_reason: String = "",
+    val block_hash: String? = null,
+    val block_number: String? = null
 )
 
 @Serializable

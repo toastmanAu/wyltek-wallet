@@ -34,12 +34,24 @@ class DaoProvider(private val chainManager: ChainManager) {
                     val capacity = cell.capacity
                     val occupiedCapacity = computeOccupiedCapacity(cell)
 
-                    val depositHeader = chainManager.getHeaderByNumber("0x${cell.blockNumber.toString(16)}")
+                    val isWithdrawingCell = !cellData.isDeposited
+
+                    // Block-number sourcing differs by cell phase:
+                    //  - deposit cell  : the cell's OWN block is the deposit block; no withdraw block yet.
+                    //  - withdrawing cell: the cell's OWN block is the WITHDRAW block (W); the deposit
+                    //    block (D) is recorded in the cell's data (8-byte LE block number).
+                    // The DAO lock period (since ≥ deposit_epoch + 180) is measured from the DEPOSIT
+                    // block, so D/W must not be swapped — this is the source of truth for unlockEpoch.
+                    val depositBlockNumber = if (isWithdrawingCell) {
+                        cellData.depositBlockNumber ?: cell.blockNumber
+                    } else {
+                        cell.blockNumber
+                    }
+                    val withdrawBlockNumber = if (isWithdrawingCell) cell.blockNumber else null
+
+                    val depositHeader = chainManager.getHeaderByNumber("0x${depositBlockNumber.toString(16)}")
                     val depositEpoch = depositHeader?.epoch?.let { EpochInfo.fromHex(it) }
                     val depositAr = parseArFromDaoField(depositHeader?.dao)
-
-                    val isWithdrawingCell = !cellData.isDeposited
-                    val withdrawBlockNumber = if (isWithdrawingCell) cellData.depositBlockNumber else null
 
                     var status = DaoCellStatus.DEPOSITED
                     var compensation: ULong = 0u
@@ -47,15 +59,20 @@ class DaoProvider(private val chainManager: ChainManager) {
                     var unlockEpoch: EpochInfo? = null
                     var lockRemainingEpochs: Long = 0L
                     var apc: Double = 0.0
+                    var withdrawBlockHash: String? = null
+                    var withdrawEpoch: EpochInfo? = null
+                    var withdrawAr: ULong = 0u
 
                     if (isWithdrawingCell && withdrawBlockNumber != null) {
                         val withdrawHeader = chainManager.getHeaderByNumber("0x${withdrawBlockNumber.toString(16)}")
-                        val withdrawEpoch = withdrawHeader?.epoch?.let { EpochInfo.fromHex(it) }
-                        val withdrawAr = parseArFromDaoField(withdrawHeader?.dao).takeIf { it > 0u } ?: depositAr
+                        withdrawBlockHash = withdrawHeader?.hash
+                        withdrawEpoch = withdrawHeader?.epoch?.let { EpochInfo.fromHex(it) }
+                        withdrawAr = parseArFromDaoField(withdrawHeader?.dao).takeIf { it > 0u } ?: depositAr
 
+                        // Compensation freezes at the withdraw block's AR.
                         targetAr = withdrawAr
 
-                        if (depositEpoch != null && withdrawEpoch != null) {
+                        if (depositEpoch != null) {
                             val unlockEpochNumber = depositEpoch.number + 180
                             unlockEpoch = EpochInfo(
                                 number = unlockEpochNumber,
@@ -99,11 +116,14 @@ class DaoProvider(private val chainManager: ChainManager) {
                             outPoint = cell.outPoint,
                             capacity = capacity,
                             status = status,
-                            depositBlockNumber = cell.blockNumber,
+                            depositBlockNumber = depositBlockNumber,
                             depositBlockHash = depositHeader?.hash ?: "",
                             depositEpoch = depositEpoch,
                             depositAr = depositAr,
                             withdrawBlockNumber = withdrawBlockNumber,
+                            withdrawBlockHash = withdrawBlockHash,
+                            withdrawEpoch = withdrawEpoch,
+                            withdrawAr = withdrawAr,
                             compensation = compensation,
                             unlockEpoch = unlockEpoch,
                             lockRemainingEpochs = lockRemainingEpochs,

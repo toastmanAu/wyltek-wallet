@@ -739,7 +739,30 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun unlockDao(deposit: DaoDeposit) {
-        _uiState.value = _uiState.value.copy(error = "Unlock: coming soon (Phase 2 requires since field with absolute epoch)")
+        val account = _uiState.value.currentAccount ?: return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            when (val result = repository.claimDao(account, deposit)) {
+                is WalletResult.Success -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        lastTxHash = result.data,
+                        pendingDaoTxHash = result.data,
+                        pendingDaoAction = "unlock"
+                    )
+                    refreshBalance()
+                    refreshDaoDeposits()
+                    pollDaoTxConfirmation(result.data)
+                }
+                is WalletResult.Error -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = result.message
+                    )
+                }
+            }
+        }
     }
 
     fun setTheme(theme: ThemeConfig) {

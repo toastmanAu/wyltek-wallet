@@ -26,6 +26,14 @@ interface ChainProvider {
     suspend fun getTransactionStatus(txHash: String): TxStatus?
 
     suspend fun getTransactionsByLock(lockScript: LockScript): List<TransactionHistoryItem>
+
+    suspend fun getTransactionDetail(txHash: String): TransactionDetailResponse?
+
+    suspend fun calculateDaoMaximumWithdraw(
+        depositTxHash: String,
+        depositIndex: String,
+        withdrawBlockHash: String
+    ): String?
 }
 
 data class CellsCapacity(
@@ -295,6 +303,26 @@ cells.add(
         return items
     }
 
+    override suspend fun getTransactionDetail(txHash: String): TransactionDetailResponse? {
+        return try {
+            client.getTransaction(txHash)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun calculateDaoMaximumWithdraw(
+        depositTxHash: String,
+        depositIndex: String,
+        withdrawBlockHash: String
+    ): String? {
+        return try {
+            client.calculateDaoMaximumWithdraw(depositTxHash, depositIndex, withdrawBlockHash)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
     }
@@ -441,6 +469,34 @@ class ChainManager {
         } catch (e: Exception) {
             if (failover()) {
                 activeProvider?.getHeaderByNumber(blockNumber)
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun getTransactionDetail(txHash: String): TransactionDetailResponse? {
+        return try {
+            activeProvider?.getTransactionDetail(txHash)
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.getTransactionDetail(txHash)
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun calculateDaoMaximumWithdraw(
+        depositTxHash: String,
+        depositIndex: String,
+        withdrawBlockHash: String
+    ): String? {
+        return try {
+            activeProvider?.calculateDaoMaximumWithdraw(depositTxHash, depositIndex, withdrawBlockHash)
+        } catch (e: Exception) {
+            if (failover()) {
+                activeProvider?.calculateDaoMaximumWithdraw(depositTxHash, depositIndex, withdrawBlockHash)
             } else {
                 null
             }
