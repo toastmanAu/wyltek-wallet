@@ -995,6 +995,9 @@ class WalletRepository(context: Context) {
                     lockCodeHash = fromInfo.lockCodeHash,
                     lockHashType = fromInfo.lockHashType,
                     lockArgs = fromInfo.lockArgs,
+                    typeCodeHash = "",
+                    typeHashType = "",
+                    typeArgs = "",
                     data = ""
                 )
             }
