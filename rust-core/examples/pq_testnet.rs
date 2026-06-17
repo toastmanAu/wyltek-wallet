@@ -303,6 +303,9 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
             lock_code_hash: MLDSA_CODE_HASH.to_string(),
             lock_hash_type: MLDSA_HASH_TYPE.to_string(),
             lock_args: pq_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
             data: String::new(),
         })
         .collect();
