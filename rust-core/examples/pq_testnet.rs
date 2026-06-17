@@ -1034,6 +1034,9 @@ fn cmd_send_sudt_from_pq(seed_hex: String, to_address: String, amount_str: Strin
     let seed_hex = seed_hex.trim_start_matches("0x").to_string();
     let amount: u128 = amount_str.parse().map_err(|_| "amount must be a whole number of tokens".to_string())?;
 
+    // PQ witness ~5.3 KB needs a higher fee than secp's 2000 shannons.
+    let pq_fee_estimate: u64 = 10_000;
+
     // Classic lock — only used to recover the sUDT owner type_args.
     let secp = generate_secp256k1_keypair(seed_hex.clone(), SECP_DERIVATION_PATH.to_string())
         .map_err(|e| format!("secp keygen: {e}"))?;
@@ -1068,7 +1071,7 @@ fn cmd_send_sudt_from_pq(seed_hex: String, to_address: String, amount_str: Strin
     let sudt_input_cap: u64 = sudt_inputs.iter().map(|c| c.capacity).sum();
 
     let ckb_cells = get_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
-    let needed_ckb = sudt_out_count * SUDT_CELL_CAPACITY + SUDT_FEE_ESTIMATE;
+    let needed_ckb = sudt_out_count * SUDT_CELL_CAPACITY + pq_fee_estimate;
     let mut sorted = ckb_cells.clone();
     sorted.sort_by_key(|c| c.capacity);
     let mut selected_ckb: Vec<&Cell> = Vec::new();
@@ -1108,7 +1111,7 @@ fn cmd_send_sudt_from_pq(seed_hex: String, to_address: String, amount_str: Strin
     }
     let ckb_change = total_in_cap as i64
         - (sudt_out_count as i64) * (SUDT_CELL_CAPACITY as i64)
-        - (SUDT_FEE_ESTIMATE as i64);
+        - (pq_fee_estimate as i64);
     if ckb_change >= MIN_CELL_CAPACITY as i64 {
         outputs.push(TxOutput {
             capacity: ckb_change as u64,
