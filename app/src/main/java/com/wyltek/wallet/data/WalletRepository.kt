@@ -1078,23 +1078,16 @@ class WalletRepository(context: Context) {
         return try {
             val seed = seedVault.loadSeed(fromAccount.id)
                 ?: return WalletResult.Error("Seed not found")
-            val keyPair = generateSecp256k1Keypair(seed, "m/44'/302'/0'/0/0")
 
             val from = fromCkbAddress ?: fromAccount.addresses.firstOrNull()
                 ?: return WalletResult.Error("No from address")
 
-            // sUDT sends from a PQ sub-account are not yet wired — the dual
-            // cell-dep (secp + sudt) path and ML-DSA witness construction are
-            // a separate refactor. Refuse explicitly rather than silently
-            // signing with the wrong key.
-            val mldsa = NetworkConfig.forNetwork(fromAccount.network).mldsa65
-            if (mldsa != null && !mldsa.isPlaceholder() &&
-                from.lockScript.codeHash.equals(mldsa.codeHash, ignoreCase = true)) {
-                return WalletResult.Error(
-                    "Token sends from PQ sub-accounts are not yet supported. " +
-                        "Switch to the Classic sub-account in the send picker."
+            // Pick secp vs PQ signing (deps + witness builder) the same way
+            // sendCkb does — this is what unlocks sUDT-from-PQ.
+            val signCtx = resolveSigningContext(seed, from, fromAccount.network)
+                ?: return WalletResult.Error(
+                    "PQ lock not deployed on ${fromAccount.network} — set NetworkConfig.mldsa65 to the testnet deployment."
                 )
-            }
 
             val fromAddress = from.bech32m
             val fromInfo = decodeAddress(fromAddress)
@@ -1143,11 +1136,10 @@ class WalletRepository(context: Context) {
             // Minimum capacity for sUDT cell (occupied ~182 bytes)
             val minSudtCellCapacity = 200_0000_0000uL // 200 CKB in shannons
 
-            // Fee reserved for the transfer. build_transaction only *reports*
-            // estimated_fee — it never deducts it — so the caller MUST hold back
-            // a fee from the CKB change, or the tx pays zero fee and the pool
-            // rejects it (PoolRejectedTransactionByMinFeeRate).
-            val sudtFeeEstimate = 2000uL
+            // Fee per the signing algorithm (1k secp / 10k PQ). build_transaction
+            // only reports estimated_fee; the caller must hold it back from the
+            // CKB change or the pool rejects a zero-fee tx.
+            val sudtFeeEstimate = signCtx.minFeeEstimate
 
             // Fetch CKB cells for capacity
             val ckbCells = chainManager.getCellsByLock(fromLock).filter {
@@ -1222,18 +1214,14 @@ class WalletRepository(context: Context) {
             }
 
             val networkConfig = NetworkConfig.forNetwork(fromAccount.network)
-            val cellDeps = listOf(
-                TxCellDep(
-                    txHash = networkConfig.secp256k1DepGroupTxHash,
-                    index = networkConfig.secp256k1DepGroupIndex,
-                    depType = 1u
-                ),
-                TxCellDep(
-                    txHash = networkConfig.sudtCellDepTxHash,
-                    index = networkConfig.sudtCellDepIndex,
-                    depType = 0u
-                )
+            val sudtDep = TxCellDep(
+                txHash = networkConfig.sudtCellDepTxHash,
+                index = networkConfig.sudtCellDepIndex,
+                depType = 0u
             )
+            val cellDeps = signCtx.cellDeps + sudtDep
+            val cellDepsForJson = signCtx.cellDepsForJson +
+                JsonCellDep(networkConfig.sudtCellDepTxHash, networkConfig.sudtCellDepIndex, "code")
 
             val request = TransactionRequest(
                 inputs = allInputs.map {
@@ -1251,24 +1239,41 @@ class WalletRepository(context: Context) {
 
             val built = buildTransaction(request)
 
-            // Canonical secp256k1_blake160_sighash_all: full WitnessArgs(lock=sig)
-            // for witnesses[0] (single secp group; same proven primitive as sendCkb).
-            val signature = signCkbSecp256k1Witness(
-                built.txHashHex,
-                allInputs.size.toUInt(),
-                keyPair.privateKeyHex
-            )
+            // CighashAll (PQ) hashes inputs positionally and commits each input's
+            // full CellOutput. sUDT inputs MUST carry their type script + u128
+            // data; CKB inputs carry none. secp ignores this (uses count only).
+            val mldsaInputs = sudtInputs.map {
+                MldsaInputCell(
+                    capacity = it.capacity,
+                    lockCodeHash = fromInfo.lockCodeHash,
+                    lockHashType = fromInfo.lockHashType,
+                    lockArgs = fromInfo.lockArgs,
+                    typeCodeHash = tokenTypeScript.codeHash,
+                    typeHashType = tokenTypeScript.hashType,
+                    typeArgs = tokenTypeScript.args,
+                    data = it.data ?: ""
+                )
+            } + selectedCkb.map {
+                MldsaInputCell(
+                    capacity = it.capacity,
+                    lockCodeHash = fromInfo.lockCodeHash,
+                    lockHashType = fromInfo.lockHashType,
+                    lockArgs = fromInfo.lockArgs,
+                    typeCodeHash = "", typeHashType = "", typeArgs = "", data = ""
+                )
+            }
+            val witness0 = signCtx.signWitness0(built, mldsaInputs)
 
             val txJson = buildJsonObject {
                 put("version", "0x0")
                 put("cell_deps", buildJsonArray {
-                    for (dep in cellDeps) {
+                    for (dep in cellDepsForJson) {
                         add(buildJsonObject {
                             put("out_point", buildJsonObject {
                                 put("tx_hash", dep.txHash)
                                 put("index", "0x${dep.index.toString(16)}")
                             })
-                            put("dep_type", if (dep.depType.toInt() == 1) "dep_group" else "code")
+                            put("dep_type", dep.depType)
                         })
                     }
                 })
@@ -1309,10 +1314,8 @@ class WalletRepository(context: Context) {
                     }
                 })
                 put("witnesses", buildJsonArray {
-                    add("0x$signature")
-                    for (i in 1 until allInputs.size) {
-                        add("0x")
-                    }
+                    add(witness0)
+                    for (i in 1 until allInputs.size) add("0x")
                 })
             }
 
@@ -1502,10 +1505,11 @@ class WalletRepository(context: Context) {
             codeHash == mldsa.codeHash.lowercase()
 
         return if (isPq) {
-            // ML-DSA-65 path. signCkbMldsa65 produces the fully-formed
-            // WitnessArgs(MldsaWitness(...)) bytes the deployed ckb-mldsa-lock
-            // contract verifies. Signing digest is
-            // blake2b("ckb-default-hash", "CKB-MLDSA-LOCK" || tx_hash).
+            // ML-DSA-65 v2-rust path. signCkbMldsa65 produces the flat
+            // WitnessArgs(lock = [flag | pubkey | sig]) the deployed
+            // mldsa65-lock-v2-rust contract verifies. Signing digest is
+            // blake2b("ckb-mldsa-msg", generate_ckb_tx_message_all) — the
+            // CighashAll stream over every input cell (lock + type + data).
             val pqKey = mldsa65FromSeed(seedHex)
             val mldsaCfg = mldsa!! // non-null when isPq is true
             // PQ witness is ~5337 bytes vs secp's ~85, so the per-tx fee at
