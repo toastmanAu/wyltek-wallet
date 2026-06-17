@@ -1,21 +1,27 @@
 package com.wyltek.wallet.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.wyltek.wallet.core.assets.TokenInfo
 import com.wyltek.wallet.core.chain.NetworkConfig
 import com.wyltek.wallet.core.model.CkbAddress
+import com.wyltek.wallet.data.WalletViewModel
 import com.wyltek.wallet.ui.security.BiometricResult
 import com.wyltek.wallet.ui.security.rememberBiometricAuth
 import com.wyltek.wallet.ui.theme.*
-import com.wyltek.wallet.data.WalletViewModel
+
+private fun shortAddr(a: String): String =
+    if (a.length <= 16) a else "${a.take(10)}…${a.takeLast(6)}"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,27 +29,20 @@ fun InternalTransferScreen(
     onBack: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
-    var amount by remember { mutableStateOf("") }
-    var authError by remember { mutableStateOf<String?>(null) }
-    // Default direction: Classic → PQ (migrating funds into a post-quantum lock).
-    var classicToPq by remember { mutableStateOf(true) }
-
     val uiState by viewModel.uiState.collectAsState()
     val biometric = rememberBiometricAuth()
 
     val account = uiState.currentAccount
-    val subAddresses = account?.addresses.orEmpty()
+    val network = account?.network
 
-    // Internal transfer moves CKB between this wallet's own classic and PQ
-    // sub-accounts, so it requires both to exist (a hybrid wallet).
-    val classicAddress: CkbAddress? = remember(subAddresses, account?.network) {
-        account?.let { acc ->
-            subAddresses.firstOrNull { !NetworkConfig.isPqLock(it.lockScript.codeHash, acc.network) }
+    val classicAddr: CkbAddress? = remember(account?.id) {
+        if (network == null) null else account?.addresses?.firstOrNull {
+            !NetworkConfig.isPqLock(it.lockScript.codeHash, network)
         }
     }
-    val pqAddress: CkbAddress? = remember(subAddresses, account?.network) {
-        account?.let { acc ->
-            subAddresses.firstOrNull { NetworkConfig.isPqLock(it.lockScript.codeHash, acc.network) }
+    val pqAddr: CkbAddress? = remember(account?.id) {
+        if (network == null) null else account?.addresses?.firstOrNull {
+            NetworkConfig.isPqLock(it.lockScript.codeHash, network)
         }
     }
 
@@ -62,27 +61,37 @@ fun InternalTransferScreen(
             }
         )
 
-        if (classicAddress == null || pqAddress == null) {
+        if (classicAddr == null || pqAddr == null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
             ) {
                 Text(
-                    text = "Internal transfer requires a hybrid wallet with both a " +
-                        "classic (secp256k1) and a post-quantum (ML-DSA-65) sub-account. " +
-                        "The current wallet only has one of these.",
+                    text = "Internal transfer needs both a Classic and a PQ lock " +
+                        "on this wallet. This wallet has only one lock type.",
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = WarningOrange
                 )
             }
             return@Column
         }
 
-        val from = if (classicToPq) classicAddress else pqAddress
-        val to = if (classicToPq) pqAddress else classicAddress
-        val fromIsPq = NetworkConfig.isPqLock(from.lockScript.codeHash, account!!.network)
+        var direction by remember { mutableStateOf(InternalTransferLogic.Direction.CLASSIC_TO_PQ) }
+        val toPq = direction == InternalTransferLogic.Direction.CLASSIC_TO_PQ
+        val source = if (toPq) classicAddr else pqAddr
+        val dest = if (toPq) pqAddr else classicAddr
+        val sourceIsPq = !toPq
+        val tokensEnabled = InternalTransferLogic.tokensEnabled(sourceIsPq)
 
+        var selectedToken by remember { mutableStateOf<TokenInfo?>(null) }
+        // If tokens become disabled (swapped to PQ source), fall back to CKB.
+        LaunchedEffect(tokensEnabled) { if (!tokensEnabled) selectedToken = null }
+
+        var amount by remember { mutableStateOf("") }
+        var authError by remember { mutableStateOf<String?>(null) }
+
+        // Direction card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CardBackground)
@@ -92,11 +101,10 @@ fun InternalTransferScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Move funds between your own wallets",
+                    text = "Move funds between your wallet's locks",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -104,36 +112,32 @@ fun InternalTransferScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("From", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Text(if (toPq) "Classic" else "PQ", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            if (fromIsPq) "PQ Wallet" else "Classic Wallet",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            text = from.bech32m.take(14) + "…" + from.bech32m.takeLast(6),
+                            shortAddr(source.bech32m),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    IconButton(onClick = { classicToPq = !classicToPq }) {
-                        Icon(
-                            Icons.Default.SwapVert,
-                            contentDescription = "Swap transfer direction",
-                            tint = NeonCyan
-                        )
+                    IconButton(onClick = {
+                        direction = if (toPq) {
+                            InternalTransferLogic.Direction.PQ_TO_CLASSIC
+                        } else {
+                            InternalTransferLogic.Direction.CLASSIC_TO_PQ
+                        }
+                    }) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = "Swap direction", tint = NeonCyan)
                     }
                     Column(
                         modifier = Modifier.weight(1f),
                         horizontalAlignment = Alignment.End
                     ) {
                         Text("To", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Text(if (toPq) "PQ" else "Classic", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            if (fromIsPq) "Classic Wallet" else "PQ Wallet",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            text = to.bech32m.take(14) + "…" + to.bech32m.takeLast(6),
+                            shortAddr(dest.bech32m),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary,
                             maxLines = 1,
@@ -144,102 +148,136 @@ fun InternalTransferScreen(
             }
         }
 
+        // Asset selector
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = selectedToken == null,
+                onClick = { selectedToken = null },
+                label = { Text("CKB") }
+            )
+            uiState.tokenBalances.forEach { token ->
+                FilterChip(
+                    selected = selectedToken?.typeScript == token.typeScript,
+                    onClick = { if (tokensEnabled) selectedToken = token },
+                    enabled = tokensEnabled,
+                    label = { Text(token.symbol) }
+                )
+            }
+        }
+
+        if (!tokensEnabled) {
+            Text(
+                text = "PQ token sends coming soon — only CKB can be moved from the PQ lock.",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+
+        // Amount
         OutlinedTextField(
             value = amount,
             onValueChange = { amount = it },
-            label = { Text("Amount (CKB)") },
+            label = { Text(if (selectedToken == null) "Amount (CKB)" else "Amount (${selectedToken!!.symbol})") },
             modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            trailingIcon = {
+                TextButton(onClick = {
+                    amount = selectedToken?.amount?.toString()
+                        ?: java.math.BigDecimal(uiState.balanceCkb.toString())
+                            .movePointLeft(8).stripTrailingZeros().toPlainString()
+                }) { Text("Max", color = NeonCyan) }
+            },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NeonCyan,
                 unfocusedBorderColor = CardBorder
             )
         )
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
-        ) {
-            Text(
-                text = if (classicToPq)
-                    "Security note: You are migrating funds into a post-quantum lock."
-                else
-                    "Security note: You are moving funds out of your post-quantum lock into a classic lock.",
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = WarningOrange
-            )
-        }
-
-        (authError ?: uiState.error)?.let { error ->
+        if (sourceIsPq) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.1f))
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
             ) {
                 Text(
-                    text = error,
-                    modifier = Modifier.padding(12.dp),
-                    color = ErrorRed,
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Spending from your post-quantum lock requires device authentication.",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = WarningOrange
                 )
             }
         }
 
-        uiState.lastTxHash?.let { txHash ->
+        authError?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = WarningOrange)
+        }
+        uiState.error?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = WarningOrange)
+        }
+        uiState.lastTxHash?.let { hash ->
             Card(
-                colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.1f))
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
             ) {
-                Text(
-                    text = "Transfer sent: $txHash",
-                    modifier = Modifier.padding(12.dp),
-                    color = SuccessGreen,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Transfer submitted", style = MaterialTheme.typography.bodyMedium, color = NeonCyan)
+                    Text(shortAddr(hash), style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    TextButton(onClick = { viewModel.clearLastTxHash(); amount = "" }) {
+                        Text("Done", color = NeonCyan)
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Signing from a PQ sub-account requires biometric re-auth, mirroring SendScreen.
-        val performTransfer: (ULong) -> Unit = { amountShannons ->
-            if (fromIsPq) {
-                authError = null
-                biometric.authenticate(
-                    title = "Confirm transfer",
-                    subtitle = "Authenticate to sign this post-quantum transaction",
-                    description = "ML-DSA-65 signatures from this account require re-authentication."
-                ) { result ->
-                    when (result) {
-                        is BiometricResult.Success -> viewModel.sendCkb(to.bech32m, amountShannons, from)
-                        is BiometricResult.Cancelled -> { /* silent */ }
-                        is BiometricResult.Error -> { authError = result.message }
-                        is BiometricResult.Unavailable -> {
-                            authError = "Set up a device PIN, password, or biometric to send from a PQ account."
-                        }
-                    }
-                }
+        // Validity: amount parses & positive (balance is repository-enforced).
+        val ckbShannons = if (selectedToken == null) InternalTransferLogic.parseCkbToShannons(amount) else null
+        val tokenUnits = if (selectedToken != null) InternalTransferLogic.parseTokenUnits(amount) else null
+        val amountValid = ckbShannons != null || tokenUnits != null
+
+        val doSend: () -> Unit = {
+            val token = selectedToken
+            if (token == null) {
+                ckbShannons?.let { viewModel.sendCkb(dest.bech32m, it, source) }
             } else {
-                viewModel.sendCkb(to.bech32m, amountShannons, from)
+                tokenUnits?.let { viewModel.sendToken(dest.bech32m, token.typeScript, it, source) }
             }
         }
 
         Button(
             onClick = {
-                val amountCkb = amount.toDoubleOrNull()
-                if (amountCkb != null && amountCkb > 0) {
-                    val amountShannons = (amountCkb * 100_000_000.0).toULong()
-                    performTransfer(amountShannons)
+                authError = null
+                if (sourceIsPq) {
+                    biometric.authenticate(
+                        title = "Confirm transfer",
+                        subtitle = "Authenticate to sign this post-quantum transaction",
+                        description = "ML-DSA-65 signatures from the PQ lock require re-authentication."
+                    ) { result ->
+                        when (result) {
+                            is BiometricResult.Success -> doSend()
+                            is BiometricResult.Cancelled -> { /* silent */ }
+                            is BiometricResult.Error -> { authError = result.message }
+                            is BiometricResult.Unavailable ->
+                                authError = "Set up a device PIN, password, or biometric to spend from the PQ lock."
+                        }
+                    }
+                } else {
+                    doSend()
                 }
             },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
-            enabled = amount.isNotBlank() && !uiState.isLoading
+            enabled = amountValid && !uiState.isLoading
         ) {
             if (uiState.isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = DarkBackground
-                )
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DarkBackground)
             } else {
-                Text("Transfer", color = DarkBackground)
+                Text("Send Transfer", color = DarkBackground)
             }
         }
     }
