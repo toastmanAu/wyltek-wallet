@@ -108,7 +108,7 @@ fn main() {
         ),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  send-sudt-from-pq <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>",
             other
         )),
     };
