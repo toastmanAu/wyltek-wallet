@@ -158,7 +158,7 @@ fn extract_caps(authorizer: &mut Authorizer) -> Result<Vec<CapInfo>, String> {
         .collect())
 }
 
-fn token_id_of(authorizer: &mut Authorizer) -> Result<String, String> {
+pub(crate) fn token_id_of_internal(authorizer: &mut Authorizer) -> Result<String, String> {
     let ids: Vec<(String,)> = authorizer
         .query_all(rule!("out($id) <- token_id($id)"))
         .map_err(|e| format!("token_id query: {e}"))?;
@@ -200,7 +200,7 @@ pub(crate) fn parse_and_authorize(
     authorizer.add_token(&biscuit).map_err(|e| format!("authorizer build: {e}"))?;
     authorizer.authorize().map_err(|e| format!("denied: {e}"))?;
 
-    let token_id = token_id_of(&mut authorizer)?;
+    let token_id = token_id_of_internal(&mut authorizer)?;
     let caps = extract_caps(&mut authorizer)?;
     Ok(Authorized { token_id, caps })
 }
@@ -213,6 +213,16 @@ pub fn token_caps(token: String, root_pub_hex: String) -> Result<Vec<CapInfo>, A
     let biscuit = Biscuit::from_base64(&token, public).map_err(tok_err)?;
     let mut authorizer = biscuit.authorizer().map_err(tok_err)?;
     extract_caps(&mut authorizer).map_err(AgentError::TokenError)
+}
+
+/// UniFFI export: return the stable token_id for a biscuit without running authorization
+/// (no request context needed — for correlating a token to ledger records).
+#[uniffi::export]
+pub fn token_id_of(token: String, root_pub_hex: String) -> Result<String, AgentError> {
+    let public = root_public_from_hex(&root_pub_hex).map_err(AgentError::TokenError)?;
+    let biscuit = Biscuit::from_base64(&token, public).map_err(tok_err)?;
+    let mut authorizer = biscuit.authorizer().map_err(tok_err)?;
+    super::token::token_id_of_internal(&mut authorizer).map_err(AgentError::TokenError)
 }
 
 /// Deterministic 16-byte hex id from the spec (account + scopes + caps + ttl).
@@ -371,5 +381,15 @@ mod tests {
         let kp = agent_root_keypair();
         let r = parse_and_authorize("not-a-valid-biscuit-base64", &kp.public_hex, "send_ckb", "ckt1qexample", "ckt1qto", "10.0.0.1", 1);
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn token_id_of_matches_decide_token_id() {
+        let (token, pubhex) = keypair_and_token(sample_spec());
+        let id = token_id_of(token.clone(), pubhex.clone()).unwrap();
+        assert!(!id.is_empty());
+        // Same token id surfaced by parse_and_authorize.
+        let a = parse_and_authorize(&token, &pubhex, "send_ckb", "ckt1qexample", "ckt1qto", "10.0.0.1", 1_700_000_000).unwrap();
+        assert_eq!(id, a.token_id);
     }
 }

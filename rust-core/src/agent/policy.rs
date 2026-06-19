@@ -116,7 +116,7 @@ mod tests {
     }
 
     fn intent(amount: i64, nonce: &str, to: &str) -> Intent {
-        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.into(), amount, nonce: nonce.into() }
+        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.into(), amount, nonce: nonce.into(), action: None, dao_ref: None }
     }
     fn ctx(acct: &str, now: i64) -> RequestCtx {
         RequestCtx { account: acct.into(), source_ip: "10.0.0.1".into(), now_unix: now }
@@ -190,7 +190,7 @@ mod tests {
     fn deny_wrong_scope_op() {
         let to = real_addr();
         let (t, p, a) = setup(20, 100, 0, 0);
-        let bad = Intent { op: "send_udt".into(), asset: "CKB".into(), to: to.clone(), amount: 5, nonce: "n1".into() };
+        let bad = Intent { op: "send_udt".into(), asset: "CKB".into(), to: to.clone(), amount: 5, nonce: "n1".into(), action: None, dao_ref: None };
         let d = decide(t, p, bad, fresh_view(), ctx(&a, 1));
         assert!(matches!(d, Decision::Deny { .. }), "op outside the token's granted scope must be denied");
     }
@@ -208,7 +208,7 @@ mod tests {
         let to = real_addr();
         let (t, p, a) = setup(20, 100, 0, 0);
         // Token has cap only for CKB; request for a different asset should be denied.
-        let bad = Intent { op: "send_ckb".into(), asset: "sUDT".into(), to: to.clone(), amount: 5, nonce: "n1".into() };
+        let bad = Intent { op: "send_ckb".into(), asset: "sUDT".into(), to: to.clone(), amount: 5, nonce: "n1".into(), action: None, dao_ref: None };
         let d = decide(t, p, bad, fresh_view(), ctx(&a, 1));
         assert!(matches!(d, Decision::Deny { ref reason } if reason.contains("no cap for asset")));
     }

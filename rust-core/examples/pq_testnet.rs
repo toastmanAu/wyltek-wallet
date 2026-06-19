@@ -419,7 +419,7 @@ fn cmd_agent_intent(args: &[String]) -> Result<String, String> {
     let probe = decide(
         token.clone(),
         root_pub.clone(),
-        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.clone(), amount, nonce: nonce.clone() },
+        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.clone(), amount, nonce: nonce.clone(), action: None, dao_ref: None },
         view0,
         RequestCtx { account: account.clone(), source_ip: "127.0.0.1".into(), now_unix: now },
     );
@@ -440,7 +440,7 @@ fn cmd_agent_intent(args: &[String]) -> Result<String, String> {
     let decision = decide(
         token.clone(),
         root_pub.clone(),
-        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.clone(), amount, nonce: nonce.clone() },
+        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.clone(), amount, nonce: nonce.clone(), action: None, dao_ref: None },
         view,
         RequestCtx { account: account.clone(), source_ip: "127.0.0.1".into(), now_unix: now },
     );
