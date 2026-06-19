@@ -32,7 +32,9 @@ class AgentGateway(context: Context) {
             repository.getAllAccounts().firstOrNull { a -> a.addresses.any { it.bech32m == addr } }
         },
         sendCkb = { acct, to, amount ->
-            repository.sendCkb(acct, to, amount.toULong())
+            // Source = the token's bound account address (its first address). Hybrid multi-address
+            // source selection is a B2 refinement.
+            repository.sendCkb(acct, to, amount.toULong(), fromCkbAddress = acct.addresses.firstOrNull())
         },
         sendToken = { acct, assetId, to, amount ->
             val ts = parseTypeScript(assetId)

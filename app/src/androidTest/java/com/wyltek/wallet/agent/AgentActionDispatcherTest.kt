@@ -41,9 +41,13 @@ class AgentActionDispatcherTest {
         createdAt = 0
     )
 
-    /** Builds a dispatcher wired with fake send lambdas; returns (dispatcher, tokenService, sentTo list). */
+    /** Builds a dispatcher wired with fake send lambdas; returns (dispatcher, tokenService, sentTo list).
+     *
+     * The send result is read from [nextSendResult] at call time, so the test can flip it between
+     * dispatches to prove cap-rollback behaviour.
+     */
     private fun build(
-        sendResult: WalletResult<String>
+        nextSendResult: () -> WalletResult<String>
     ): Triple<AgentActionDispatcher, AgentTokenService, MutableList<String>> {
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
         val ks = AgentKeyStore(AgentSecureStore(ctx), StrongBoxManager(ctx))
@@ -56,15 +60,20 @@ class AgentActionDispatcherTest {
             ledger = ledger,
             tokenService = tokenSvc,
             resolveAccount = { addr -> if (addr == "ckt1qfunded") account else null },
-            sendCkb = { _, to, _ -> sentTo.add(to); sendResult },
-            sendToken = { _, _, _, _ -> sendResult },
-            daoDeposit = { _, _ -> sendResult },
-            daoWithdraw = { _, _ -> sendResult },
-            daoClaim = { _, _ -> sendResult },
+            sendCkb = { _, to, _ -> sentTo.add(to); nextSendResult() },
+            sendToken = { _, _, _, _ -> nextSendResult() },
+            daoDeposit = { _, _ -> nextSendResult() },
+            daoWithdraw = { _, _ -> nextSendResult() },
+            daoClaim = { _, _ -> nextSendResult() },
             messaging = UnsupportedMessagingSender()
         )
         return Triple(dispatcher, tokenSvc, sentTo)
     }
+
+    /** Convenience overload for tests that use a single fixed result throughout. */
+    private fun build(
+        sendResult: WalletResult<String>
+    ): Triple<AgentActionDispatcher, AgentTokenService, MutableList<String>> = build { sendResult }
 
     /** A spec with cumulative=100 and autoLimit=20. Amounts ≤20 → AllowAuto; >20 → NeedApproval. */
     private fun ckbSpec() = TokenSpec(
@@ -107,14 +116,20 @@ class AgentActionDispatcherTest {
 
     @Test
     fun broadcast_failure_rolls_back_debit() = runBlocking {
-        val (d, svc, _) = build(WalletResult.Error("pool rejected"))
+        // Start with a failing send so n1 is rejected after the cap debit.
+        var nextSendResult: WalletResult<String> = WalletResult.Error("pool rejected")
+        val (d, svc, _) = build { nextSendResult }
         val m = svc.mint(ckbSpec())
-        val r = d.dispatch(m.token, intent(5, "n1"), "10.0.0.1", 1_700_000_000)
-        assertTrue("expected Failed, got $r", r is DispatchResult.Failed)
-        // Rollback freed the cap; a new nonce with same amount stays within limit.
-        // (Still fails because send still errors, but the failure is from send not from cap exceeded.)
+
+        val r1 = d.dispatch(m.token, intent(5, "n1"), "10.0.0.1", 1_700_000_000)
+        assertTrue("expected Failed for n1, got $r1", r1 is DispatchResult.Failed)
+
+        // Switch to a succeeding send. If rollback is broken, n1's debit still occupies the cap
+        // and n2 would fail with cap-exceeded instead of returning Sent.
+        nextSendResult = WalletResult.Success("0xtx2")
         val r2 = d.dispatch(m.token, intent(5, "n2"), "10.0.0.1", 1_700_000_000)
-        assertTrue("expected Failed on n2 (send still broken), got $r2", r2 is DispatchResult.Failed)
+        assertTrue("expected Sent for n2 (proves n1 debit was rolled back), got $r2", r2 is DispatchResult.Sent)
+        assertEquals("0xtx2", (r2 as DispatchResult.Sent).txHash)
     }
 
     @Test
