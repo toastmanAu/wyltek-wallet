@@ -34,7 +34,7 @@ pub fn mint_token(spec: TokenSpec, root_secret_hex: String) -> Result<String, Ag
         return Err(AgentError::InvalidSpec("at least one scope required".into()));
     }
     let root = root_keypair_from_hex(&root_secret_hex)?;
-    let token_id = blake_id(&spec);
+    let token_id = blake_id(&spec)?;
 
     let mut builder = Biscuit::builder();
     builder
@@ -116,19 +116,20 @@ fn tok_err<E: std::fmt::Display>(e: E) -> AgentError {
 }
 
 /// Deterministic 16-byte hex id from the spec (account + scopes + caps + ttl).
-fn blake_id(spec: &TokenSpec) -> String {
+fn blake_id(spec: &TokenSpec) -> Result<String, AgentError> {
     let mut seed = spec.account.clone();
     for s in &spec.scopes {
         seed.push_str(s.as_tag());
     }
     for c in &spec.caps {
-        seed.push_str(&format!("{}{}{}", c.asset, c.cumulative, c.auto_limit));
+        seed.push_str(&format!("{}{}{}{}{}", c.asset, c.cumulative, c.auto_limit, c.window_seconds, c.window_limit));
     }
     if let Some(t) = spec.ttl_unix {
         seed.push_str(&t.to_string());
     }
-    let h = crate::hashing::blake2b_256(hex::encode(seed)).unwrap_or_default();
-    h.trim_start_matches("0x").chars().take(32).collect()
+    let h = crate::hashing::blake2b_256(hex::encode(seed))
+        .map_err(|e| AgentError::TokenError(format!("blake2b failed: {e}")))?;
+    Ok(h.trim_start_matches("0x").chars().take(32).collect())
 }
 
 #[cfg(test)]
