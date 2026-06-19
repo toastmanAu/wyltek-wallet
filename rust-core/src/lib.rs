@@ -9,6 +9,7 @@ pub mod signing;
 pub mod hashing;
 pub mod molecule;
 pub mod agent;
+pub mod cemp;
 
 pub use mnemonic::{MnemonicResult, generate_mnemonic, validate_mnemonic, mnemonic_to_seed};
 pub use keys::{KeyPair, generate_secp256k1_keypair, public_key_to_ckb_address, public_key_to_pq_address};
@@ -18,6 +19,7 @@ pub use transaction::{TransactionRequest, TxInput, TxOutput, BuiltTransaction, b
 pub use signing::{sign_transaction, sign_ckb_secp256k1, sign_message, verify_signature};
 pub use hashing::{blake2b_256, ckb_hash};
 pub use agent::{AgentError, AgentKeyPair, CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec, agent_root_keypair, decide, mint_token, token_caps, token_id_of};
+pub use cemp::{cemp_mlkem_from_seed, KemKeyPair, CempError};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
