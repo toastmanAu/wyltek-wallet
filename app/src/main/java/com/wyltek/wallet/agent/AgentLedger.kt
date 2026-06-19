@@ -24,8 +24,12 @@ class AgentLedger(private val db: AgentDatabase) {
 
     /** Atomically reserve a pending spend; returns row id, or null if the nonce was already used. */
     suspend fun reserve(tokenId: String, asset: String, amount: Long, unix: Long, nonce: String): Long? {
-        val id = dao.reserve(SpendRecordEntity(tokenId = tokenId, asset = asset, amount = amount, unix = unix, nonce = nonce))
-        return if (id < 0) null else id
+        return try {
+            val id = dao.reserve(SpendRecordEntity(tokenId = tokenId, asset = asset, amount = amount, unix = unix, nonce = nonce))
+            if (id < 0) null else id
+        } catch (e: android.database.sqlite.SQLiteConstraintException) {
+            null
+        }
     }
 
     suspend fun confirm(id: Long, txHash: String) = dao.setStatus(id, STATUS_CONFIRMED, txHash)
