@@ -43,7 +43,6 @@ impl LedgerStore for InMemoryLedger {
         let mut cumulative: i64 = 0;
         let mut window: i64 = 0;
         let win_start = now_unix.saturating_sub(window_seconds.max(0));
-        let mut nonce_seen = false;
         for r in &self.records {
             if r.token_id == token_id && r.asset == asset {
                 cumulative = cumulative.saturating_add(r.amount);
@@ -52,13 +51,9 @@ impl LedgerStore for InMemoryLedger {
                 }
             }
         }
-        // nonce uniqueness is per token across assets
-        for r in &self.records {
-            if r.token_id == token_id {
-                // caller fills the real nonce check via `apply`; view reports false here
-            }
-        }
-        let _ = &mut nonce_seen;
+        // nonce_seen is always false here; replay is enforced in apply() and the
+        // caller populates nonce_seen in the view it passes to the policy.
+        let nonce_seen = false;
         LedgerView { cumulative_spent: cumulative, window_spent: window, nonce_seen }
     }
 
@@ -102,6 +97,14 @@ mod tests {
         let v = l.view("t1", "CKB", 100, 300);
         assert_eq!(v.window_spent, 7);
         assert_eq!(v.cumulative_spent, 17);
+    }
+
+    #[test]
+    fn window_includes_exact_boundary() {
+        let mut l = InMemoryLedger::new();
+        l.apply(rec(3, 200, "c")).unwrap(); // exactly now-window (300-100)
+        let v = l.view("t1", "CKB", 100, 300);
+        assert_eq!(v.window_spent, 3);
     }
 
     #[test]
