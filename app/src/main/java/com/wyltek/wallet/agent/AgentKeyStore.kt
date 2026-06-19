@@ -31,7 +31,8 @@ class AgentKeyStore(
         provisionIfNeeded()
         val stored = secure.loadBlob(KEY_SEC_SEALED)!!
         val raw = if (secure.loadBlob(KEY_SEC_STRONGBOX_USED) != null) {
-            strongBox.unwrapPrivateKey(stored) ?: stored
+            strongBox.unwrapPrivateKey(stored)
+                ?: throw IllegalStateException("StrongBox unwrap failed — AndroidKeyStore key missing or hardware fault")
         } else {
             stored
         }

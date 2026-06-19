@@ -25,5 +25,8 @@ class AgentKeyStoreTest {
         // second instance over the same store returns the same public key
         val pub2 = ks().rootPublicHex()
         assertEquals(pub1, pub2)
+        // second instance over the same store returns the same secret key
+        val sec2 = ks().rootSecretHex()
+        assertEquals("secret must be stable across instances", sec1, sec2)
     }
 }
