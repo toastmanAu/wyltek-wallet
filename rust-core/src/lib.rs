@@ -17,7 +17,7 @@ pub use address::{AddressInfo, decode_address, encode_address, validate_address}
 pub use transaction::{TransactionRequest, TxInput, TxOutput, BuiltTransaction, build_transaction};
 pub use signing::{sign_transaction, sign_ckb_secp256k1, sign_message, verify_signature};
 pub use hashing::{blake2b_256, ckb_hash};
-pub use agent::{AgentError, AgentKeyPair, CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec, agent_root_keypair, mint_token, token_caps};
+pub use agent::{AgentError, AgentKeyPair, CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec, agent_root_keypair, decide, mint_token, token_caps};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
