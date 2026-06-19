@@ -653,6 +653,24 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_token_id_of(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_cemp_decrypt(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_cemp_encrypt(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_cemp_mlkem_from_seed(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_parse_message_pointer(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_parse_profile_dsa(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_parse_profile_kem(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_serialize_message_pointer(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_serialize_profile(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_compute_type_id(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_blake2b_256(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_ckb_hash(
@@ -733,6 +751,24 @@ external fun uniffi_wyltekwalletcore_fn_func_mint_token(`spec`: RustBuffer.ByVal
 external fun uniffi_wyltekwalletcore_fn_func_token_caps(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_token_id_of(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_cemp_decrypt(`encryptedMsgHex`: RustBuffer.ByValue,`recipientKemSecHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_cemp_encrypt(`plaintextHex`: RustBuffer.ByValue,`recipientKemPubHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_cemp_mlkem_from_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_parse_message_pointer(`hexStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_parse_profile_dsa(`profileDataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_parse_profile_kem(`profileDataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_serialize_message_pointer(`txHashHex`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_serialize_profile(`dsaPubHex`: RustBuffer.ByValue,`kemPubHex`: RustBuffer.ByValue,`metadataUtf8`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_compute_type_id(`firstInputTxHashHex`: RustBuffer.ByValue,`firstInputIndex`: Int,`firstInputSince`: Long,`outputIndex`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_blake2b_256(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -928,6 +964,33 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_token_id_of() != 2818.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_decrypt() != 49989.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_encrypt() != 776.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_mlkem_from_seed() != 42402.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_message_pointer() != 38879.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_profile_dsa() != 7208.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_profile_kem() != 7537.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_serialize_message_pointer() != 5063.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_serialize_profile() != 19162.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_compute_type_id() != 34447.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_blake2b_256() != 26658.toShort()) {
@@ -1560,6 +1623,48 @@ public object FfiConverterTypeIntent: FfiConverterRustBuffer<Intent> {
 
 
 
+/**
+ * ML-KEM-768 key pair: encapsulation key (public) + decapsulation key (private).
+ * Both are returned as hex strings for UniFFI boundary crossing.
+ */
+data class KemKeyPair (
+    var `publicKeyHex`: kotlin.String
+    , 
+    var `secretKeyHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeKemKeyPair: FfiConverterRustBuffer<KemKeyPair> {
+    override fun read(buf: ByteBuffer): KemKeyPair {
+        return KemKeyPair(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: KemKeyPair) = (
+            FfiConverterString.allocationSize(value.`publicKeyHex`) +
+            FfiConverterString.allocationSize(value.`secretKeyHex`)
+    )
+
+    override fun write(value: KemKeyPair, buf: ByteBuffer) {
+            FfiConverterString.write(value.`publicKeyHex`, buf)
+            FfiConverterString.write(value.`secretKeyHex`, buf)
+    }
+}
+
+
+
 data class KeyPair (
     var `publicKeyHex`: kotlin.String
     , 
@@ -1644,6 +1749,47 @@ public object FfiConverterTypeLedgerView: FfiConverterRustBuffer<LedgerView> {
             FfiConverterLong.write(value.`cumulativeSpent`, buf)
             FfiConverterLong.write(value.`windowSpent`, buf)
             FfiConverterBoolean.write(value.`nonceSeen`, buf)
+    }
+}
+
+
+
+/**
+ * Parsed output of a MessagePointer.
+ */
+data class MessagePointerOut (
+    var `txHashHex`: kotlin.String
+    , 
+    var `index`: kotlin.UInt
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMessagePointerOut: FfiConverterRustBuffer<MessagePointerOut> {
+    override fun read(buf: ByteBuffer): MessagePointerOut {
+        return MessagePointerOut(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MessagePointerOut) = (
+            FfiConverterString.allocationSize(value.`txHashHex`) +
+            FfiConverterUInt.allocationSize(value.`index`)
+    )
+
+    override fun write(value: MessagePointerOut, buf: ByteBuffer) {
+            FfiConverterString.write(value.`txHashHex`, buf)
+            FfiConverterUInt.write(value.`index`, buf)
     }
 }
 
@@ -2170,6 +2316,55 @@ public object FfiConverterTypeAgentError : FfiConverterRustBuffer<AgentException
                 Unit
             }
             is AgentException.InvalidSpec -> {
+                buf.putInt(2)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+
+
+sealed class CempException(message: String): kotlin.Exception(message) {
+        
+        class Crypto(message: String) : CempException(message)
+        
+        class Encoding(message: String) : CempException(message)
+        
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<CempException> {
+        override fun lift(error_buf: RustBuffer.ByValue): CempException = FfiConverterTypeCempError.lift(error_buf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCempError : FfiConverterRustBuffer<CempException> {
+    override fun read(buf: ByteBuffer): CempException {
+        
+            return when(buf.getInt()) {
+            1 -> CempException.Crypto(FfiConverterString.read(buf))
+            2 -> CempException.Encoding(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+        
+    }
+
+    override fun allocationSize(value: CempException): ULong {
+        return 4UL
+    }
+
+    override fun write(value: CempException, buf: ByteBuffer) {
+        when(value) {
+            is CempException.Crypto -> {
+                buf.putInt(1)
+                Unit
+            }
+            is CempException.Encoding -> {
                 buf.putInt(2)
                 Unit
             }
@@ -2757,6 +2952,143 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     UniffiLib.uniffi_wyltekwalletcore_fn_func_token_id_of(
     
         FfiConverterString.lower(`token`),FfiConverterString.lower(`rootPubHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Decrypt an `EncryptedMessage` hex blob using the recipient's ML-KEM-768 decapsulation key.
+         *
+         * Returns the plaintext as a lowercase hex string.
+         */
+    @Throws(CempException::class) fun `cempDecrypt`(`encryptedMsgHex`: kotlin.String, `recipientKemSecHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_cemp_decrypt(
+    
+        FfiConverterString.lower(`encryptedMsgHex`),FfiConverterString.lower(`recipientKemSecHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Encrypt `plaintext_hex` for `recipient_kem_pub_hex` (ML-KEM-768 encapsulation key).
+         *
+         * Returns the molecule-encoded `EncryptedMessage` as a lowercase hex string.
+         */
+    @Throws(CempException::class) fun `cempEncrypt`(`plaintextHex`: kotlin.String, `recipientKemPubHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_cemp_encrypt(
+    
+        FfiConverterString.lower(`plaintextHex`),FfiConverterString.lower(`recipientKemPubHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Deterministically derive an ML-KEM-768 keypair from the wallet seed via
+         * HKDF-SHA256 (so it restores from the mnemonic). Independent of the ML-DSA key.
+         *
+         * The seed is the 64-byte BIP-39 seed exported from the mnemonic (passed as hex).
+         * HKDF expands it into two 32-byte values d and z, which are the ML-KEM-768
+         * internal seeds per FIPS 203 Algorithm 16 (ML-KEM.KeyGen_internal(d,z)).
+         */
+    @Throws(CempException::class) fun `cempMlkemFromSeed`(`seedHex`: kotlin.String): KemKeyPair {
+            return FfiConverterTypeKemKeyPair.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_cemp_mlkem_from_seed(
+    
+        FfiConverterString.lower(`seedHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse a 36-byte MessagePointer back into its components.
+         */
+    @Throws(CempException::class) fun `parseMessagePointer`(`hexStr`: kotlin.String): MessagePointerOut {
+            return FfiConverterTypeMessagePointerOut.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_parse_message_pointer(
+    
+        FfiConverterString.lower(`hexStr`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Extract the ML-DSA-65 encapsulation key (field 0) from a Profile blob.
+         */
+    @Throws(CempException::class) fun `parseProfileDsa`(`profileDataHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_parse_profile_dsa(
+    
+        FfiConverterString.lower(`profileDataHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Extract the ML-KEM-768 encapsulation key (field 1) from a Profile blob.
+         */
+    @Throws(CempException::class) fun `parseProfileKem`(`profileDataHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_parse_profile_kem(
+    
+        FfiConverterString.lower(`profileDataHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Serialize a MessagePointer as 36 raw bytes (tx_hash ++ index LE).
+         */
+    @Throws(CempException::class) fun `serializeMessagePointer`(`txHashHex`: kotlin.String, `index`: kotlin.UInt): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_serialize_message_pointer(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterUInt.lower(`index`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Serialize a CEMP-PQ Profile cell data blob.
+         *
+         * All hex inputs may optionally carry a `0x` prefix.
+         */
+    @Throws(CempException::class) fun `serializeProfile`(`dsaPubHex`: kotlin.String, `kemPubHex`: kotlin.String, `metadataUtf8`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_serialize_profile(
+    
+        FfiConverterString.lower(`dsaPubHex`),FfiConverterString.lower(`kemPubHex`),FfiConverterString.lower(`metadataUtf8`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * CKB Type ID = blake2b("ckb-default-hash", CellInput(first_input) ++ u64_le(output_index)).
+         */
+    @Throws(CempException::class) fun `computeTypeId`(`firstInputTxHashHex`: kotlin.String, `firstInputIndex`: kotlin.UInt, `firstInputSince`: kotlin.ULong, `outputIndex`: kotlin.ULong): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CempException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_compute_type_id(
+    
+        FfiConverterString.lower(`firstInputTxHashHex`),FfiConverterUInt.lower(`firstInputIndex`),FfiConverterULong.lower(`firstInputSince`),FfiConverterULong.lower(`outputIndex`),_status)
 }
     )
     }
