@@ -1272,6 +1272,285 @@ class WalletRepository(context: Context) {
         }
     }
 
+    /**
+     * Scan the recipient's live cells for a CEMP-PQ profile cell (Type ID type script)
+     * and return the ML-KEM public key embedded in it.
+     *
+     * Mirrors the same [chainManager.getCellsByLock] pattern used by [scanDaoDeposits]
+     * and the asset scanners: decode address → LockScript → fetch all live cells →
+     * find the first cell whose type.codeHash matches the Type ID system script →
+     * parse the profile payload via the Rust binding.
+     *
+     * @param recipientAddress  bech32m address of the CEMP-PQ profile owner.
+     * @return [WalletResult.Success] containing the ML-KEM public key hex, or
+     *         [WalletResult.Error] if no profile cell is found or parsing fails.
+     */
+    suspend fun discoverProfileKem(recipientAddress: String): WalletResult<String> {
+        return try {
+            val recipientInfo = decodeAddress(recipientAddress)
+            val lockScript = LockScript(
+                codeHash = recipientInfo.lockCodeHash,
+                hashType = recipientInfo.lockHashType,
+                args = recipientInfo.lockArgs
+            )
+
+            val cells = chainManager.getCellsByLock(lockScript)
+
+            // Find the first cell that carries a Type ID type script — this is the
+            // CEMP profile cell.  type_.codeHash comparison is case-insensitive to
+            // tolerate mixed-case hex from different RPC responses.
+            val profileCell = cells.firstOrNull { cell ->
+                cell.type_?.codeHash?.equals(NetworkConfig.TYPE_ID_CODE_HASH, ignoreCase = true) == true
+            } ?: return WalletResult.Error("recipient has no CEMP profile")
+
+            val outputDataHex = profileCell.data
+                ?: return WalletResult.Error("recipient has no CEMP profile")
+
+            val kemPub = parseProfileKem(outputDataHex)
+            WalletResult.Success(kemPub)
+        } catch (e: Exception) {
+            WalletResult.Error("discoverProfileKem failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Send an encrypted CEMP-PQ message to a recipient.
+     *
+     * Builds a two-output transaction on the sender's ML-DSA-65 (PQ) lock:
+     *   output[0] = Message Cell   — sender PQ lock, no type, data = ML-KEM encrypted payload
+     *   output[1] = Notification Cell — recipient lock, no type, data = MessagePointer
+     *
+     * MessagePointer self-reference: the pointer's tx_hash field is set to 32 zero-bytes
+     * ("0x" + "00" * 32) with index = 0.  This encodes the "this transaction" convention:
+     * a recipient who finds their notification cell reads the pointer's index field and uses
+     * the notification cell's own OutPoint.txHash (the containing tx) to locate the message
+     * cell at that output index.  Computing the real tx_hash here is structurally impossible
+     * (writing it changes the hash), so the zero-tx_hash placeholder is the canonical approach.
+     * See ckb-transactions rule: "self-referential tx_hash is impossible; recipients use the
+     * cell's own OutPoint.txHash".
+     *
+     * CRITICAL capacity rule: the notification cell data (MessagePointer, ~36–48 bytes) is
+     * fixed before capacity/fee completion.  Capacity is sized from the actual data length
+     * so no post-completion mutation occurs — same approach as [createProfileCell].
+     *
+     * @param account         The sending wallet account (must have a PQ sub-address).
+     * @param recipientAddress Recipient's bech32m address (any lock type).
+     * @param plaintextHex    Plaintext bytes to encrypt, as a hex string (with or without 0x).
+     * @return [WalletResult.Success] with the broadcast tx hash, or [WalletResult.Error].
+     */
+    suspend fun sendCempMessage(
+        account: WalletAccount,
+        recipientAddress: String,
+        plaintextHex: String
+    ): WalletResult<String> {
+        return try {
+            val network = account.network
+            val networkConfig = NetworkConfig.forNetwork(network)
+
+            // Resolve the PQ CkbAddress for the sender.
+            val mldsa = networkConfig.mldsa65
+                ?: return WalletResult.Error("no PQ account")
+            if (mldsa.isPlaceholder()) return WalletResult.Error("no PQ account")
+
+            val pqAddress = account.addresses.firstOrNull { addr ->
+                addr.lockScript.codeHash.equals(mldsa.codeHash, ignoreCase = true)
+            } ?: return WalletResult.Error("no PQ account")
+
+            val seed = seedVault.loadSeed(account.id)
+                ?: return WalletResult.Error("Seed not found")
+
+            val signCtx = resolveSigningContext(seed, pqAddress, network)
+                ?: return WalletResult.Error(
+                    "PQ lock not deployed on $network — set NetworkConfig.mldsa65 to the testnet deployment."
+                )
+
+            // Step 1: discover recipient KEM public key.
+            val kemPub = when (val r = discoverProfileKem(recipientAddress)) {
+                is WalletResult.Success -> r.data
+                is WalletResult.Error -> return WalletResult.Error(r.message)
+            }
+
+            // Step 2: encrypt the plaintext.
+            val encryptedData = cempEncrypt(plaintextHex, kemPub)
+
+            // Step 3: resolve locks.
+            val senderInfo = decodeAddress(pqAddress.bech32m)
+            val recipientInfo = decodeAddress(recipientAddress)
+
+            // Step 4a: compute MessagePointer data BEFORE capacity sizing.
+            // tx_hash = 32 zero-bytes = "this transaction" convention.
+            // index = 0 = output index of the Message Cell.
+            // Recipient recovers the message cell via: pointer.index + notification
+            // cell's own OutPoint.txHash.
+            val zeroTxHash = "0x" + "00".repeat(32)
+            val notificationData = serializeMessagePointer(zeroTxHash, 0u)
+
+            // Step 4b: compute capacity for both output cells from actual data lengths.
+            val messageCellDataBytes = (encryptedData.removePrefix("0x").length / 2).toULong()
+            val senderLockBytes = 32uL + 1uL + (senderInfo.lockArgs.removePrefix("0x").length / 2).toULong()
+            val messageCellBytes = 8uL + senderLockBytes + messageCellDataBytes
+            val minMessageCellCapacity = messageCellBytes * 100_000_000uL
+
+            val notifDataBytes = (notificationData.removePrefix("0x").length / 2).toULong()
+            val recipientLockBytes = 32uL + 1uL + (recipientInfo.lockArgs.removePrefix("0x").length / 2).toULong()
+            val notifCellBytes = 8uL + recipientLockBytes + notifDataBytes
+            val minNotifCellCapacity = notifCellBytes * 100_000_000uL
+
+            val totalOutputCapacity = minMessageCellCapacity + minNotifCellCapacity
+            val feeEstimate = signCtx.minFeeEstimate
+            val minChangeCellCapacity = 81_0000_0000uL
+
+            // Step 5: collect sender PQ-lock inputs.
+            val senderLockScript = LockScript(
+                codeHash = senderInfo.lockCodeHash,
+                hashType = senderInfo.lockHashType,
+                args = senderInfo.lockArgs
+            )
+            val cells = chainManager.getCellsByLock(senderLockScript)
+            if (cells.isEmpty()) return WalletResult.Error("No available cells to spend")
+
+            val sortedCells = cells.sortedBy { it.capacity }
+            val selected = mutableListOf<Utxo>()
+            var selectedCapacity = 0uL
+            for (cell in sortedCells) {
+                selected.add(cell)
+                selectedCapacity += cell.capacity
+                if (selectedCapacity >= totalOutputCapacity + feeEstimate + minChangeCellCapacity) break
+            }
+
+            if (selectedCapacity < totalOutputCapacity + feeEstimate) {
+                return WalletResult.Error("Insufficient balance for CEMP message")
+            }
+
+            // Step 6: build outputs.
+            // output[0] = Message Cell (sender PQ lock, no type, data = encrypted payload)
+            // output[1] = Notification Cell (recipient lock, no type, data = MessagePointer)
+            // CRITICAL: both data values are fixed NOW, before buildTransaction/fee completion.
+            val outputs = mutableListOf(
+                TxOutput(
+                    capacity = minMessageCellCapacity,
+                    lockCodeHash = senderInfo.lockCodeHash,
+                    lockHashType = senderInfo.lockHashType,
+                    lockArgs = senderInfo.lockArgs,
+                    typeCodeHash = "", typeHashType = "", typeArgs = "",
+                    data = encryptedData
+                ),
+                TxOutput(
+                    capacity = minNotifCellCapacity,
+                    lockCodeHash = recipientInfo.lockCodeHash,
+                    lockHashType = recipientInfo.lockHashType,
+                    lockArgs = recipientInfo.lockArgs,
+                    typeCodeHash = "", typeHashType = "", typeArgs = "",
+                    data = notificationData
+                )
+            )
+
+            // Change output if enough capacity remains.
+            val needsChange = selectedCapacity >= totalOutputCapacity + feeEstimate + minChangeCellCapacity
+            if (needsChange) {
+                outputs.add(
+                    TxOutput(
+                        capacity = selectedCapacity - totalOutputCapacity - feeEstimate,
+                        lockCodeHash = senderInfo.lockCodeHash,
+                        lockHashType = senderInfo.lockHashType,
+                        lockArgs = senderInfo.lockArgs,
+                        typeCodeHash = "", typeHashType = "", typeArgs = "", data = ""
+                    )
+                )
+            }
+
+            // Step 7: build, sign, broadcast.
+            val request = TransactionRequest(
+                inputs = selected.map {
+                    TxInput(
+                        txHash = it.outPoint.txHash,
+                        index = it.outPoint.index,
+                        since = 0uL,
+                        capacity = it.capacity
+                    )
+                },
+                outputs = outputs,
+                cellDeps = signCtx.cellDeps,
+                feeRate = 1000u
+            )
+
+            val built = buildTransaction(request)
+
+            val mldsaInputs = selected.map {
+                MldsaInputCell(
+                    capacity = it.capacity,
+                    lockCodeHash = senderInfo.lockCodeHash,
+                    lockHashType = senderInfo.lockHashType,
+                    lockArgs = senderInfo.lockArgs,
+                    data = ""
+                )
+            }
+            val witness0 = signCtx.signWitness0(built, mldsaInputs)
+
+            val txJson = buildJsonObject {
+                put("version", "0x0")
+                put("cell_deps", buildJsonArray {
+                    for (dep in signCtx.cellDepsForJson) {
+                        add(buildJsonObject {
+                            put("out_point", buildJsonObject {
+                                put("tx_hash", dep.txHash)
+                                put("index", "0x${dep.index.toString(16)}")
+                            })
+                            put("dep_type", dep.depType)
+                        })
+                    }
+                })
+                put("header_deps", buildJsonArray {})
+                put("inputs", buildJsonArray {
+                    for (input in selected) {
+                        add(buildJsonObject {
+                            put("previous_output", buildJsonObject {
+                                put("tx_hash", input.outPoint.txHash)
+                                put("index", "0x${input.outPoint.index.toString(16)}")
+                            })
+                            put("since", "0x0")
+                        })
+                    }
+                })
+                put("outputs", buildJsonArray {
+                    for (output in outputs) {
+                        add(buildJsonObject {
+                            put("capacity", "0x${output.capacity.toString(16)}")
+                            put("lock", buildJsonObject {
+                                put("code_hash", output.lockCodeHash)
+                                put("hash_type", output.lockHashType)
+                                put("args", output.lockArgs)
+                            })
+                            if (output.typeCodeHash.isNotBlank()) {
+                                put("type", buildJsonObject {
+                                    put("code_hash", output.typeCodeHash)
+                                    put("hash_type", output.typeHashType)
+                                    put("args", output.typeArgs)
+                                })
+                            }
+                        })
+                    }
+                })
+                put("outputs_data", buildJsonArray {
+                    for (output in outputs) {
+                        add(output.data.ifEmpty { "0x" })
+                    }
+                })
+                put("witnesses", buildJsonArray {
+                    add(witness0)
+                    for (i in 1 until selected.size) add("0x")
+                })
+            }
+
+            val txHash = chainManager.sendTransactionJson(txJson)
+                ?: return WalletResult.Error("CEMP message broadcast failed")
+
+            WalletResult.Success(txHash)
+        } catch (e: Exception) {
+            WalletResult.Error("sendCempMessage failed: ${e.message}")
+        }
+    }
+
     suspend fun sendToken(
         fromAccount: WalletAccount,
         tokenTypeScript: LockScript,
