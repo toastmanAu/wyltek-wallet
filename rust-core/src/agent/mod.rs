@@ -11,6 +11,7 @@ pub mod ledger;
 pub mod policy;
 
 pub use types::{CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec};
+pub use token::{AgentKeyPair, agent_root_keypair, mint_token};
 
 /// Errors surfaced across the UniFFI boundary for token minting/inspection.
 /// Policy *denials* are NOT errors — they are returned as `Decision::Deny`.
