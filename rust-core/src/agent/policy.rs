@@ -174,4 +174,24 @@ mod tests {
         let d = decide(t, p, intent(5, "n1", "not-an-address"), fresh_view(), ctx(&a, 1));
         assert!(matches!(d, Decision::Deny { .. }));
     }
+
+    #[test]
+    fn deny_wrong_account() {
+        let to = real_addr();
+        let (t, p, _a) = setup(20, 100, 0, 0);
+        // Generate a different address using a distinct seed
+        let other_kp = crate::keys::generate_secp256k1_keypair("22".repeat(16), "m/44'/309'/0'/0/0".into()).unwrap();
+        let other_account = crate::keys::public_key_to_ckb_address(other_kp.public_key_hex, "testnet".into()).unwrap();
+        let d = decide(t, p, intent(5, "n1", &to), fresh_view(), ctx(&other_account, 1));
+        assert!(matches!(d, Decision::Deny { .. }), "token bound to a different account must be denied");
+    }
+
+    #[test]
+    fn deny_wrong_scope_op() {
+        let to = real_addr();
+        let (t, p, a) = setup(20, 100, 0, 0);
+        let bad = Intent { op: "send_udt".into(), asset: "CKB".into(), to: to.clone(), amount: 5, nonce: "n1".into() };
+        let d = decide(t, p, bad, fresh_view(), ctx(&a, 1));
+        assert!(matches!(d, Decision::Deny { .. }), "op outside the token's granted scope must be denied");
+    }
 }
