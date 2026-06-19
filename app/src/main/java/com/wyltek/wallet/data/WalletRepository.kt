@@ -1120,9 +1120,13 @@ class WalletRepository(context: Context) {
                 return WalletResult.Error("No available cells to spend")
             }
 
-            // Minimum capacity for the profile cell. The profile data is a few
-            // hundred bytes; 200 CKB gives ample headroom for any metadata length.
-            val minProfileCellCapacity = 200_0000_0000uL
+            // Compute minimum capacity from actual cell contents (1 byte = 1 CKB = 1e8 shannons).
+            // Cell = capacity(8) + lock + type + data.
+            val profileDataBytes = (profileData.removePrefix("0x").length / 2).toULong()
+            val lockOccupiedBytes = 32uL + 1uL + ((fromInfo.lockArgs.removePrefix("0x").length / 2).toULong())
+            val typeOccupiedBytes = 32uL + 1uL + 32uL  // Type ID: code_hash + hash_type + 32-byte args
+            val profileCellBytes = 8uL + lockOccupiedBytes + typeOccupiedBytes + profileDataBytes
+            val minProfileCellCapacity = profileCellBytes * 100_000_000uL
             val feeEstimate = signCtx.minFeeEstimate
 
             val sortedCells = cells.sortedBy { it.capacity }
