@@ -194,10 +194,9 @@ An always-on service so the agent can reach the wallet when the phone is behind 
 
 1. `agent::token` / `policy` / `ledger` implemented in `rust-core` with the Part 7 unit/property suite green at 80%+ coverage.
 2. `AgentActionDispatcher` + Direct (Ktor/tailnet) adapter + token-management & approval UI wired; `:app:compileDebugKotlin` green.
-3. Pudge testnet sequence proven via harness: auto small spend pool-accepted, over-`auto_limit` → approval, over-cap → deny, replay → deny.
-4. README + PLAN.md updated with the Agent Gateway subsystem and its testnet status.
-
-(Relay adapter, Part 6, is a fast follow on the same core — tracked but not required for v1 done.)
+3. **Relay adapter (Part 6)** deployed on wyltek-10700 and proven end-to-end: agent → relay → FCM-woken phone → on-device Policy Engine + sign → result returned via relay, with the device re-validating everything the relay pre-checked, and the relay holding no keys. Build order is still Direct-first, but both ship in v1.
+4. Pudge testnet sequence proven via harness over **both** transports: auto small spend pool-accepted, over-`auto_limit` → approval, over-cap → deny, replay → deny.
+5. README + PLAN.md updated with the Agent Gateway subsystem and its testnet status.
 
 ## Fallback
 
