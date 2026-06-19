@@ -11,12 +11,20 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AgentLedgerTest {
     private var db: com.wyltek.wallet.agent.db.AgentDatabase? = null
+
+    @Before
+    fun clearDb() {
+        ApplicationProvider
+            .getApplicationContext<android.content.Context>()
+            .deleteDatabase("agent_gateway.db")
+    }
 
     private fun newLedger(): AgentLedger {
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()

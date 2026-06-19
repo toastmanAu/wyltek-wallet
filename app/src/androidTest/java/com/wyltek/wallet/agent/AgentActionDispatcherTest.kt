@@ -19,11 +19,18 @@ import com.wyltek.wallet.data.WalletResult
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AgentActionDispatcherTest {
+    @Before
+    fun clearDb() {
+        ApplicationProvider
+            .getApplicationContext<android.content.Context>()
+            .deleteDatabase("agent_gateway.db")
+    }
 
     private val account = WalletAccount(
         id = "acc1",
