@@ -13,7 +13,7 @@ pub use molecule::{
     serialize_profile, parse_profile_kem, parse_profile_dsa,
     serialize_message_pointer, parse_message_pointer, MessagePointerOut,
 };
-// Task 4: pub use typeid::compute_type_id;
+pub use typeid::compute_type_id;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]

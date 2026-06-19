@@ -24,6 +24,7 @@ pub use cemp::{
     cemp_encrypt, cemp_decrypt,
     serialize_profile, parse_profile_kem, parse_profile_dsa,
     serialize_message_pointer, parse_message_pointer, MessagePointerOut,
+    compute_type_id,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
