@@ -122,4 +122,23 @@ mod tests {
         let l2 = InMemoryLedger::from_json(&j);
         assert_eq!(l2.view("t1", "CKB", 0, 300).cumulative_spent, 10);
     }
+
+    #[test]
+    fn different_token_or_asset_not_counted() {
+        let mut l = InMemoryLedger::new();
+        // record for t1/CKB
+        l.apply(rec(10, 100, "a")).unwrap();
+        // record for t2/CKB — different token_id
+        l.apply(SpendRecord { token_id: "t2".into(), asset: "CKB".into(), amount: 99, unix: 100, nonce: "b".into() }).unwrap();
+        // record for t1/sUDT — different asset
+        l.apply(SpendRecord { token_id: "t1".into(), asset: "sUDT".into(), amount: 77, unix: 100, nonce: "c".into() }).unwrap();
+        let v = l.view("t1", "CKB", 0, 300);
+        assert_eq!(v.cumulative_spent, 10, "other token and asset records must not be summed");
+    }
+
+    #[test]
+    fn from_json_corrupt_returns_default() {
+        let l = InMemoryLedger::from_json("not-valid-json");
+        assert_eq!(l.view("t1", "CKB", 0, 999).cumulative_spent, 0);
+    }
 }

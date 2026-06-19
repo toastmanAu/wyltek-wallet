@@ -92,3 +92,17 @@ pub enum Decision {
     AllowAuto { token_id: String, asset: String, amount: i64 },
     NeedApproval { token_id: String, asset: String, amount: i64 },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scope_tags_are_stable() {
+        assert_eq!(Scope::SendCkb.as_tag(), "send_ckb");
+        assert_eq!(Scope::SendUdt.as_tag(), "send_udt");
+        assert_eq!(Scope::Dao.as_tag(), "dao");
+        assert_eq!(Scope::Messaging.as_tag(), "messaging");
+        assert_eq!(Scope::Fiber.as_tag(), "fiber");
+    }
+}

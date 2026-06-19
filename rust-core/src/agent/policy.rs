@@ -194,4 +194,33 @@ mod tests {
         let d = decide(t, p, bad, fresh_view(), ctx(&a, 1));
         assert!(matches!(d, Decision::Deny { .. }), "op outside the token's granted scope must be denied");
     }
+
+    #[test]
+    fn deny_negative_amount() {
+        let to = real_addr();
+        let (t, p, a) = setup(20, 100, 0, 0);
+        let d = decide(t, p, intent(-1, "n1", &to), fresh_view(), ctx(&a, 1));
+        assert!(matches!(d, Decision::Deny { ref reason } if reason.contains("negative")));
+    }
+
+    #[test]
+    fn deny_no_cap_for_asset() {
+        let to = real_addr();
+        let (t, p, a) = setup(20, 100, 0, 0);
+        // Token has cap only for CKB; request for a different asset should be denied.
+        let bad = Intent { op: "send_ckb".into(), asset: "sUDT".into(), to: to.clone(), amount: 5, nonce: "n1".into() };
+        let d = decide(t, p, bad, fresh_view(), ctx(&a, 1));
+        assert!(matches!(d, Decision::Deny { ref reason } if reason.contains("no cap for asset")));
+    }
+
+    #[test]
+    fn window_within_limit_allows() {
+        // window_seconds > 0 and window_limit > 0 but amount is below the limit — should allow.
+        let to = real_addr();
+        let (t, p, a) = setup(1000, 100_000, 86400, 50);
+        let view = LedgerView { cumulative_spent: 10, window_spent: 10, nonce_seen: false };
+        let d = decide(t, p, intent(5, "n1", &to), view, ctx(&a, 1));
+        // 10 + 5 = 15 <= 50 window_limit -> allowed (auto, since 5 <= 1000 auto_limit)
+        assert!(matches!(d, Decision::AllowAuto { amount: 5, .. }));
+    }
 }

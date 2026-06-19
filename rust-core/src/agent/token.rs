@@ -345,4 +345,31 @@ mod tests {
         assert_eq!(caps.len(), 1);
         assert_eq!(caps[0].auto_limit, 20_000_000_000);
     }
+
+    #[test]
+    fn mint_token_bad_secret_hex_returns_token_error() {
+        let err = mint_token(sample_spec(), "not-valid-hex!!".into()).unwrap_err();
+        assert!(matches!(err, AgentError::TokenError(_)));
+    }
+
+    #[test]
+    fn token_caps_bad_pubkey_returns_token_error() {
+        let (token, _) = keypair_and_token(sample_spec());
+        let err = token_caps(token, "bad-pubkey-hex".into()).unwrap_err();
+        assert!(matches!(err, AgentError::TokenError(_)));
+    }
+
+    #[test]
+    fn parse_and_authorize_bad_pubkey_returns_err() {
+        let (token, _) = keypair_and_token(sample_spec());
+        let r = parse_and_authorize(&token, "bad-hex", "send_ckb", "ckt1qexample", "ckt1qto", "10.0.0.1", 1);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn parse_and_authorize_malformed_token_returns_err() {
+        let kp = agent_root_keypair();
+        let r = parse_and_authorize("not-a-valid-biscuit-base64", &kp.public_hex, "send_ckb", "ckt1qexample", "ckt1qto", "10.0.0.1", 1);
+        assert!(r.is_err());
+    }
 }
