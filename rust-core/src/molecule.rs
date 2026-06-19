@@ -13,18 +13,72 @@
 // agreed with. These helpers implement the spec; validated against a real
 // on-chain tx_hash (see examples/pq_testnet.rs `checkhash`).
 
-fn write_u32(buf: &mut Vec<u8>, val: u32) {
+pub(crate) fn write_u32(buf: &mut Vec<u8>, val: u32) {
     buf.extend_from_slice(&val.to_le_bytes());
 }
 
 /// Molecule `Bytes` (fixvec of byte): len prefix + raw bytes.
-fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) {
+pub(crate) fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) {
     write_u32(buf, data.len() as u32);
     buf.extend_from_slice(data);
 }
 
+/// Parse a molecule table header and return slices of each field.
+///
+/// Molecule table layout:
+///   bytes 0..4:        full_size (u32 LE)
+///   bytes 4..4+4*n:    n offsets (u32 LE each); offsets[i] = start of field i in buf
+///   bytes 4+4*n..:     field data sequentially
+///
+/// The header size = 4 + n*4 = offsets[0], so n = (offsets[0] - 4) / 4.
+///
+/// Returns None if the buffer is malformed (wrong length or corrupt offsets).
+pub(crate) fn read_table_fields(buf: &[u8]) -> Option<Vec<&[u8]>> {
+    if buf.len() < 4 {
+        return None;
+    }
+    let full_size = u32::from_le_bytes(buf[0..4].try_into().ok()?) as usize;
+    if buf.len() != full_size {
+        return None;
+    }
+    // A zero-field table has full_size == 4 (just the full_size word, no offsets).
+    if full_size == 4 {
+        return Some(vec![]);
+    }
+    if buf.len() < 8 {
+        return None;
+    }
+    // offsets[0] is where field 0 data starts; that equals the header size.
+    let first_offset = u32::from_le_bytes(buf[4..8].try_into().ok()?) as usize;
+    if first_offset < 4 || (first_offset - 4) % 4 != 0 || first_offset > full_size {
+        return None;
+    }
+    let n_fields = (first_offset - 4) / 4;
+    // Collect all n_fields offsets.
+    if first_offset > buf.len() {
+        return None;
+    }
+    let mut offsets = Vec::with_capacity(n_fields);
+    for i in 0..n_fields {
+        let pos = 4 + i * 4;
+        let off = u32::from_le_bytes(buf[pos..pos + 4].try_into().ok()?) as usize;
+        offsets.push(off);
+    }
+    // Slice out each field: field i runs from offsets[i] to offsets[i+1] (or full_size).
+    let mut fields = Vec::with_capacity(n_fields);
+    for i in 0..n_fields {
+        let field_start = offsets[i];
+        let field_end = if i + 1 < n_fields { offsets[i + 1] } else { full_size };
+        if field_start > full_size || field_end > full_size || field_start > field_end {
+            return None;
+        }
+        fields.push(&buf[field_start..field_end]);
+    }
+    Some(fields)
+}
+
 /// Encode a molecule `table` from its already-serialized fields, in order.
-fn serialize_table(fields: &[Vec<u8>]) -> Vec<u8> {
+pub(crate) fn serialize_table(fields: &[Vec<u8>]) -> Vec<u8> {
     let n = fields.len();
     let header = 4 + n * 4; // full_size + n offsets
     let full_size = header + fields.iter().map(Vec::len).sum::<usize>();

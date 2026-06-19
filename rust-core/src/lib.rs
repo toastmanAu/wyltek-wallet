@@ -19,7 +19,12 @@ pub use transaction::{TransactionRequest, TxInput, TxOutput, BuiltTransaction, b
 pub use signing::{sign_transaction, sign_ckb_secp256k1, sign_message, verify_signature};
 pub use hashing::{blake2b_256, ckb_hash};
 pub use agent::{AgentError, AgentKeyPair, CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec, agent_root_keypair, decide, mint_token, token_caps, token_id_of};
-pub use cemp::{cemp_mlkem_from_seed, KemKeyPair, CempError};
+pub use cemp::{
+    cemp_mlkem_from_seed, KemKeyPair, CempError,
+    cemp_encrypt, cemp_decrypt,
+    serialize_profile, parse_profile_kem, parse_profile_dsa,
+    serialize_message_pointer, parse_message_pointer, MessagePointerOut,
+};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
