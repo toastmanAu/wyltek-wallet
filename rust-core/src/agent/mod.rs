@@ -11,7 +11,7 @@ pub mod ledger;
 pub mod policy;
 
 pub use types::{CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec};
-pub use token::{AgentKeyPair, agent_root_keypair, mint_token, token_caps};
+pub use token::{AgentKeyPair, agent_root_keypair, mint_token, token_caps, token_id_of};
 pub use ledger::{InMemoryLedger, LedgerStore, SpendRecord};
 pub use policy::decide;
 

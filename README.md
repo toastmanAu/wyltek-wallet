@@ -2,7 +2,7 @@
 
 Native Android CKB / Nervos wallet with post-quantum cryptography, hardware-backed key storage, on-chain encrypted messaging, an asset / marketplace surface, and Nervos DAO. Built by Wyltek.
 
-> **Status:** MVPs 1, 3, 4, 5, 6 complete. MVP 2 (chain access) shipped via RPC; embedded light client still pending. Active work: multi-chain swaps. See `PLAN.md` for the roadmap and `PLAN-SWAPS.md` for the swaps initiative.
+> **Status:** MVPs 1, 3, 4, 5, 6 complete. MVP 2 (chain access) shipped via RPC; embedded light client still pending. Active work: the **Agent Gateway** (agent-callable, biscuit-token-authorized signing — keys never leave the device) and multi-chain swaps. See `PLAN.md` for the roadmap, `docs/superpowers/specs/2026-06-19-agent-gateway-design.md` for the gateway design, and `PLAN-SWAPS.md` for the swaps initiative.
 
 ## Account modes
 
@@ -56,6 +56,11 @@ Native Android CKB / Nervos wallet with post-quantum cryptography, hardware-back
 - APC tracking, compensation cycle progress, status badges.
 - Active / Completed tabs with optimistic pending-tx state.
 
+### Agent Gateway (in progress)
+- **Rust security core (merged):** scoped **biscuit** tokens (attenuable, offline-verifiable) with scope · per-asset spend caps (cumulative + rolling window) · auto-limit tiering · ttl · recipient allowlist · IP-lock caveats; a pure `decide()` policy engine; on-chain harness. The agent submits an **intent**, never a pre-built tx — the device builds and signs it.
+- **On-device core (landed):** SQLCipher spend-ledger + token registry with atomic reserve→broadcast→confirm/rollback (unique `(token,nonce)` replay guard); StrongBox-sealed biscuit root key (independent of the wallet seed); token mint / list / revoke; `AgentActionDispatcher` wiring `send_ckb` / `send_udt` / DAO (deposit + withdraw + claim).
+- **Pending:** on-chain CEMP-PQ message dispatch (B-CEMP), the Ktor tailnet transport + token-management UI + biometric approval (B2), and the keyless relay + wake (C). See `docs/superpowers/plans/`.
+
 ### UI
 - Jetpack Compose throughout.
 - 6 built-in theme presets + custom theme JSON import / export.
@@ -98,6 +103,14 @@ Kotlin + Jetpack Compose UI
  ├─ Nervos DAO
  │   ├─ deposit / withdraw / unlock
  │   └─ APC + cycle tracking
+ │
+ ├─ Agent Gateway
+ │   ├─ biscuit token core (Rust: mint / decide / caps)
+ │   ├─ SQLCipher spend-ledger + token registry (atomic)
+ │   ├─ StrongBox-sealed biscuit root key
+ │   ├─ AgentActionDispatcher (intent → decide → atomic spend)
+ │   ├─ Ktor tailnet server + biometric approval (planned, B2)
+ │   └─ keyless relay + wake (planned, C)
  │
  └─ Skinning
      ├─ panel templates
@@ -151,6 +164,7 @@ cd rust-core && cargo build --release
 
 ## Roadmap
 
+- **Agent Gateway** — finish the agent-callable signing surface: on-chain CEMP-PQ message dispatch (Plan B-CEMP), the Ktor tailnet transport + token-management UI + biometric approval (Plan B2), and the keyless Python relay + dual wake (Plan C). The Rust security core is merged and the on-device core has landed; specs/plans live in `docs/superpowers/`.
 - **Embedded light client** — bundle `ckb-light-client-lite` as a foreground service to fully close MVP 2.
 - **Multi-chain swaps** — BTC / ETH / SOL via BIP-39 derivation, zero-custody routing through Onramper (fiat), Rango (DEX aggregator) and UTXOSwap (CKB-native DEX). Full design in `PLAN-SWAPS.md`.
 

@@ -63,6 +63,10 @@ pub struct Intent {
     pub amount: i64,
     /// Client-chosen unique string; ledger rejects replays.
     pub nonce: String,
+    /// Granular action within a scope (e.g. "deposit" | "withdraw" | "claim" for op="dao"). None for simple ops.
+    pub action: Option<String>,
+    /// Reference to an existing cell for actions that target one, as "txhash:index" (e.g. a DAO deposit outpoint). None otherwise.
+    pub dao_ref: Option<String>,
 }
 
 /// Request-time context the device supplies to `decide`.

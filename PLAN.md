@@ -12,6 +12,7 @@ App branding finalised as **Blackbox Vault** (under the Wyltek umbrella). All si
 | MVP 4 — Assets gallery | ✅ Complete (Spore/CoTA/CKBFS scanners + gallery + inspector) |
 | MVP 5 — Marketplace (LSDL) | ✅ Complete (list / cancel / buy) |
 | MVP 6 — Messaging (CEMP-PQ) | ✅ Complete (profile + contacts + encrypted send/receive + notification scanner) |
+| Agent Gateway — agent-callable signing | 🔄 Rust security core merged (biscuit tokens + `decide` policy + ledger + harness); on-device core landed (SQLCipher ledger, StrongBox biscuit key, token service, `AgentActionDispatcher`). Pending: on-chain CEMP dispatch (B-CEMP), Ktor transport + UI + biometric approval (B2), keyless relay + wake (C). Design + plans in `docs/superpowers/` |
 
 ### Second-wave features (shipped since MVPs)
 
@@ -30,6 +31,7 @@ App branding finalised as **Blackbox Vault** (under the Wyltek umbrella). All si
 
 ### Next initiatives
 
+- **Agent Gateway** — agent-callable, biscuit-token-authorized signing where keys never leave the device. Rust core merged + on-device core landed; remaining: on-chain CEMP-PQ message dispatch (Plan B-CEMP), Ktor tailnet transport + token-management UI + biometric approval (Plan B2), keyless Python relay on wyltek-10700 + persistent/FCM wake (Plan C). Spec: `docs/superpowers/specs/2026-06-19-agent-gateway-design.md`. **Carry-forward / known gaps:** boot-time recovery sweep for orphaned `pending` ledger rows (a mid-flight crash leaves a debit that counts against cap until reconciled — fails safe); biscuit attenuation UI; decide-time revocation already enforced via the registry flag; multi-asset cap regression test; debit on the policy-returned `d.asset`/`d.amount` rather than the raw intent; a `reg.tokenId == d.tokenId` canary.
 - **Embedded light client** — bundle `ckb-light-client-lite` as a foreground service. Last remaining MVP-2 item.
 - **Multi-chain swaps (BTC / ETH / SOL)** — designed in `PLAN-SWAPS.md`. Zero-custody, no spread, third-party aggregator routes (fiat ramp + DEX aggregator + CKB-native DEX). Bottom bar restructure: `Home | Swaps | Market | Messages | Settings`; Assets moves to Home card.
 

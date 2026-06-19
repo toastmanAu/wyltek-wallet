@@ -643,6 +643,16 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_validate_address(
     ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_decide(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_agent_root_keypair(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_mint_token(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_token_caps(
+    ): Short
+    external fun uniffi_wyltekwalletcore_checksum_func_token_id_of(
+    ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_blake2b_256(
     ): Short
     external fun uniffi_wyltekwalletcore_checksum_func_ckb_hash(
@@ -714,6 +724,16 @@ external fun uniffi_wyltekwalletcore_fn_func_encode_address(`codeHash`: RustBuff
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_validate_address(`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+external fun uniffi_wyltekwalletcore_fn_func_decide(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,`intent`: RustBuffer.ByValue,`view`: RustBuffer.ByValue,`ctx`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_agent_root_keypair(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mint_token(`spec`: RustBuffer.ByValue,`rootSecretHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_token_caps(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_token_id_of(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_blake2b_256(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_ckb_hash(`dataHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -893,6 +913,21 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_validate_address() != 52759.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_decide() != 63810.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_agent_root_keypair() != 44592.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mint_token() != 43946.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_token_caps() != 64740.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_token_id_of() != 2818.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_blake2b_256() != 26658.toShort()) {
@@ -1135,6 +1170,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 /**
  * @suppress
  */
+public object FfiConverterLong: FfiConverter<Long, Long> {
+    override fun lift(value: Long): Long {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Long {
+        return buf.getLong()
+    }
+
+    override fun lower(value: Long): Long {
+        return value
+    }
+
+    override fun allocationSize(value: Long) = 8UL
+
+    override fun write(value: Long, buf: ByteBuffer) {
+        buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
     override fun lift(value: Byte): Boolean {
         return value.toInt() != 0
@@ -1272,6 +1330,44 @@ public object FfiConverterTypeAddressInfo: FfiConverterRustBuffer<AddressInfo> {
 
 
 
+data class AgentKeyPair (
+    var `secretHex`: kotlin.String
+    , 
+    var `publicHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAgentKeyPair: FfiConverterRustBuffer<AgentKeyPair> {
+    override fun read(buf: ByteBuffer): AgentKeyPair {
+        return AgentKeyPair(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AgentKeyPair) = (
+            FfiConverterString.allocationSize(value.`secretHex`) +
+            FfiConverterString.allocationSize(value.`publicHex`)
+    )
+
+    override fun write(value: AgentKeyPair, buf: ByteBuffer) {
+            FfiConverterString.write(value.`secretHex`, buf)
+            FfiConverterString.write(value.`publicHex`, buf)
+    }
+}
+
+
+
 data class BuiltTransaction (
     var `rawTransactionHex`: kotlin.String
     , 
@@ -1325,6 +1421,145 @@ public object FfiConverterTypeBuiltTransaction: FfiConverterRustBuffer<BuiltTran
 
 
 
+/**
+ * One per-asset cap line carried by a token.
+ * `window_seconds == 0` means "no rolling window" (only the cumulative cap applies).
+ */
+data class CapInfo (
+    var `asset`: kotlin.String
+    , 
+    var `cumulative`: kotlin.Long
+    , 
+    var `windowSeconds`: kotlin.Long
+    , 
+    var `windowLimit`: kotlin.Long
+    , 
+    var `autoLimit`: kotlin.Long
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCapInfo: FfiConverterRustBuffer<CapInfo> {
+    override fun read(buf: ByteBuffer): CapInfo {
+        return CapInfo(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CapInfo) = (
+            FfiConverterString.allocationSize(value.`asset`) +
+            FfiConverterLong.allocationSize(value.`cumulative`) +
+            FfiConverterLong.allocationSize(value.`windowSeconds`) +
+            FfiConverterLong.allocationSize(value.`windowLimit`) +
+            FfiConverterLong.allocationSize(value.`autoLimit`)
+    )
+
+    override fun write(value: CapInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`asset`, buf)
+            FfiConverterLong.write(value.`cumulative`, buf)
+            FfiConverterLong.write(value.`windowSeconds`, buf)
+            FfiConverterLong.write(value.`windowLimit`, buf)
+            FfiConverterLong.write(value.`autoLimit`, buf)
+    }
+}
+
+
+
+/**
+ * What the agent asks the wallet to do. Built by the agent; the device builds the
+ * actual transaction from this — the agent never supplies a pre-built/signed tx.
+ */
+data class Intent (
+    /**
+     * One of `Scope::as_tag` values.
+     */
+    var `op`: kotlin.String
+    , 
+    var `asset`: kotlin.String
+    , 
+    /**
+     * Recipient address ("" for ops without a recipient, e.g. some DAO ops).
+     */
+    var `to`: kotlin.String
+    , 
+    var `amount`: kotlin.Long
+    , 
+    /**
+     * Client-chosen unique string; ledger rejects replays.
+     */
+    var `nonce`: kotlin.String
+    , 
+    /**
+     * Granular action within a scope (e.g. "deposit" | "withdraw" | "claim" for op="dao"). None for simple ops.
+     */
+    var `action`: kotlin.String?
+    , 
+    /**
+     * Reference to an existing cell for actions that target one, as "txhash:index" (e.g. a DAO deposit outpoint). None otherwise.
+     */
+    var `daoRef`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeIntent: FfiConverterRustBuffer<Intent> {
+    override fun read(buf: ByteBuffer): Intent {
+        return Intent(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Intent) = (
+            FfiConverterString.allocationSize(value.`op`) +
+            FfiConverterString.allocationSize(value.`asset`) +
+            FfiConverterString.allocationSize(value.`to`) +
+            FfiConverterLong.allocationSize(value.`amount`) +
+            FfiConverterString.allocationSize(value.`nonce`) +
+            FfiConverterOptionalString.allocationSize(value.`action`) +
+            FfiConverterOptionalString.allocationSize(value.`daoRef`)
+    )
+
+    override fun write(value: Intent, buf: ByteBuffer) {
+            FfiConverterString.write(value.`op`, buf)
+            FfiConverterString.write(value.`asset`, buf)
+            FfiConverterString.write(value.`to`, buf)
+            FfiConverterLong.write(value.`amount`, buf)
+            FfiConverterString.write(value.`nonce`, buf)
+            FfiConverterOptionalString.write(value.`action`, buf)
+            FfiConverterOptionalString.write(value.`daoRef`, buf)
+    }
+}
+
+
+
 data class KeyPair (
     var `publicKeyHex`: kotlin.String
     , 
@@ -1358,6 +1593,57 @@ public object FfiConverterTypeKeyPair: FfiConverterRustBuffer<KeyPair> {
     override fun write(value: KeyPair, buf: ByteBuffer) {
             FfiConverterString.write(value.`publicKeyHex`, buf)
             FfiConverterString.write(value.`privateKeyHex`, buf)
+    }
+}
+
+
+
+/**
+ * Current ledger usage for the intent's asset, computed by the caller (Kotlin DB
+ * or `InMemoryLedger`) BEFORE calling `decide`. `window_spent` is the sum of spends
+ * for this asset within the token's window ending at `now_unix`.
+ */
+data class LedgerView (
+    var `cumulativeSpent`: kotlin.Long
+    , 
+    var `windowSpent`: kotlin.Long
+    , 
+    /**
+     * True if this token_id+nonce pair has already been recorded (replay).
+     */
+    var `nonceSeen`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLedgerView: FfiConverterRustBuffer<LedgerView> {
+    override fun read(buf: ByteBuffer): LedgerView {
+        return LedgerView(
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LedgerView) = (
+            FfiConverterLong.allocationSize(value.`cumulativeSpent`) +
+            FfiConverterLong.allocationSize(value.`windowSpent`) +
+            FfiConverterBoolean.allocationSize(value.`nonceSeen`)
+    )
+
+    override fun write(value: LedgerView, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`cumulativeSpent`, buf)
+            FfiConverterLong.write(value.`windowSpent`, buf)
+            FfiConverterBoolean.write(value.`nonceSeen`, buf)
     }
 }
 
@@ -1491,6 +1777,134 @@ public object FfiConverterTypePQKeyPair: FfiConverterRustBuffer<PqKeyPair> {
     override fun write(value: PqKeyPair, buf: ByteBuffer) {
             FfiConverterString.write(value.`publicKeyHex`, buf)
             FfiConverterString.write(value.`privateKeyHex`, buf)
+    }
+}
+
+
+
+/**
+ * Request-time context the device supplies to `decide`.
+ */
+data class RequestCtx (
+    /**
+     * The account the request targets — must equal the token's bound account.
+     */
+    var `account`: kotlin.String
+    , 
+    var `sourceIp`: kotlin.String
+    , 
+    var `nowUnix`: kotlin.Long
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRequestCtx: FfiConverterRustBuffer<RequestCtx> {
+    override fun read(buf: ByteBuffer): RequestCtx {
+        return RequestCtx(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RequestCtx) = (
+            FfiConverterString.allocationSize(value.`account`) +
+            FfiConverterString.allocationSize(value.`sourceIp`) +
+            FfiConverterLong.allocationSize(value.`nowUnix`)
+    )
+
+    override fun write(value: RequestCtx, buf: ByteBuffer) {
+            FfiConverterString.write(value.`account`, buf)
+            FfiConverterString.write(value.`sourceIp`, buf)
+            FfiConverterLong.write(value.`nowUnix`, buf)
+    }
+}
+
+
+
+/**
+ * Parameters the wallet UI supplies when minting a token.
+ */
+data class TokenSpec (
+    /**
+     * CKB address (testnet) the token may act for. Bound into the token.
+     */
+    var `account`: kotlin.String
+    , 
+    /**
+     * Granted operations.
+     */
+    var `scopes`: List<Scope>
+    , 
+    /**
+     * Per-asset caps + auto-limits.
+     */
+    var `caps`: List<CapInfo>
+    , 
+    /**
+     * Expiry unix-seconds; `None` = infinite validity.
+     */
+    var `ttlUnix`: kotlin.Long?
+    , 
+    /**
+     * Recipient allowlist (CKB addresses); empty = any valid recipient.
+     */
+    var `allowTo`: List<kotlin.String>
+    , 
+    /**
+     * Source IP/host allowlist; empty = any source.
+     */
+    var `allowIp`: List<kotlin.String>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTokenSpec: FfiConverterRustBuffer<TokenSpec> {
+    override fun read(buf: ByteBuffer): TokenSpec {
+        return TokenSpec(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeScope.read(buf),
+            FfiConverterSequenceTypeCapInfo.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TokenSpec) = (
+            FfiConverterString.allocationSize(value.`account`) +
+            FfiConverterSequenceTypeScope.allocationSize(value.`scopes`) +
+            FfiConverterSequenceTypeCapInfo.allocationSize(value.`caps`) +
+            FfiConverterOptionalLong.allocationSize(value.`ttlUnix`) +
+            FfiConverterSequenceString.allocationSize(value.`allowTo`) +
+            FfiConverterSequenceString.allocationSize(value.`allowIp`)
+    )
+
+    override fun write(value: TokenSpec, buf: ByteBuffer) {
+            FfiConverterString.write(value.`account`, buf)
+            FfiConverterSequenceTypeScope.write(value.`scopes`, buf)
+            FfiConverterSequenceTypeCapInfo.write(value.`caps`, buf)
+            FfiConverterOptionalLong.write(value.`ttlUnix`, buf)
+            FfiConverterSequenceString.write(value.`allowTo`, buf)
+            FfiConverterSequenceString.write(value.`allowIp`, buf)
     }
 }
 
@@ -1715,6 +2129,225 @@ public object FfiConverterTypeTxOutput: FfiConverterRustBuffer<TxOutput> {
 
 
 
+/**
+ * Errors surfaced across the UniFFI boundary for token minting/inspection.
+ * Policy *denials* are NOT errors — they are returned as `Decision::Deny`.
+ */
+sealed class AgentException(message: String): kotlin.Exception(message) {
+        
+        class TokenException(message: String) : AgentException(message)
+        
+        class InvalidSpec(message: String) : AgentException(message)
+        
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<AgentException> {
+        override fun lift(error_buf: RustBuffer.ByValue): AgentException = FfiConverterTypeAgentError.lift(error_buf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAgentError : FfiConverterRustBuffer<AgentException> {
+    override fun read(buf: ByteBuffer): AgentException {
+        
+            return when(buf.getInt()) {
+            1 -> AgentException.TokenException(FfiConverterString.read(buf))
+            2 -> AgentException.InvalidSpec(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+        
+    }
+
+    override fun allocationSize(value: AgentException): ULong {
+        return 4UL
+    }
+
+    override fun write(value: AgentException, buf: ByteBuffer) {
+        when(value) {
+            is AgentException.TokenException -> {
+                buf.putInt(1)
+                Unit
+            }
+            is AgentException.InvalidSpec -> {
+                buf.putInt(2)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+/**
+ * The policy outcome. Spend details are echoed back so the caller can debit.
+ */
+sealed class Decision {
+    
+    data class Deny(
+        val `reason`: kotlin.String) : Decision()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class AllowAuto(
+        val `tokenId`: kotlin.String, 
+        val `asset`: kotlin.String, 
+        val `amount`: kotlin.Long) : Decision()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class NeedApproval(
+        val `tokenId`: kotlin.String, 
+        val `asset`: kotlin.String, 
+        val `amount`: kotlin.Long) : Decision()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDecision : FfiConverterRustBuffer<Decision>{
+    override fun read(buf: ByteBuffer): Decision {
+        return when(buf.getInt()) {
+            1 -> Decision.Deny(
+                FfiConverterString.read(buf),
+                )
+            2 -> Decision.AllowAuto(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            3 -> Decision.NeedApproval(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: Decision) = when(value) {
+        is Decision.Deny -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+        }
+        is Decision.AllowAuto -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`tokenId`)
+                + FfiConverterString.allocationSize(value.`asset`)
+                + FfiConverterLong.allocationSize(value.`amount`)
+            )
+        }
+        is Decision.NeedApproval -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`tokenId`)
+                + FfiConverterString.allocationSize(value.`asset`)
+                + FfiConverterLong.allocationSize(value.`amount`)
+            )
+        }
+    }
+
+    override fun write(value: Decision, buf: ByteBuffer) {
+        when(value) {
+            is Decision.Deny -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is Decision.AllowAuto -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`tokenId`, buf)
+                FfiConverterString.write(value.`asset`, buf)
+                FfiConverterLong.write(value.`amount`, buf)
+                Unit
+            }
+            is Decision.NeedApproval -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`tokenId`, buf)
+                FfiConverterString.write(value.`asset`, buf)
+                FfiConverterLong.write(value.`amount`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * The operations a token may authorize. `Fiber` is reserved (schema only).
+ */
+
+enum class Scope {
+    
+    SEND_CKB,
+    SEND_UDT,
+    DAO,
+    MESSAGING,
+    FIBER;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeScope: FfiConverterRustBuffer<Scope> {
+    override fun read(buf: ByteBuffer) = try {
+        Scope.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: Scope) = 4UL
+
+    override fun write(value: Scope, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+
 sealed class WalletException(message: String): kotlin.Exception(message) {
         
         class InvalidInput(message: String) : WalletException(message)
@@ -1773,6 +2406,70 @@ public object FfiConverterTypeWalletError : FfiConverterRustBuffer<WalletExcepti
 /**
  * @suppress
  */
+public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
+    override fun read(buf: ByteBuffer): kotlin.Long? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterLong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Long?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterLong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Long?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterLong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -1791,6 +2488,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCapInfo: FfiConverterRustBuffer<List<CapInfo>> {
+    override fun read(buf: ByteBuffer): List<CapInfo> {
+        val len = buf.getInt()
+        return List<CapInfo>(len) {
+            FfiConverterTypeCapInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CapInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCapInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CapInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCapInfo.write(it, buf)
         }
     }
 }
@@ -1905,6 +2630,34 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
             FfiConverterTypeTxOutput.write(it, buf)
         }
     }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>> {
+    override fun read(buf: ByteBuffer): List<Scope> {
+        val len = buf.getInt()
+        return List<Scope>(len) {
+            FfiConverterTypeScope.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Scope>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeScope.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Scope>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeScope.write(it, buf)
+        }
+    }
 } fun `walletVersion`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -1943,6 +2696,67 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
     UniffiLib.uniffi_wyltekwalletcore_fn_func_validate_address(
     
         FfiConverterString.lower(`address`),_status)
+}
+    )
+    }
+    
+ fun `decide`(`token`: kotlin.String, `rootPubHex`: kotlin.String, `intent`: Intent, `view`: LedgerView, `ctx`: RequestCtx): Decision {
+            return FfiConverterTypeDecision.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_decide(
+    
+        FfiConverterString.lower(`token`),FfiConverterString.lower(`rootPubHex`),FfiConverterTypeIntent.lower(`intent`),FfiConverterTypeLedgerView.lower(`view`),FfiConverterTypeRequestCtx.lower(`ctx`),_status)
+}
+    )
+    }
+    
+ fun `agentRootKeypair`(): AgentKeyPair {
+            return FfiConverterTypeAgentKeyPair.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_agent_root_keypair(
+    
+        _status)
+}
+    )
+    }
+    
+
+    @Throws(AgentException::class) fun `mintToken`(`spec`: TokenSpec, `rootSecretHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(AgentException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_mint_token(
+    
+        FfiConverterTypeTokenSpec.lower(`spec`),FfiConverterString.lower(`rootSecretHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * UniFFI export: parse a token and return its caps without running authorization
+         * (no request context needed — for the UI to display a token's permissions).
+         */
+    @Throws(AgentException::class) fun `tokenCaps`(`token`: kotlin.String, `rootPubHex`: kotlin.String): List<CapInfo> {
+            return FfiConverterSequenceTypeCapInfo.lift(
+    uniffiRustCallWithError(AgentException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_token_caps(
+    
+        FfiConverterString.lower(`token`),FfiConverterString.lower(`rootPubHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * UniFFI export: return the stable token_id for a biscuit without running authorization
+         * (no request context needed — for correlating a token to ledger records).
+         */
+    @Throws(AgentException::class) fun `tokenIdOf`(`token`: kotlin.String, `rootPubHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(AgentException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_token_id_of(
+    
+        FfiConverterString.lower(`token`),FfiConverterString.lower(`rootPubHex`),_status)
 }
     )
     }
