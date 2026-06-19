@@ -11,12 +11,28 @@
 //!   cargo run --example pq_testnet -- derive [<seed_hex>]
 //!   cargo run --example pq_testnet -- balance <seed_hex>
 //!   cargo run --example pq_testnet -- spend-pq <seed_hex> <to_address> <amount_ckb>
+//!   cargo run --example pq_testnet -- agent-mint-token <seed_hex> <ckb_addr> <auto_ckb> <cumulative_ckb>
+//!   cargo run --example pq_testnet -- agent-intent <root_pub_hex> <token> <to_addr> <amount_ckb> <nonce> [<seed_hex>]
 //!
 //! `seed_hex` is the 32-byte wallet seed the app stores (the same value fed to
 //! `mldsa65_from_seed` / `generate_secp256k1_keypair`). `derive` with no seed
 //! mints a fresh random one and prints it.
+//!
+//! `agent-mint-token` creates an independent agent root keypair and mints a
+//! `send_ckb` token with the given per-transaction auto-limit and cumulative cap
+//! (both in whole CKB). Prints ROOT_SECRET, ROOT_PUBLIC, TOKEN, CAPS.
+//!
+//! `agent-intent` runs the policy engine (`decide`) against a JSON file ledger
+//! at `/tmp/agent_ledger.json`. On AllowAuto with a seed provided, executes the
+//! ML-DSA-65 PQ send and records the spend. Requires env AGENT_ACCOUNT to be
+//! set to the CKB address used at mint time.
 
 use serde_json::{json, Value};
+use wyltekwalletcore::agent::{
+    agent_root_keypair, decide, mint_token, token_caps,
+    ledger::{InMemoryLedger, LedgerStore, SpendRecord},
+    types::{CapInfo, Decision, Intent, LedgerView, RequestCtx, Scope, TokenSpec},
+};
 use wyltekwalletcore::pq_keys::{mldsa65_from_seed, mldsa65_lock_args_v2};
 use wyltekwalletcore::signing::{
     sign_ckb_mldsa65, sign_ckb_secp256k1_dao_witness, sign_ckb_secp256k1_witness, MldsaInputCell,
@@ -102,8 +118,10 @@ fn main() {
         "mint-sudt" => cmd_mint_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount")),
         "send-sudt" => cmd_send_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "to_address"), arg(&args, 3, "amount")),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
+        "agent-mint-token" => cmd_agent_mint_token(&args[1..]).map(|s| println!("{s}")),
+        "agent-intent" => cmd_agent_intent(&args[1..]).map(|s| println!("{s}")),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>\n  agent-mint-token <seed_hex> <ckb_addr> <auto_ckb> <cumulative_ckb>\n  agent-intent <root_pub_hex> <token> <to_addr> <amount_ckb> <nonce> [<seed_hex>]",
             other
         )),
     };
@@ -209,16 +227,26 @@ fn cmd_balance(seed_hex: String) -> Result<(), String> {
 }
 
 fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Result<(), String> {
+    let amount_ckb_u64: u64 = amount_ckb
+        .parse::<u64>()
+        .map_err(|_| "amount_ckb must be a whole number of CKB".to_string())?;
+    let hash = spend_pq(&seed_hex, &to_address, amount_ckb_u64)?;
+    println!("\n✅ accepted by pool — tx_hash: {hash}");
+    println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+    Ok(())
+}
+
+/// Core PQ send logic, shared by `spend-pq` and `agent-intent`.
+/// Returns the broadcast tx hash on success.
+fn spend_pq(seed_hex: &str, to_address: &str, amount_ckb: u64) -> Result<String, String> {
     let seed_hex = seed_hex.trim_start_matches("0x").to_string();
     let amount: u64 = amount_ckb
-        .parse::<u64>()
-        .map_err(|_| "amount_ckb must be a whole number of CKB".to_string())?
         .checked_mul(1_0000_0000)
         .ok_or("amount overflow")?;
 
     let pq = mldsa65_from_seed(seed_hex.clone()).map_err(|e| format!("mldsa65_from_seed: {e}"))?;
     let (pq_args, _) = pq_lock_for_seed(&seed_hex)?;
-    let to = decode_address(to_address.clone()).map_err(|e| format!("decode to_address: {e}"))?;
+    let to = decode_address(to_address.to_string()).map_err(|e| format!("decode to_address: {e}"))?;
 
     // 1. Gather live cells at the PQ lock (pure-CKB only).
     let cells = get_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
@@ -318,13 +346,120 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
     let tx_json = build_tx_json(&selected, &outputs, &witness0, &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code")], &[]);
     println!("broadcasting {} input(s), {} output(s)…", selected.len(), outputs.len());
 
-    match send_transaction(&tx_json) {
-        Ok(hash) => {
-            println!("\n✅ accepted by pool — tx_hash: {hash}");
-            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
-            Ok(())
+    send_transaction(&tx_json).map_err(|e| format!("send_transaction rejected: {e}"))
+}
+
+// ── Agent Gateway harness commands ───────────────────────────────────────────
+
+const LEDGER_PATH: &str = "/tmp/agent_ledger.json";
+const CKB_PER: i64 = 100_000_000; // shannons per CKB
+
+/// Mint an agent root keypair and a `send_ckb` token with auto + cumulative caps.
+///
+/// The seed_hex argument is accepted for API symmetry but the agent root key is
+/// independent of the wallet seed — the new key is freshly generated each time.
+fn cmd_agent_mint_token(args: &[String]) -> Result<String, String> {
+    let seed_hex = args.get(0).ok_or("need <seed_hex>")?;
+    let ckb_addr = args.get(1).ok_or("need <ckb_addr>")?;
+    let auto_ckb: i64 = args.get(2).ok_or("need <auto_ckb>")?.parse().map_err(|_| "auto_ckb must be an integer")?;
+    let cumulative_ckb: i64 = args.get(3).ok_or("need <cumulative_ckb>")?.parse().map_err(|_| "cumulative_ckb must be an integer")?;
+    let _ = seed_hex; // accepted for API symmetry; agent root key is independent
+
+    let kp = agent_root_keypair();
+    let spec = TokenSpec {
+        account: ckb_addr.clone(),
+        scopes: vec![Scope::SendCkb],
+        caps: vec![CapInfo {
+            asset: "CKB".into(),
+            cumulative: cumulative_ckb.saturating_mul(CKB_PER),
+            window_seconds: 0,
+            window_limit: 0,
+            auto_limit: auto_ckb.saturating_mul(CKB_PER),
+        }],
+        ttl_unix: None,
+        allow_to: vec![],
+        allow_ip: vec![],
+    };
+    let token = mint_token(spec, kp.secret_hex.clone()).map_err(|e| e.to_string())?;
+    let caps = token_caps(token.clone(), kp.public_hex.clone()).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "ROOT_SECRET={}\nROOT_PUBLIC={}\nTOKEN={}\nCAPS={:?}",
+        kp.secret_hex, kp.public_hex, token, caps
+    ))
+}
+
+/// Run the policy engine against a JSON-file ledger at `/tmp/agent_ledger.json`.
+///
+/// On AllowAuto with a seed provided, executes the ML-DSA-65 PQ send and records
+/// the spend. Requires the env var `AGENT_ACCOUNT` to be set to the CKB address
+/// used at mint time (the harness cannot recover the bound account from the token).
+fn cmd_agent_intent(args: &[String]) -> Result<String, String> {
+    let root_pub = args.get(0).ok_or("need <root_pub_hex>")?.clone();
+    let token = args.get(1).ok_or("need <token>")?.clone();
+    let to = args.get(2).ok_or("need <to_addr>")?.clone();
+    let amount_ckb: i64 = args.get(3).ok_or("need <amount_ckb>")?.parse().map_err(|_| "amount_ckb must be an integer")?;
+    let nonce = args.get(4).ok_or("need <nonce>")?.clone();
+    let seed_hex = args.get(5).cloned();
+    let amount = amount_ckb.saturating_mul(CKB_PER);
+
+    // Account = the token's bound account; recover it is not exposed, so require
+    // the caller to pass the same ckb_addr used at mint via env for this harness.
+    let account = std::env::var("AGENT_ACCOUNT").map_err(|_| "set AGENT_ACCOUNT to the minted ckb_addr")?;
+
+    let ledger = std::fs::read_to_string(LEDGER_PATH)
+        .map(|s| InMemoryLedger::from_json(&s))
+        .unwrap_or_else(|_| InMemoryLedger::new());
+
+    // Use a deterministic-ish timestamp for the harness (based on nonce length so
+    // identical nonces across invocations still collide in the ledger).
+    let now = 1_700_000_000_i64 + (nonce.len() as i64);
+
+    // Probe decide with zero view to extract the token_id cheaply.
+    let view0 = LedgerView { cumulative_spent: 0, window_spent: 0, nonce_seen: false };
+    let probe = decide(
+        token.clone(),
+        root_pub.clone(),
+        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.clone(), amount, nonce: nonce.clone() },
+        view0,
+        RequestCtx { account: account.clone(), source_ip: "127.0.0.1".into(), now_unix: now },
+    );
+    let token_id = match &probe {
+        Decision::AllowAuto { token_id, .. } | Decision::NeedApproval { token_id, .. } => token_id.clone(),
+        Decision::Deny { reason } => return Ok(format!("DECISION=DENY reason={reason}")),
+    };
+
+    // Real view with persisted usage.
+    let view = ledger.view(&token_id, "CKB", 0, now);
+    // Emulate nonce check: try applying a zero-amount record with the same nonce.
+    let nonce_seen = {
+        let mut l = InMemoryLedger::from_json(&ledger.to_json());
+        l.apply(SpendRecord { token_id: token_id.clone(), asset: "CKB".into(), amount: 0, unix: now, nonce: nonce.clone() }).is_err()
+    };
+    let view = LedgerView { nonce_seen, ..view };
+
+    let decision = decide(
+        token.clone(),
+        root_pub.clone(),
+        Intent { op: "send_ckb".into(), asset: "CKB".into(), to: to.clone(), amount, nonce: nonce.clone() },
+        view,
+        RequestCtx { account: account.clone(), source_ip: "127.0.0.1".into(), now_unix: now },
+    );
+
+    match decision {
+        Decision::Deny { reason } => Ok(format!("DECISION=DENY reason={reason}")),
+        Decision::NeedApproval { amount, .. } => {
+            Ok(format!("DECISION=NEED_APPROVAL amount_shannons={amount} (no broadcast in harness)"))
         }
-        Err(e) => Err(format!("send_transaction rejected: {e}")),
+        Decision::AllowAuto { amount, token_id, .. } => {
+            let seed = seed_hex.ok_or("AllowAuto but no <seed_hex> to sign with")?;
+            // Reuse the extracted PQ send path to actually broadcast.
+            let txhash = spend_pq(&seed, &to, amount_ckb as u64)?;
+            let mut l = ledger;
+            l.apply(SpendRecord { token_id, asset: "CKB".into(), amount, unix: now, nonce })
+                .map_err(|e| e.to_string())?;
+            std::fs::write(LEDGER_PATH, l.to_json()).map_err(|e| e.to_string())?;
+            Ok(format!("DECISION=ALLOW_AUTO tx={txhash} ledger_updated"))
+        }
     }
 }
 
