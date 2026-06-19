@@ -1064,6 +1064,210 @@ class WalletRepository(context: Context) {
         }
     }
 
+    /**
+     * Create a CEMP-PQ profile cell on the account's ML-DSA-65 (PQ) address.
+     *
+     * The output carries a CKB Type ID type script (system script — no cell dep
+     * needed) and CEMP profile data serialized by the Rust binding. The Type ID
+     * args are computed from the first selected input after cell collection, then
+     * patched into the output before signing, mirroring the proven sendCkb PQ path.
+     *
+     * @param account  The wallet account whose PQ address will own the profile cell.
+     * @param metadata UTF-8 metadata string to embed in the profile payload.
+     * @return [WalletResult.Success] with the broadcast tx hash, or [WalletResult.Error].
+     */
+    suspend fun createProfileCell(
+        account: WalletAccount,
+        metadata: String
+    ): WalletResult<String> {
+        return try {
+            val network = account.network
+            val networkConfig = NetworkConfig.forNetwork(network)
+
+            // Resolve the PQ CkbAddress — the one whose lock codeHash matches mldsa65.
+            val mldsa = networkConfig.mldsa65
+                ?: return WalletResult.Error("no PQ account")
+            if (mldsa.isPlaceholder()) return WalletResult.Error("no PQ account")
+
+            val pqAddress = account.addresses.firstOrNull { addr ->
+                addr.lockScript.codeHash.equals(mldsa.codeHash, ignoreCase = true)
+            } ?: return WalletResult.Error("no PQ account")
+
+            val seed = seedVault.loadSeed(account.id)
+                ?: return WalletResult.Error("Seed not found")
+
+            val signCtx = resolveSigningContext(seed, pqAddress, network)
+                ?: return WalletResult.Error(
+                    "PQ lock not deployed on $network — set NetworkConfig.mldsa65 to the testnet deployment."
+                )
+
+            // Derive PQ keys.
+            val dsa = mldsa65FromSeed(seed)
+            val kem = cempMlkemFromSeed(seed)
+
+            // Build the CEMP profile payload.
+            val profileData = serializeProfile(dsa.publicKeyHex, kem.publicKeyHex, metadata)
+
+            val fromInfo = decodeAddress(pqAddress.bech32m)
+            val lockScript = LockScript(
+                codeHash = fromInfo.lockCodeHash,
+                hashType = fromInfo.lockHashType,
+                args = fromInfo.lockArgs
+            )
+
+            val cells = chainManager.getCellsByLock(lockScript)
+            if (cells.isEmpty()) {
+                return WalletResult.Error("No available cells to spend")
+            }
+
+            // Minimum capacity for the profile cell. The profile data is a few
+            // hundred bytes; 200 CKB gives ample headroom for any metadata length.
+            val minProfileCellCapacity = 200_0000_0000uL
+            val feeEstimate = signCtx.minFeeEstimate
+
+            val sortedCells = cells.sortedBy { it.capacity }
+            val selected = mutableListOf<Utxo>()
+            var selectedCapacity = 0uL
+            val minChangeCellCapacity = 81_0000_0000uL
+            for (cell in sortedCells) {
+                selected.add(cell)
+                selectedCapacity += cell.capacity
+                if (selectedCapacity >= minProfileCellCapacity + feeEstimate + minChangeCellCapacity) break
+            }
+
+            if (selectedCapacity < minProfileCellCapacity + feeEstimate) {
+                return WalletResult.Error("Insufficient balance for profile cell creation")
+            }
+
+            // Compute the Type ID from the first selected input (output index 0).
+            val firstInput = selected.first()
+            val typeIdArgs = computeTypeId(
+                firstInput.outPoint.txHash,
+                firstInput.outPoint.index,
+                0uL,  // since is always 0 for this tx
+                0uL   // output index of the profile cell
+            )
+
+            // Profile cell output[0]: PQ lock + Type ID type script + profile data.
+            val outputs = mutableListOf(
+                TxOutput(
+                    capacity = minProfileCellCapacity,
+                    lockCodeHash = fromInfo.lockCodeHash,
+                    lockHashType = fromInfo.lockHashType,
+                    lockArgs = fromInfo.lockArgs,
+                    typeCodeHash = NetworkConfig.TYPE_ID_CODE_HASH,
+                    typeHashType = NetworkConfig.TYPE_ID_HASH_TYPE,
+                    typeArgs = typeIdArgs,
+                    data = profileData
+                )
+            )
+
+            // Add a change output if there's enough remaining capacity.
+            val needsChange = selectedCapacity >= minProfileCellCapacity + feeEstimate + minChangeCellCapacity
+            if (needsChange) {
+                outputs.add(
+                    TxOutput(
+                        capacity = selectedCapacity - minProfileCellCapacity - feeEstimate,
+                        lockCodeHash = fromInfo.lockCodeHash,
+                        lockHashType = fromInfo.lockHashType,
+                        lockArgs = fromInfo.lockArgs,
+                        typeCodeHash = "", typeHashType = "", typeArgs = "", data = ""
+                    )
+                )
+            }
+
+            val request = TransactionRequest(
+                inputs = selected.map {
+                    TxInput(
+                        txHash = it.outPoint.txHash,
+                        index = it.outPoint.index,
+                        since = 0uL,
+                        capacity = it.capacity
+                    )
+                },
+                outputs = outputs,
+                cellDeps = signCtx.cellDeps,
+                feeRate = 1000u
+            )
+
+            val built = buildTransaction(request)
+
+            // All inputs share the PQ lock; build MldsaInputCell list for signing.
+            val mldsaInputs = selected.map {
+                MldsaInputCell(
+                    capacity = it.capacity,
+                    lockCodeHash = fromInfo.lockCodeHash,
+                    lockHashType = fromInfo.lockHashType,
+                    lockArgs = fromInfo.lockArgs,
+                    data = ""
+                )
+            }
+            val witness0 = signCtx.signWitness0(built, mldsaInputs)
+
+            val txJson = buildJsonObject {
+                put("version", "0x0")
+                put("cell_deps", buildJsonArray {
+                    for (dep in signCtx.cellDepsForJson) {
+                        add(buildJsonObject {
+                            put("out_point", buildJsonObject {
+                                put("tx_hash", dep.txHash)
+                                put("index", "0x${dep.index.toString(16)}")
+                            })
+                            put("dep_type", dep.depType)
+                        })
+                    }
+                })
+                put("header_deps", buildJsonArray {})
+                put("inputs", buildJsonArray {
+                    for (input in selected) {
+                        add(buildJsonObject {
+                            put("previous_output", buildJsonObject {
+                                put("tx_hash", input.outPoint.txHash)
+                                put("index", "0x${input.outPoint.index.toString(16)}")
+                            })
+                            put("since", "0x0")
+                        })
+                    }
+                })
+                put("outputs", buildJsonArray {
+                    for (output in outputs) {
+                        add(buildJsonObject {
+                            put("capacity", "0x${output.capacity.toString(16)}")
+                            put("lock", buildJsonObject {
+                                put("code_hash", output.lockCodeHash)
+                                put("hash_type", output.lockHashType)
+                                put("args", output.lockArgs)
+                            })
+                            if (output.typeCodeHash.isNotBlank()) {
+                                put("type", buildJsonObject {
+                                    put("code_hash", output.typeCodeHash)
+                                    put("hash_type", output.typeHashType)
+                                    put("args", output.typeArgs)
+                                })
+                            }
+                        })
+                    }
+                })
+                put("outputs_data", buildJsonArray {
+                    for (output in outputs) {
+                        add(output.data.ifEmpty { "0x" })
+                    }
+                })
+                put("witnesses", buildJsonArray {
+                    add(witness0)
+                    for (i in 1 until selected.size) add("0x")
+                })
+            }
+
+            val txHash = chainManager.sendTransactionJson(txJson)
+                ?: return WalletResult.Error("Profile cell broadcast failed")
+
+            WalletResult.Success(txHash)
+        } catch (e: Exception) {
+            WalletResult.Error("createProfileCell failed: ${e.message}")
+        }
+    }
+
     suspend fun sendToken(
         fromAccount: WalletAccount,
         tokenTypeScript: LockScript,
