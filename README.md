@@ -2,7 +2,7 @@
 
 Native Android CKB / Nervos wallet with post-quantum cryptography, hardware-backed key storage, on-chain encrypted messaging, an asset / marketplace surface, and Nervos DAO. Built by Wyltek.
 
-> **Status:** MVPs 1, 3, 4, 5, 6 complete. MVP 2 (chain access) shipped via RPC; embedded light client still pending. Active work: the **Agent Gateway** (agent-callable, biscuit-token-authorized signing — keys never leave the device) and multi-chain swaps. See `PLAN.md` for the roadmap, `docs/superpowers/specs/2026-06-19-agent-gateway-design.md` for the gateway design, and `PLAN-SWAPS.md` for the swaps initiative.
+> **Status:** MVPs 1, 3, 4, 5, 6 complete. MVP 2 (chain access) shipped via RPC; embedded light client still pending. The **Agent Gateway** (agent-callable, biscuit-token-authorized signing — keys never leave the device) is **code-complete and merged** (Rust core + on-device core + on-chain CEMP messaging + Ktor tailnet transport/UI/biometric approval + keyless relay); remaining work is operator verification (on-chain Pudge harness runs, on-device instrumented tests, optional FCM/Firebase + relay TLS). Also active: multi-chain swaps. See `PLAN.md` for the roadmap, `docs/superpowers/specs/2026-06-19-agent-gateway-design.md` for the gateway design, `docs/superpowers/plans/` for the implementation plans, and `PLAN-SWAPS.md` for the swaps initiative.
 
 ## Account modes
 
@@ -56,10 +56,12 @@ Native Android CKB / Nervos wallet with post-quantum cryptography, hardware-back
 - APC tracking, compensation cycle progress, status badges.
 - Active / Completed tabs with optimistic pending-tx state.
 
-### Agent Gateway (in progress)
-- **Rust security core (merged):** scoped **biscuit** tokens (attenuable, offline-verifiable) with scope · per-asset spend caps (cumulative + rolling window) · auto-limit tiering · ttl · recipient allowlist · IP-lock caveats; a pure `decide()` policy engine; on-chain harness. The agent submits an **intent**, never a pre-built tx — the device builds and signs it.
-- **On-device core (landed):** SQLCipher spend-ledger + token registry with atomic reserve→broadcast→confirm/rollback (unique `(token,nonce)` replay guard); StrongBox-sealed biscuit root key (independent of the wallet seed); token mint / list / revoke; `AgentActionDispatcher` wiring `send_ckb` / `send_udt` / DAO (deposit + withdraw + claim).
-- **Pending:** on-chain CEMP-PQ message dispatch (B-CEMP), the Ktor tailnet transport + token-management UI + biometric approval (B2), and the keyless relay + wake (C). See `docs/superpowers/plans/`.
+### Agent Gateway (merged; operator verification pending)
+- **Rust security core:** scoped **biscuit** tokens (attenuable, offline-verifiable) with scope · per-asset spend caps (cumulative + rolling window) · auto-limit tiering · ttl · recipient allowlist · IP-lock caveats; a pure `decide()` policy engine; on-chain harness. The agent submits an **intent**, never a pre-built tx — the device builds and signs it.
+- **On-device core:** SQLCipher spend-ledger + token registry with atomic reserve→broadcast→confirm/rollback (unique `(token,nonce)` replay guard); StrongBox-sealed biscuit root key (independent of the wallet seed); token mint / list / revoke; `AgentActionDispatcher` wiring `send_ckb` / `send_udt` / DAO (deposit + withdraw + claim) + on-chain CEMP-PQ messaging.
+- **Transport + UI:** Ktor server bound to the Tailscale interface in a foreground service (the **Direct** path), token-management screen (mint/revoke/QR), and a biometric-gated approval flow for over-auto-limit spends.
+- **Keyless relay:** a Python/FastAPI relay (`~/agent-gateway-relay`, served over the tailnet) for reaching the phone behind NAT — public-key biscuit pre-validation only, never holds keys; the device re-validates every intent. Persistent WebSocket is the primary wake; FCM is an optional fallback (`docs/agent-gateway-fcm-setup.md`).
+- **Operator verification pending:** on-chain Pudge harness runs (CKB/sUDT/DAO/CEMP), on-device instrumented tests (Room/SQLCipher/StrongBox/biometric), relay deploy over HTTPS (`tailscale cert`), and optional FCM. Known fast-follow: relay-originated approval result post-back; token-gate `GET /v1/account`.
 
 ### UI
 - Jetpack Compose throughout.

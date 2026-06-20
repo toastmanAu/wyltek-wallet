@@ -12,7 +12,7 @@ App branding finalised as **Blackbox Vault** (under the Wyltek umbrella). All si
 | MVP 4 — Assets gallery | ✅ Complete (Spore/CoTA/CKBFS scanners + gallery + inspector) |
 | MVP 5 — Marketplace (LSDL) | ✅ Complete (list / cancel / buy) |
 | MVP 6 — Messaging (CEMP-PQ) | ✅ Complete (profile + contacts + encrypted send/receive + notification scanner) |
-| Agent Gateway — agent-callable signing | 🔄 Rust security core merged (biscuit tokens + `decide` policy + ledger + harness); on-device core landed (SQLCipher ledger, StrongBox biscuit key, token service, `AgentActionDispatcher`). Pending: on-chain CEMP dispatch (B-CEMP), Ktor transport + UI + biometric approval (B2), keyless relay + wake (C). Design + plans in `docs/superpowers/` |
+| Agent Gateway — agent-callable signing | ✅ Code-complete + merged: Rust security core (biscuit tokens + `decide` policy + ledger + harness), on-device core (SQLCipher ledger, StrongBox biscuit key, token service, `AgentActionDispatcher`), on-chain CEMP-PQ messaging (B-CEMP), Ktor tailnet transport + token UI + biometric approval (B2), keyless Python relay + persistent wake (C). 🔄 Operator verification pending: on-chain Pudge harness, on-device instrumented tests, relay HTTPS deploy, optional FCM. Fast-follow: relay-approval post-back, token-gate `/v1/account`. Design + plans in `docs/superpowers/` |
 
 ### Second-wave features (shipped since MVPs)
 
