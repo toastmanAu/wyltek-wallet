@@ -1415,7 +1415,17 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
     let search_key = json!({
         "script": { "code_hash": code_hash, "hash_type": hash_type, "args": args },
         "script_type": "lock",
-        "filter": null,
+        // Pure-CKB cells only: no type script (script_len_range = 0) AND no
+        // output data (output_data_len_range = 0). Data/type-bearing cells (e.g.
+        // CEMP message + notification cells, sUDT) must NOT be picked as fee
+        // inputs — the ML-DSA CighashAll digest reconstruction encodes every
+        // such fee input as type-less + empty-data, so including a cell that
+        // actually carries data/type makes the off-chain digest diverge from the
+        // on-chain streamer.rs stream → SignatureVerifyFailed (lock error 46).
+        "filter": {
+            "script_len_range": ["0x0", "0x1"],
+            "output_data_len_range": ["0x0", "0x1"]
+        },
         "with_data": false
     });
     let result = rpc("get_cells", json!([search_key, "asc", "0x3e8"]))?;
@@ -1424,7 +1434,8 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
 
     let mut cells = Vec::new();
     for o in objects {
-        // Skip cells carrying a type script (sUDT / assets).
+        // Defense-in-depth: the indexer filter above already excludes type-script
+        // cells, but skip again in case the filter is ever relaxed.
         if o.pointer("/output/type").map(|t| !t.is_null()).unwrap_or(false) {
             continue;
         }
