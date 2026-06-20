@@ -45,6 +45,8 @@ sealed class Screen(val route: String, val label: String) {
     data object WalletImport : Screen("wallet-import", "Import Wallet")
     data object MnemonicVerify : Screen("mnemonic-verify", "Verify Mnemonic")
     data object Dao : Screen("dao", "DAO")
+    data object Agent : Screen("agent", "Agent")
+    data object AgentApproval : Screen("agent-approval", "Approvals")
 }
 
 private val bottomBarScreens = listOf(
@@ -146,6 +148,7 @@ fun AppNavigation() {
                     onWatchOnly = { navController.navigate(Screen.WatchOnly.route) },
                     onSecurity = { navController.navigate(Screen.Security.route) },
                     onRpcHealth = { navController.navigate(Screen.RpcHealth.route) },
+                    onAgent = { navController.navigate(Screen.Agent.route) },
                     viewModel = viewModel
                 )
             }
@@ -258,6 +261,17 @@ fun AppNavigation() {
                 WalletImportScreen(
                     onBack = { navController.popBackStack() },
                     viewModel = viewModel
+                )
+            }
+            composable(Screen.Agent.route) {
+                AgentScreen(
+                    onBack = { navController.popBackStack() },
+                    onApprovals = { navController.navigate(Screen.AgentApproval.route) }
+                )
+            }
+            composable(Screen.AgentApproval.route) {
+                AgentApprovalScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
         }
