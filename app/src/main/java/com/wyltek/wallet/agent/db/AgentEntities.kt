@@ -1,5 +1,6 @@
 package com.wyltek.wallet.agent.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -51,5 +52,8 @@ data class PendingIntentEntity(
     val status: String = PENDING_APPROVAL,
     val createdAt: Long,
     val resultTxHash: String? = null,
-    val resultError: String? = null
+    val resultError: String? = null,
+    /** Set when this pending intent originated from a relay intent frame. Used by B2 approval
+     *  completion to POST the final status back to the relay server. */
+    @ColumnInfo(name = "relay_intent_id") val relayIntentId: String? = null,
 )

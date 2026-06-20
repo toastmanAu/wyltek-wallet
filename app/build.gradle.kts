@@ -103,6 +103,9 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
 
+    // Agent Gateway Relay transport (OkHttp WebSocket)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     // Agent Gateway Direct transport
     implementation("io.ktor:ktor-server-core-jvm:3.1.3")
     implementation("io.ktor:ktor-server-cio-jvm:3.1.3")

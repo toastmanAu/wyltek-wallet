@@ -25,9 +25,9 @@ import java.math.BigInteger
  */
 class AgentGateway(context: Context) : AgentDispatchPort {
     private val app = context.applicationContext
-    private val secure = AgentSecureStore(app)
+    internal val secure = AgentSecureStore(app)
     private val repository = WalletRepository(app)
-    private val keyStore = AgentKeyStore(secure, repository.getStrongBoxManager())
+    internal val keyStore = AgentKeyStore(secure, repository.getStrongBoxManager())
     private val db = AgentDatabaseFactory.open(app, secure.sqlcipherPassphrase())
     private val ledger = AgentLedger(db)
 

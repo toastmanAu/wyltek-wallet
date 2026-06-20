@@ -6,12 +6,18 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import com.wyltek.wallet.WyltekWalletApp
+import com.wyltek.wallet.agent.relay.RelayClient
+import com.wyltek.wallet.agent.relay.RelayPairing
 import com.wyltek.wallet.agent.server.AgentDispatchPort
 import com.wyltek.wallet.agent.server.Tailnet
 import com.wyltek.wallet.agent.server.agentModule
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 /**
  * Foreground service that hosts the Ktor CIO HTTP server on the device's Tailscale address.
@@ -26,6 +32,8 @@ import io.ktor.server.engine.embeddedServer
 class AgentGatewayService : Service() {
 
     private var server: EmbeddedServer<*, *>? = null
+    private var relayClient: RelayClient? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,6 +72,23 @@ class AgentGatewayService : Service() {
             agentModule(port)
         }.start(wait = false)
 
+        // Start relay client if already paired
+        val relayConfig = RelayPairing.loadConfig(androidApp.agentGateway.secure)
+        if (relayConfig != null) {
+            val client = RelayClient(
+                wsUrl       = relayConfig.wsUrl,
+                resultUrl   = relayConfig.resultUrl,
+                deviceToken = relayConfig.deviceToken,
+                dispatchPort = androidApp.agentGateway,
+                scope       = serviceScope,
+            )
+            client.connect()
+            relayClient = client
+            Log.i(TAG, "Relay client connected to ${relayConfig.wsUrl}")
+        } else {
+            Log.i(TAG, "No relay pairing found — relay client not started")
+        }
+
         running = true
         Log.i(TAG, "Agent gateway started on $bindAddr:$SERVER_PORT")
 
@@ -75,6 +100,8 @@ class AgentGatewayService : Service() {
     }
 
     private fun handleStop() {
+        relayClient?.disconnect()
+        relayClient = null
         server?.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
         server = null
         running = false
@@ -85,11 +112,14 @@ class AgentGatewayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        relayClient?.disconnect()
+        relayClient = null
         if (running) {
             server?.stop(gracePeriodMillis = 100, timeoutMillis = 500)
             server = null
             running = false
         }
+        serviceScope.cancel()
     }
 
     companion object {
