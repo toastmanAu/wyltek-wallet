@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -45,6 +46,8 @@ sealed class Screen(val route: String, val label: String) {
     data object WalletImport : Screen("wallet-import", "Import Wallet")
     data object MnemonicVerify : Screen("mnemonic-verify", "Verify Mnemonic")
     data object Dao : Screen("dao", "DAO")
+    data object Agent : Screen("agent", "Agent")
+    data object AgentApproval : Screen("agent-approval", "Approvals")
 }
 
 private val bottomBarScreens = listOf(
@@ -57,11 +60,24 @@ private val bottomBarScreens = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    approvalDeepLinkId: Long = -1L,
+    onApprovalDeepLinkConsumed: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val viewModel: WalletViewModel = viewModel()
+
+    // Navigate to the approval screen when a notification deep-link fires.
+    LaunchedEffect(approvalDeepLinkId) {
+        if (approvalDeepLinkId != -1L) {
+            navController.navigate(Screen.AgentApproval.route) {
+                launchSingleTop = true
+            }
+            onApprovalDeepLinkConsumed()
+        }
+    }
 
     val showBottomBar = bottomBarScreens.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true
@@ -146,6 +162,7 @@ fun AppNavigation() {
                     onWatchOnly = { navController.navigate(Screen.WatchOnly.route) },
                     onSecurity = { navController.navigate(Screen.Security.route) },
                     onRpcHealth = { navController.navigate(Screen.RpcHealth.route) },
+                    onAgent = { navController.navigate(Screen.Agent.route) },
                     viewModel = viewModel
                 )
             }
@@ -258,6 +275,17 @@ fun AppNavigation() {
                 WalletImportScreen(
                     onBack = { navController.popBackStack() },
                     viewModel = viewModel
+                )
+            }
+            composable(Screen.Agent.route) {
+                AgentScreen(
+                    onBack = { navController.popBackStack() },
+                    onApprovals = { navController.navigate(Screen.AgentApproval.route) }
+                )
+            }
+            composable(Screen.AgentApproval.route) {
+                AgentApprovalScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
         }

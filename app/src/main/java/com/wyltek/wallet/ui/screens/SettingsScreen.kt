@@ -21,6 +21,7 @@ fun SettingsScreen(
     onWatchOnly: () -> Unit = {},
     onSecurity: () -> Unit = {},
     onRpcHealth: () -> Unit = {},
+    onAgent: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -116,6 +117,15 @@ fun SettingsScreen(
                     icon = Icons.Default.Info,
                     title = "About",
                     subtitle = "v0.1.0-dev"
+                )
+            }
+
+            SettingsSection(title = "Agent") {
+                SettingsItem(
+                    icon = Icons.Default.SmartToy,
+                    title = "Agent Gateway",
+                    subtitle = "Tokens & server",
+                    onClick = onAgent
                 )
             }
         }

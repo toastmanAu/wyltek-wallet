@@ -1,11 +1,17 @@
 package com.wyltek.wallet.agent
 
+import android.app.NotificationManager
 import android.content.Context
 import com.wyltek.wallet.agent.db.AgentDatabaseFactory
+import com.wyltek.wallet.agent.server.AccountInfo
+import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.IntentStatusResponse
+import com.wyltek.wallet.agent.service.AgentNotifications
 import com.wyltek.wallet.agent.store.AgentSecureStore
 import com.wyltek.wallet.core.model.DaoDeposit
 import com.wyltek.wallet.core.model.LockScript
 import com.wyltek.wallet.core.model.WalletAccount
+import com.wyltek.wallet.core.native.Intent
 import com.wyltek.wallet.data.WalletRepository
 import com.wyltek.wallet.data.WalletResult
 import java.math.BigInteger
@@ -13,8 +19,11 @@ import java.math.BigInteger
 /**
  * Facade that wires all on-device Agent Gateway components from a [Context].
  * Manual DI — mirrors the pattern used by WalletRepository itself.
+ *
+ * Implements [AgentDispatchPort] so [AgentGatewayService] can pass `agentGateway`
+ * directly to `agentModule(port)` without an extra adapter.
  */
-class AgentGateway(context: Context) {
+class AgentGateway(context: Context) : AgentDispatchPort {
     private val app = context.applicationContext
     private val secure = AgentSecureStore(app)
     private val repository = WalletRepository(app)
@@ -23,11 +32,13 @@ class AgentGateway(context: Context) {
     private val ledger = AgentLedger(db)
 
     val tokenService = AgentTokenService(keyStore, db)
+    val pendingStore = PendingStore(db)
 
     val dispatcher = AgentActionDispatcher(
         keyStore = keyStore,
         ledger = ledger,
         tokenService = tokenService,
+        pendingStore = pendingStore,
         resolveAccount = { addr ->
             repository.getAllAccounts().firstOrNull { a -> a.addresses.any { it.bech32m == addr } }
         },
@@ -53,6 +64,40 @@ class AgentGateway(context: Context) {
         },
         messaging = CempMessagingSender(repository)
     )
+
+    // ── AgentDispatchPort ──────────────────────────────────────────────────────
+
+    override suspend fun dispatch(
+        token: String,
+        intent: Intent,
+        sourceIp: String,
+        nowUnix: Long
+    ): DispatchResult {
+        val r = dispatcher.dispatch(token, intent, sourceIp, nowUnix)
+        if (r is DispatchResult.Approval) {
+            AgentNotifications.ensureChannels(app)
+            val summary = "${intent.op} ${r.amount} ${r.asset} to ${intent.to}"
+            val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(r.pendingId.toInt(), AgentNotifications.approvalNotification(app, r.pendingId, summary))
+        }
+        return r
+    }
+
+    override suspend fun pendingStatus(id: Long): IntentStatusResponse? {
+        val entity = pendingStore.get(id) ?: return null
+        return IntentStatusResponse(
+            status = entity.status,
+            txHash = entity.resultTxHash,
+            error = entity.resultError
+        )
+    }
+
+    override suspend fun accounts(): List<AccountInfo> =
+        tokenService.list().map { t ->
+            AccountInfo(tokenId = t.tokenId, account = t.account, revoked = t.revoked)
+        }
+
+    // ── Private helpers ────────────────────────────────────────────────────────
 
     /**
      * Parse an asset ID of the form "codeHash:hashType:args" into a LockScript.

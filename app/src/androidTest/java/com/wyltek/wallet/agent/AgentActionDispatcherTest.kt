@@ -61,11 +61,13 @@ class AgentActionDispatcherTest {
         val db = AgentDatabaseFactory.open(ctx, ByteArray(32) { 3 })
         val tokenSvc = AgentTokenService(ks, db)
         val ledger = AgentLedger(db)
+        val pendingStore = PendingStore(db)
         val sentTo = mutableListOf<String>()
         val dispatcher = AgentActionDispatcher(
             keyStore = ks,
             ledger = ledger,
             tokenService = tokenSvc,
+            pendingStore = pendingStore,
             resolveAccount = { addr -> if (addr == "ckt1qfunded") account else null },
             sendCkb = { _, to, _ -> sentTo.add(to); nextSendResult() },
             sendToken = { _, _, _, _ -> nextSendResult() },

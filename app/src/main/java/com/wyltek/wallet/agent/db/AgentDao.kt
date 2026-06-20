@@ -49,4 +49,17 @@ interface AgentDao {
 
     @Query("SELECT revoked FROM token_registry WHERE tokenId=:tokenId LIMIT 1")
     suspend fun isRevoked(tokenId: String): Boolean?
+
+    // ---- pending intents ----
+    @Insert
+    suspend fun insertPending(p: PendingIntentEntity): Long
+
+    @Query("SELECT * FROM pending_intents WHERE id=:id LIMIT 1")
+    suspend fun pending(id: Long): PendingIntentEntity?
+
+    @Query("SELECT * FROM pending_intents WHERE status=:status ORDER BY createdAt DESC")
+    suspend fun pendingByStatus(status: String): List<PendingIntentEntity>
+
+    @Query("UPDATE pending_intents SET status=:status, resultTxHash=:txHash, resultError=:error WHERE id=:id")
+    suspend fun setPendingResult(id: Long, status: String, txHash: String?, error: String?)
 }
