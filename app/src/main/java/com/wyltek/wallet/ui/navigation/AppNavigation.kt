@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -59,11 +60,24 @@ private val bottomBarScreens = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    approvalDeepLinkId: Long = -1L,
+    onApprovalDeepLinkConsumed: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val viewModel: WalletViewModel = viewModel()
+
+    // Navigate to the approval screen when a notification deep-link fires.
+    LaunchedEffect(approvalDeepLinkId) {
+        if (approvalDeepLinkId != -1L) {
+            navController.navigate(Screen.AgentApproval.route) {
+                launchSingleTop = true
+            }
+            onApprovalDeepLinkConsumed()
+        }
+    }
 
     val showBottomBar = bottomBarScreens.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true

@@ -4,8 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wyltek.wallet.WyltekWalletApp
+import com.wyltek.wallet.agent.DispatchResult
 import com.wyltek.wallet.agent.service.AgentGatewayService
 import com.wyltek.wallet.agent.server.Tailnet
+import com.wyltek.wallet.agent.db.PENDING_DENIED
 import com.wyltek.wallet.core.native.TokenSpec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +20,18 @@ data class TokenRow(
     val revoked: Boolean
 )
 
+data class PendingRow(
+    val id: Long,
+    val op: String,
+    val asset: String,
+    val amount: String,
+    val to: String,
+    val action: String?
+)
+
 data class AgentUiState(
     val tokens: List<TokenRow> = emptyList(),
+    val pending: List<PendingRow> = emptyList(),
     val serverRunning: Boolean = false,
     val bindAddress: String? = null,
     val pendingCount: Int = 0,
@@ -80,5 +92,35 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearLastMintedToken() {
         _uiState.value = _uiState.value.copy(lastMintedToken = null)
+    }
+
+    fun loadPending() = viewModelScope.launch {
+        val rows = gateway.dispatcher.listPending().map { p ->
+            PendingRow(
+                id = p.id,
+                op = p.op,
+                asset = p.asset,
+                amount = "%.4f".format(p.amount / 100_000_000.0),
+                to = p.to,
+                action = p.action
+            )
+        }
+        _uiState.value = _uiState.value.copy(pending = rows, pendingCount = rows.size)
+    }
+
+    fun approve(pendingId: Long) = viewModelScope.launch {
+        val result = gateway.dispatcher.executeApproved(pendingId)
+        val error = when (result) {
+            is DispatchResult.Denied -> result.reason
+            is DispatchResult.Failed -> result.message
+            else -> null
+        }
+        _uiState.value = _uiState.value.copy(error = error)
+        loadPending()
+    }
+
+    fun reject(pendingId: Long) = viewModelScope.launch {
+        gateway.pendingStore.setResult(pendingId, PENDING_DENIED, null, "rejected by user")
+        loadPending()
     }
 }

@@ -536,32 +536,3 @@ private fun AgentSettingsSection(
 private fun Modifier.clickableListItem(onClick: () -> Unit): Modifier =
     this.clickable(onClick = onClick)
 
-// ── Task 5 placeholder ──────────────────────────────────────────────────────
-
-@Composable
-fun AgentApprovalScreen(
-    onBack: () -> Unit = {}
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        @OptIn(ExperimentalMaterial3Api::class)
-        TopAppBar(
-            title = { Text("Pending Approvals") },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
-        )
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Approvals screen — Task 5",
-                style = MaterialTheme.typography.bodyLarge,
-                color = TextSecondary
-            )
-        }
-    }
-}
