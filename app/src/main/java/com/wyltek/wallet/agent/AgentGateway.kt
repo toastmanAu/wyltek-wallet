@@ -1,10 +1,12 @@
 package com.wyltek.wallet.agent
 
+import android.app.NotificationManager
 import android.content.Context
 import com.wyltek.wallet.agent.db.AgentDatabaseFactory
 import com.wyltek.wallet.agent.server.AccountInfo
 import com.wyltek.wallet.agent.server.AgentDispatchPort
 import com.wyltek.wallet.agent.server.IntentStatusResponse
+import com.wyltek.wallet.agent.service.AgentNotifications
 import com.wyltek.wallet.agent.store.AgentSecureStore
 import com.wyltek.wallet.core.model.DaoDeposit
 import com.wyltek.wallet.core.model.LockScript
@@ -70,7 +72,16 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         intent: Intent,
         sourceIp: String,
         nowUnix: Long
-    ): DispatchResult = dispatcher.dispatch(token, intent, sourceIp, nowUnix)
+    ): DispatchResult {
+        val r = dispatcher.dispatch(token, intent, sourceIp, nowUnix)
+        if (r is DispatchResult.Approval) {
+            AgentNotifications.ensureChannels(app)
+            val summary = "${intent.op} ${r.amount} ${r.asset} to ${intent.to}"
+            val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(r.pendingId.toInt(), AgentNotifications.approvalNotification(app, r.pendingId, summary))
+        }
+        return r
+    }
 
     override suspend fun pendingStatus(id: Long): IntentStatusResponse? {
         val entity = pendingStore.get(id) ?: return null

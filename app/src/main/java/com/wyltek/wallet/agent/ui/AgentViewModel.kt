@@ -7,6 +7,7 @@ import com.wyltek.wallet.WyltekWalletApp
 import com.wyltek.wallet.agent.DispatchResult
 import com.wyltek.wallet.agent.service.AgentGatewayService
 import com.wyltek.wallet.agent.server.Tailnet
+import com.wyltek.wallet.agent.db.PENDING_APPROVAL
 import com.wyltek.wallet.agent.db.PENDING_DENIED
 import com.wyltek.wallet.core.native.TokenSpec
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,7 +121,10 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun reject(pendingId: Long) = viewModelScope.launch {
-        gateway.pendingStore.setResult(pendingId, PENDING_DENIED, null, "rejected by user")
+        val p = gateway.pendingStore.get(pendingId)
+        if (p != null && p.status == PENDING_APPROVAL) {
+            gateway.pendingStore.setResult(pendingId, PENDING_DENIED, null, "rejected by user")
+        }
         loadPending()
     }
 }
