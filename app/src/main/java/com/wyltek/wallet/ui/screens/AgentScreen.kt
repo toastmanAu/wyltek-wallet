@@ -138,6 +138,16 @@ fun AgentScreen(
                 )
             }
 
+            // ── Relay card ───────────────────────────────────────────────────
+            AgentSettingsSection(title = "Relay") {
+                RelayCard(
+                    paired = uiState.relayPaired,
+                    pairedUrl = uiState.relayUrl,
+                    onPair = { agentViewModel.pairRelay(it) },
+                    onUnpair = { agentViewModel.unpairRelay() }
+                )
+            }
+
             // ── Token list ───────────────────────────────────────────────────
             AgentSettingsSection(title = "Tokens (${uiState.tokens.size})") {
                 if (uiState.tokens.isEmpty()) {
@@ -516,6 +526,74 @@ private fun ScopeCheckbox(
             colors = CheckboxDefaults.colors(checkedColor = NeonCyan)
         )
         Text(label, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+    }
+}
+
+@Composable
+private fun RelayCard(
+    paired: Boolean,
+    pairedUrl: String?,
+    onPair: (String) -> Unit,
+    onUnpair: () -> Unit
+) {
+    var relayInput by remember { mutableStateOf("") }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (paired && pairedUrl != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Paired",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = SuccessGreen
+                        )
+                        Text(
+                            text = pairedUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = onUnpair,
+                        colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                    ) {
+                        Text("Unpair", color = TextPrimary)
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = relayInput,
+                    onValueChange = { relayInput = it },
+                    label = { Text("Relay base URL") },
+                    placeholder = { Text("http://<wyltek-10700-tailnet>:9991", color = TextSecondary) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NeonCyan,
+                        unfocusedBorderColor = CardBorder
+                    )
+                )
+                Button(
+                    onClick = { onPair(relayInput.trim()) },
+                    enabled = relayInput.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCyan)
+                ) {
+                    Text("Pair", color = DarkBackground)
+                }
+            }
+        }
     }
 }
 
