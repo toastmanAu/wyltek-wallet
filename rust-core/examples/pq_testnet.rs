@@ -128,6 +128,11 @@ fn main() {
         "sudt-balance" => cmd_sudt_balance(arg(&args, 1, "seed_hex")),
         "mint-sudt" => cmd_mint_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "amount")),
         "send-sudt" => cmd_send_sudt(arg(&args, 1, "seed_hex"), arg(&args, 2, "to_address"), arg(&args, 3, "amount")),
+        "send-sudt-from-pq" => cmd_send_sudt_from_pq(
+            arg(&args, 1, "seed_hex"),
+            arg(&args, 2, "to_address"),
+            arg(&args, 3, "amount"),
+        ),
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         "agent-mint-token" => cmd_agent_mint_token(&args[1..]).map(|s| println!("{s}")),
         "agent-intent" => cmd_agent_intent(&args[1..]).map(|s| println!("{s}")),
@@ -141,7 +146,7 @@ fn main() {
             arg(&args, 3, "message"),
         ),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>\n  agent-mint-token <seed_hex> <ckb_addr> <auto_ckb> <cumulative_ckb>\n  agent-intent <root_pub_hex> <token> <to_addr> <amount_ckb> <nonce> [<seed_hex>]\n  cemp-profile <seed_hex> <metadata>\n  cemp-send <seed_hex> <recipient_addr> <message>",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  send-sudt-from-pq <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>\n  agent-mint-token <seed_hex> <ckb_addr> <auto_ckb> <cumulative_ckb>\n  agent-intent <root_pub_hex> <token> <to_addr> <amount_ckb> <nonce> [<seed_hex>]\n  cemp-profile <seed_hex> <metadata>\n  cemp-send <seed_hex> <recipient_addr> <message>",
             other
         )),
     };
@@ -351,6 +356,9 @@ fn spend_pq(seed_hex: &str, to_address: &str, amount_ckb: u64) -> Result<String,
             lock_code_hash: MLDSA_CODE_HASH.to_string(),
             lock_hash_type: MLDSA_HASH_TYPE.to_string(),
             lock_args: pq_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
             data: String::new(),
         })
         .collect();
@@ -1173,6 +1181,168 @@ fn cmd_send_sudt(seed_hex: String, to_address: String, amount_str: String) -> Re
     }
 }
 
+/// Spend sUDT FROM the PQ lock (PQ -> classic). Mirrors WalletRepository.sendToken's
+/// PQ path: ML-DSA witness, dual cell-dep (MLDSA + SUDT), type-script-bearing inputs.
+/// NOTE: the sUDT type_args is the CLASSIC owner lock hash (fixed at mint), even
+/// though we spend from the PQ lock.
+fn cmd_send_sudt_from_pq(seed_hex: String, to_address: String, amount_str: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let amount: u128 = amount_str.parse().map_err(|_| "amount must be a whole number of tokens".to_string())?;
+
+    // PQ witness ~5.3 KB needs a higher fee than secp's 2000 shannons.
+    let pq_fee_estimate: u64 = 10_000;
+
+    // Classic lock — only used to recover the sUDT owner type_args.
+    let secp = generate_secp256k1_keypair(seed_hex.clone(), SECP_DERIVATION_PATH.to_string())
+        .map_err(|e| format!("secp keygen: {e}"))?;
+    let classic = decode_address(
+        public_key_to_ckb_address(secp.public_key_hex.clone(), "testnet".to_string())
+            .map_err(|e| format!("address: {e}"))?,
+    ).map_err(|e| format!("decode classic: {e}"))?;
+    let type_args = owner_lock_hash(&classic.lock_code_hash, &classic.lock_hash_type, &classic.lock_args)?;
+
+    // PQ lock — the SOURCE we spend from.
+    let pq = mldsa65_from_seed(seed_hex).map_err(|e| format!("mldsa65_from_seed: {e}"))?;
+    let pq_args = format!("0x{}", mldsa65_lock_args_v2(pq.public_key_hex.clone()).map_err(|e| format!("lock args: {e}"))?);
+    let to = decode_address(to_address).map_err(|e| format!("decode to: {e}"))?;
+
+    let sudt_cells = get_sudt_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args, &type_args)?;
+    if sudt_cells.is_empty() {
+        return Err("no sUDT cells at the PQ lock — fund it via send-sudt (Classic->PQ) first".into());
+    }
+    let total: u128 = sudt_cells.iter().map(|c| c.amount).sum();
+    if total < amount {
+        return Err(format!("insufficient tokens at PQ lock: have {total}, need {amount}"));
+    }
+
+    let mut sudt_inputs: Vec<SudtCell> = Vec::new();
+    let mut sel_amount: u128 = 0;
+    for c in &sudt_cells {
+        sudt_inputs.push(c.clone());
+        sel_amount += c.amount;
+        if sel_amount >= amount { break; }
+    }
+    let sudt_out_count: u64 = if sel_amount > amount { 2 } else { 1 };
+    let sudt_input_cap: u64 = sudt_inputs.iter().map(|c| c.capacity).sum();
+
+    let ckb_cells = get_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
+    let needed_ckb = sudt_out_count * SUDT_CELL_CAPACITY + pq_fee_estimate;
+    let mut sorted = ckb_cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let mut selected_ckb: Vec<&Cell> = Vec::new();
+    let mut sel_ckb_cap: u64 = 0;
+    for c in &sorted {
+        if sel_ckb_cap + sudt_input_cap >= needed_ckb + MIN_CELL_CAPACITY { break; }
+        selected_ckb.push(c);
+        sel_ckb_cap += c.capacity;
+    }
+    let total_in_cap = sel_ckb_cap + sudt_input_cap;
+    if total_in_cap < needed_ckb {
+        return Err(format!("insufficient CKB at PQ lock: have {total_in_cap}, need {needed_ckb}"));
+    }
+
+    // Outputs: recipient sUDT (to classic), sUDT change (back to PQ), CKB change (back to PQ).
+    let mut outputs = vec![TxOutput {
+        capacity: SUDT_CELL_CAPACITY,
+        lock_code_hash: to.lock_code_hash.clone(),
+        lock_hash_type: to.lock_hash_type.clone(),
+        lock_args: to.lock_args.clone(),
+        type_code_hash: SUDT_CODE_HASH.to_string(),
+        type_hash_type: "type".to_string(),
+        type_args: type_args.clone(),
+        data: u128_le_hex(amount),
+    }];
+    if sel_amount > amount {
+        outputs.push(TxOutput {
+            capacity: SUDT_CELL_CAPACITY,
+            lock_code_hash: MLDSA_CODE_HASH.to_string(),
+            lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+            lock_args: pq_args.clone(),
+            type_code_hash: SUDT_CODE_HASH.to_string(),
+            type_hash_type: "type".to_string(),
+            type_args: type_args.clone(),
+            data: u128_le_hex(sel_amount - amount),
+        });
+    }
+    let ckb_change = total_in_cap as i64
+        - (sudt_out_count as i64) * (SUDT_CELL_CAPACITY as i64)
+        - (pq_fee_estimate as i64);
+    if ckb_change >= MIN_CELL_CAPACITY as i64 {
+        outputs.push(TxOutput {
+            capacity: ckb_change as u64,
+            lock_code_hash: MLDSA_CODE_HASH.to_string(),
+            lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+            lock_args: pq_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    } else if ckb_change < 0 {
+        return Err("insufficient CKB capacity for token transfer".into());
+    }
+
+    // Unified input list: sUDT first, then CKB (must match the MldsaInputCell order).
+    let mut all_cells: Vec<Cell> = sudt_inputs.iter().map(SudtCell::as_cell).collect();
+    all_cells.extend(selected_ckb.iter().map(|c| (*c).clone()));
+    let input_refs: Vec<&Cell> = all_cells.iter().collect();
+
+    let request = TransactionRequest {
+        inputs: all_cells.iter().map(|c| TxInput {
+            tx_hash: c.tx_hash.clone(), index: c.index, since: c.since, capacity: c.capacity,
+        }).collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![
+            TxCellDep { tx_hash: MLDSA_DEP_TX_HASH.to_string(), index: MLDSA_DEP_INDEX, dep_type: 0 },
+            TxCellDep { tx_hash: SUDT_DEP_TX_HASH.to_string(), index: SUDT_DEP_INDEX, dep_type: 0 },
+        ],
+        header_deps: vec![],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("PQ->classic: {amount} tokens to {} ({} sUDT in, {} out)", to.bech32m, sudt_inputs.len(), sudt_out_count);
+    println!("tx_hash (signed): 0x{}", built.tx_hash_hex);
+
+    // ML-DSA witness: sUDT inputs carry the type script + data; CKB inputs do not.
+    let input_cells: Vec<MldsaInputCell> = sudt_inputs.iter().map(|c| MldsaInputCell {
+        capacity: c.capacity,
+        lock_code_hash: MLDSA_CODE_HASH.to_string(),
+        lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+        lock_args: pq_args.clone(),
+        type_code_hash: SUDT_CODE_HASH.to_string(),
+        type_hash_type: "type".to_string(),
+        type_args: type_args.clone(),
+        data: u128_le_hex(c.amount),
+    }).chain(selected_ckb.iter().map(|c| MldsaInputCell {
+        capacity: c.capacity,
+        lock_code_hash: MLDSA_CODE_HASH.to_string(),
+        lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+        lock_args: pq_args.clone(),
+        type_code_hash: String::new(),
+        type_hash_type: String::new(),
+        type_args: String::new(),
+        data: String::new(),
+    })).collect();
+
+    let witness0 = sign_ckb_mldsa65(
+        built.tx_hash_hex.clone(), input_cells, pq.private_key_hex.clone(), pq.public_key_hex.clone(),
+    ).map_err(|e| format!("sign_ckb_mldsa65: {e}"))?;
+
+    let tx_json = build_tx_json(
+        &input_refs, &outputs, &witness0,
+        &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code"), (SUDT_DEP_TX_HASH, SUDT_DEP_INDEX, "code")],
+        &[],
+    );
+    match send_transaction(&tx_json) {
+        Ok(hash) => {
+            println!("\n✅ accepted by pool — tx_hash: {hash}");
+            println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+            Ok(())
+        }
+        Err(e) => Err(format!("broadcast rejected: {e}")),
+    }
+}
+
 // ── Molecule canonicality check against a real on-chain tx ───────────────────
 
 fn h32(s: &str) -> Result<[u8; 32], String> {
@@ -1300,6 +1470,9 @@ fn cmd_cemp_profile(seed_hex: String, metadata: String) -> Result<(), String> {
         lock_code_hash: MLDSA_CODE_HASH.to_string(),
         lock_hash_type: MLDSA_HASH_TYPE.to_string(),
         lock_args: pq_args.clone(),
+        type_code_hash: String::new(),
+        type_hash_type: String::new(),
+        type_args: String::new(),
         data: String::new(),
     }).collect();
     let witness0 = sign_ckb_mldsa65(
@@ -1443,6 +1616,9 @@ fn cmd_cemp_send(seed_hex: String, recipient_addr: String, message: String) -> R
         lock_code_hash: MLDSA_CODE_HASH.to_string(),
         lock_hash_type: MLDSA_HASH_TYPE.to_string(),
         lock_args: pq_args.clone(),
+        type_code_hash: String::new(),
+        type_hash_type: String::new(),
+        type_args: String::new(),
         data: String::new(),
     }).collect();
     let witness0 = sign_ckb_mldsa65(
@@ -1696,7 +1872,17 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
     let search_key = json!({
         "script": { "code_hash": code_hash, "hash_type": hash_type, "args": args },
         "script_type": "lock",
-        "filter": null,
+        // Pure-CKB cells only: no type script (script_len_range = 0) AND no
+        // output data (output_data_len_range = 0). Data/type-bearing cells (e.g.
+        // CEMP message + notification cells, sUDT) must NOT be picked as fee
+        // inputs — the ML-DSA CighashAll digest reconstruction encodes every
+        // such fee input as type-less + empty-data, so including a cell that
+        // actually carries data/type makes the off-chain digest diverge from the
+        // on-chain streamer.rs stream → SignatureVerifyFailed (lock error 46).
+        "filter": {
+            "script_len_range": ["0x0", "0x1"],
+            "output_data_len_range": ["0x0", "0x1"]
+        },
         "with_data": false
     });
     let result = rpc("get_cells", json!([search_key, "asc", "0x3e8"]))?;
@@ -1705,7 +1891,8 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
 
     let mut cells = Vec::new();
     for o in objects {
-        // Skip cells carrying a type script (sUDT / assets).
+        // Defense-in-depth: the indexer filter above already excludes type-script
+        // cells, but skip again in case the filter is ever relaxed.
         if o.pointer("/output/type").map(|t| !t.is_null()).unwrap_or(false) {
             continue;
         }

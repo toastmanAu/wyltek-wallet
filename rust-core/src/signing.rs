@@ -115,6 +115,10 @@ pub struct MldsaInputCell {
     pub lock_code_hash: String,
     pub lock_hash_type: String,
     pub lock_args: String,
+    /// sUDT (or other) type script; "" = pure-CKB cell, no type script.
+    pub type_code_hash: String,
+    pub type_hash_type: String,
+    pub type_args: String,
     pub data: String,
 }
 
@@ -135,7 +139,17 @@ fn input_cell_output_bytes(cell: &MldsaInputCell) -> Result<Vec<u8>, WalletError
         hash_type: hash_type_byte(&cell.lock_hash_type),
         args: hex_to_bytes(&cell.lock_args).map_err(WalletError::InvalidInput)?,
     };
-    let out = CellOutputSer { capacity: cell.capacity, lock, type_: None };
+    let type_ = if cell.type_code_hash.trim_start_matches("0x").is_empty() {
+        None
+    } else {
+        Some(ScriptSer {
+            code_hash: crate::molecule::hex_to_byte32(&cell.type_code_hash)
+                .map_err(WalletError::InvalidInput)?,
+            hash_type: hash_type_byte(&cell.type_hash_type),
+            args: hex_to_bytes(&cell.type_args).map_err(WalletError::InvalidInput)?,
+        })
+    };
+    let out = CellOutputSer { capacity: cell.capacity, lock, type_ };
     let mut buf = Vec::new();
     out.serialize(&mut buf);
     Ok(buf)
@@ -519,6 +533,9 @@ mod mldsa_v2_tests {
                 "0xd70653f7fd51e173ec506b76081f37bf4acebb8a15dc79e6d4ad43ca4d3b78a4".into(),
             lock_hash_type: "type".into(),
             lock_args: format!("0x{pq_args}"),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
             data: String::new(),
         }
     }
@@ -579,6 +596,23 @@ mod mldsa_v2_tests {
         let pk = ml_dsa_65::PublicKey::try_from_bytes(pk_bytes.try_into().unwrap()).unwrap();
         let sig_arr: [u8; MLDSA65_SIG_BYTES] = sig.try_into().unwrap();
         assert!(pk.verify(&digest, &sig_arr, CKB_MLDSA_DOMAIN), "sig verifies over digest+ctx");
+    }
+
+    #[test]
+    fn digest_commits_input_type_script() {
+        let tx_hash = [0x11u8; 32];
+        let base = sample_input(&"00".repeat(37)); // empty type script
+        let mut with_type = base.clone();
+        with_type.type_code_hash = format!("0x{}", "aa".repeat(32));
+        with_type.type_hash_type = "type".to_string();
+        with_type.type_args = "0xdeadbeef".to_string();
+
+        let d_without = cighash_all_digest(&tx_hash, &[base]).unwrap();
+        let d_with = cighash_all_digest(&tx_hash, &[with_type]).unwrap();
+        assert_ne!(
+            d_without, d_with,
+            "the input's type script must be committed into the CighashAll digest"
+        );
     }
 }
 
