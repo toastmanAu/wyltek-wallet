@@ -1141,9 +1141,12 @@ class WalletRepository(context: Context) {
             // CKB change or the pool rejects a zero-fee tx.
             val sudtFeeEstimate = signCtx.minFeeEstimate
 
-            // Fetch CKB cells for capacity
+            // Fetch CKB cells for capacity. Pure-CKB only: no type script AND no
+            // output data. Empty cells report data as "0x" (not null/""), so
+            // normalize before the emptiness check — otherwise every pure cell is
+            // excluded and the send fails with a spurious "insufficient CKB".
             val ckbCells = chainManager.getCellsByLock(fromLock).filter {
-                it.type_ == null && it.data.isNullOrEmpty()
+                it.type_ == null && (it.data?.removePrefix("0x")?.isEmpty() ?: true)
             }
 
             val sudtOutputCount = if (selectedSudtAmount > amount) 2uL else 1uL
