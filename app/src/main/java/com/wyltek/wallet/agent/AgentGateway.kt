@@ -51,7 +51,7 @@ class AgentGateway(context: Context) {
             val deposit = resolveDeposit(acct, daoRef)
             if (deposit == null) WalletResult.Error("deposit not found: $daoRef") else repository.claimDao(acct, deposit)
         },
-        messaging = UnsupportedMessagingSender()
+        messaging = CempMessagingSender(repository)
     )
 
     /**

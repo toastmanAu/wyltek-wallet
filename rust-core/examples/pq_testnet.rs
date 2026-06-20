@@ -46,6 +46,17 @@ use wyltekwalletcore::molecule::{
 use wyltekwalletcore::{
     ckb_hash, decode_address, generate_secp256k1_keypair, public_key_to_ckb_address,
 };
+use wyltekwalletcore::{
+    cemp_mlkem_from_seed, cemp_encrypt, cemp_decrypt,
+    serialize_profile, parse_profile_kem,
+    serialize_message_pointer,
+    compute_type_id,
+};
+
+// CKB system Type ID type script (used for CEMP profile cells).
+const TYPE_ID_CODE_HASH: &str =
+    "0x00000000000000000000000000000000000000000000000000545950455f4944";
+const TYPE_ID_HASH_TYPE: &str = "type";
 
 // ── Testnet deployment constants (mirror NetworkConfig.testnet) ──────────────
 const RPC_URL: &str = "https://testnet.ckbapp.dev";
@@ -120,8 +131,17 @@ fn main() {
         "checkhash" => cmd_checkhash(arg(&args, 1, "tx_hash")),
         "agent-mint-token" => cmd_agent_mint_token(&args[1..]).map(|s| println!("{s}")),
         "agent-intent" => cmd_agent_intent(&args[1..]).map(|s| println!("{s}")),
+        "cemp-profile" => cmd_cemp_profile(
+            arg(&args, 1, "seed_hex"),
+            arg(&args, 2, "metadata"),
+        ),
+        "cemp-send" => cmd_cemp_send(
+            arg(&args, 1, "seed_hex"),
+            arg(&args, 2, "recipient_addr"),
+            arg(&args, 3, "message"),
+        ),
         other => Err(format!(
-            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>\n  agent-mint-token <seed_hex> <ckb_addr> <auto_ckb> <cumulative_ckb>\n  agent-intent <root_pub_hex> <token> <to_addr> <amount_ckb> <nonce> [<seed_hex>]",
+            "unknown command {:?}\n  derive [<seed_hex>]\n  balance <seed_hex>\n  spend-pq <seed_hex> <to_address> <amount_ckb>\n  spend-secp <seed_hex> <to_address> <amount_ckb>\n  deposit-dao <seed_hex> <amount_ckb>\n  withdraw-dao-phase1 <seed_hex> <deposit_tx_hash>\n  claim-dao <seed_hex> <withdraw_tx_hash> [probe]\n  sudt-balance <seed_hex>\n  mint-sudt <seed_hex> <amount>\n  send-sudt <seed_hex> <to_address> <amount>\n  checkhash <tx_hash>\n  agent-mint-token <seed_hex> <ckb_addr> <auto_ckb> <cumulative_ckb>\n  agent-intent <root_pub_hex> <token> <to_addr> <amount_ckb> <nonce> [<seed_hex>]\n  cemp-profile <seed_hex> <metadata>\n  cemp-send <seed_hex> <recipient_addr> <message>",
             other
         )),
     };
@@ -1181,6 +1201,302 @@ fn script_from_json(v: &Value) -> Result<ScriptSer, String> {
 
 /// Fetch a confirmed tx, rebuild its RawTransaction with our molecule encoder,
 /// and confirm the recomputed tx_hash matches — proving canonical serialization.
+/// `cemp-profile <seed_hex> <metadata>` — build + broadcast a CEMP-PQ profile cell.
+///
+/// Mirrors WalletRepository.createProfileCell exactly:
+///   - output[0] = profile cell with Type ID type script + CEMP profile molecule data.
+///   - Type ID args = compute_type_id(first_input, output_index=0).
+///   - Signed with ML-DSA-65 via the same `sign_ckb_mldsa65` the app uses.
+fn cmd_cemp_profile(seed_hex: String, metadata: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let pq = mldsa65_from_seed(seed_hex.clone()).map_err(|e| format!("mldsa65_from_seed: {e}"))?;
+    let kem = cemp_mlkem_from_seed(seed_hex.clone()).map_err(|e| format!("cemp_mlkem_from_seed: {e}"))?;
+    let (pq_args, _) = pq_lock_for_seed(&seed_hex)?;
+
+    // Serialise the CEMP profile molecule.
+    let profile_data_hex = serialize_profile(
+        pq.public_key_hex.clone(),
+        kem.public_key_hex.clone(),
+        metadata.clone(),
+    ).map_err(|e| format!("serialize_profile: {e}"))?;
+
+    let profile_bytes = hex::decode(profile_data_hex.trim_start_matches("0x"))
+        .map_err(|e| format!("profile hex: {e}"))?;
+
+    // Compute the minimum cell capacity (same formula as Kotlin createProfileCell):
+    //   capacity(8) + lock(32+1+args_len) + type(32+1+32) + data_len bytes.
+    let pq_args_bytes = hex::decode(pq_args.trim_start_matches("0x"))
+        .map_err(|e| format!("pq_args hex: {e}"))?;
+    let lock_bytes = 32usize + 1 + pq_args_bytes.len();
+    let type_bytes = 32usize + 1 + 32; // Type ID: code_hash + hash_type + 32-byte args
+    let cell_bytes = 8usize + lock_bytes + type_bytes + profile_bytes.len();
+    let min_profile_capacity: u64 = (cell_bytes as u64) * 100_000_000;
+    let min_change_capacity: u64 = 81_0000_0000;
+
+    // Gather pure-CKB cells at the PQ lock.
+    let cells = get_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
+    if cells.is_empty() {
+        return Err("no spendable cells at the PQ lock — fund it first".into());
+    }
+    let mut sorted = cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let mut selected: Vec<&Cell> = Vec::new();
+    let mut selected_cap: u64 = 0;
+    for c in &sorted {
+        selected.push(c);
+        selected_cap += c.capacity;
+        if selected_cap >= min_profile_capacity + PQ_FEE_ESTIMATE + min_change_capacity { break; }
+    }
+    if selected_cap < min_profile_capacity + PQ_FEE_ESTIMATE {
+        return Err(format!("insufficient balance: have {selected_cap} shannons, need {}", min_profile_capacity + PQ_FEE_ESTIMATE));
+    }
+
+    // Compute Type ID from first input, output index 0.
+    let first = selected.first().unwrap();
+    let type_id_args = compute_type_id(
+        first.tx_hash.clone(),
+        first.index,
+        0u64, // since = 0
+        0u64, // output_index = 0
+    ).map_err(|e| format!("compute_type_id: {e}"))?;
+
+    // Build outputs: profile cell + optional change.
+    let needs_change = selected_cap >= min_profile_capacity + PQ_FEE_ESTIMATE + min_change_capacity;
+    let mut outputs = vec![TxOutput {
+        capacity: min_profile_capacity,
+        lock_code_hash: MLDSA_CODE_HASH.to_string(),
+        lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+        lock_args: pq_args.clone(),
+        type_code_hash: TYPE_ID_CODE_HASH.to_string(),
+        type_hash_type: TYPE_ID_HASH_TYPE.to_string(),
+        type_args: type_id_args.clone(),
+        data: profile_data_hex.clone(),
+    }];
+    if needs_change {
+        outputs.push(TxOutput {
+            capacity: selected_cap - min_profile_capacity - PQ_FEE_ESTIMATE,
+            lock_code_hash: MLDSA_CODE_HASH.to_string(),
+            lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+            lock_args: pq_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    }
+
+    let request = TransactionRequest {
+        inputs: selected.iter().map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity }).collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![TxCellDep { tx_hash: MLDSA_DEP_TX_HASH.to_string(), index: MLDSA_DEP_INDEX, dep_type: DEP_TYPE_CODE }],
+        header_deps: vec![],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("raw tx_hash: 0x{}", built.tx_hash_hex);
+
+    let input_cells: Vec<MldsaInputCell> = selected.iter().map(|c| MldsaInputCell {
+        capacity: c.capacity,
+        lock_code_hash: MLDSA_CODE_HASH.to_string(),
+        lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+        lock_args: pq_args.clone(),
+        data: String::new(),
+    }).collect();
+    let witness0 = sign_ckb_mldsa65(
+        built.tx_hash_hex.clone(),
+        input_cells,
+        pq.private_key_hex.clone(),
+        pq.public_key_hex.clone(),
+    ).map_err(|e| format!("sign_ckb_mldsa65: {e}"))?;
+
+    let tx = build_tx_json(
+        &selected,
+        &outputs,
+        &witness0,
+        &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code")],
+        &[],
+    );
+    let tx_hash = send_transaction(&tx)?;
+    println!("\n✅ profile cell accepted — tx_hash: {tx_hash}");
+    println!("   Type ID args: {type_id_args}");
+    println!("   https://pudge.explorer.nervos.org/transaction/{tx_hash}");
+    Ok(())
+}
+
+/// `cemp-send <seed_hex> <recipient_addr> <message>` — discover → encrypt → 2-output tx → broadcast.
+///
+/// Mirrors WalletRepository.sendCempMessage exactly:
+///   - output[0] = Message Cell  (sender PQ lock, no type, data = ML-KEM encrypted payload).
+///   - output[1] = Notification Cell (recipient lock, no type, data = MessagePointer).
+///   - tx_hash in MessagePointer = 32 zero bytes (self-reference convention).
+fn cmd_cemp_send(seed_hex: String, recipient_addr: String, message: String) -> Result<(), String> {
+    let seed_hex = seed_hex.trim_start_matches("0x").to_string();
+    let pq = mldsa65_from_seed(seed_hex.clone()).map_err(|e| format!("mldsa65_from_seed: {e}"))?;
+    let (pq_args, _) = pq_lock_for_seed(&seed_hex)?;
+    let recipient = decode_address(recipient_addr.clone()).map_err(|e| format!("decode recipient: {e}"))?;
+
+    // Step 1: discover recipient KEM public key by scanning their live cells.
+    println!("Discovering CEMP profile for {recipient_addr}...");
+    let profile_cell = find_cemp_profile_cell(&recipient.lock_code_hash, &recipient.lock_hash_type, &recipient.lock_args)?;
+    let kem_pub_hex = parse_profile_kem(profile_cell).map_err(|e| format!("parse_profile_kem: {e}"))?;
+    println!("Found KEM public key (first 16 hex): {}…", &kem_pub_hex[..16.min(kem_pub_hex.len())]);
+
+    // Step 2: encrypt the message payload.
+    let plaintext_hex = format!("0x{}", hex::encode(message.as_bytes()));
+    let encrypted_hex = cemp_encrypt(plaintext_hex, kem_pub_hex)
+        .map_err(|e| format!("cemp_encrypt: {e}"))?;
+    let encrypted_bytes = hex::decode(encrypted_hex.trim_start_matches("0x"))
+        .map_err(|e| format!("encrypted hex: {e}"))?;
+
+    // Step 3: compute capacities from actual data lengths (CRITICAL — must precede build).
+    let pq_args_bytes = hex::decode(pq_args.trim_start_matches("0x"))
+        .map_err(|e| format!("pq_args hex: {e}"))?;
+    let recipient_args_bytes = hex::decode(recipient.lock_args.trim_start_matches("0x"))
+        .map_err(|e| format!("recipient args hex: {e}"))?;
+
+    // Notification cell: MessagePointer = 36 bytes fixed.
+    let zero_tx_hash = "0x".to_string() + &"00".repeat(32);
+    let notif_data_hex = serialize_message_pointer(zero_tx_hash, 0)
+        .map_err(|e| format!("serialize_message_pointer: {e}"))?;
+    let notif_data_bytes = hex::decode(notif_data_hex.trim_start_matches("0x"))
+        .map_err(|e| format!("notif hex: {e}"))?;
+
+    let sender_lock_bytes = 32usize + 1 + pq_args_bytes.len();
+    let msg_cell_bytes = 8usize + sender_lock_bytes + encrypted_bytes.len();
+    let min_msg_capacity: u64 = (msg_cell_bytes as u64) * 100_000_000;
+
+    let recip_lock_bytes = 32usize + 1 + recipient_args_bytes.len();
+    let notif_cell_bytes = 8usize + recip_lock_bytes + notif_data_bytes.len();
+    let min_notif_capacity: u64 = (notif_cell_bytes as u64) * 100_000_000;
+
+    let total_output_capacity = min_msg_capacity + min_notif_capacity;
+    let min_change_capacity: u64 = 81_0000_0000;
+
+    // Step 4: gather pure-CKB cells at the sender PQ lock.
+    let cells = get_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
+    if cells.is_empty() {
+        return Err("no spendable cells at the sender PQ lock".into());
+    }
+    let mut sorted = cells.clone();
+    sorted.sort_by_key(|c| c.capacity);
+    let mut selected: Vec<&Cell> = Vec::new();
+    let mut selected_cap: u64 = 0;
+    for c in &sorted {
+        selected.push(c);
+        selected_cap += c.capacity;
+        if selected_cap >= total_output_capacity + PQ_FEE_ESTIMATE + min_change_capacity { break; }
+    }
+    if selected_cap < total_output_capacity + PQ_FEE_ESTIMATE {
+        return Err(format!("insufficient balance: have {selected_cap}, need {}", total_output_capacity + PQ_FEE_ESTIMATE));
+    }
+
+    // Step 5: build outputs (data fixed NOW, before build/fee).
+    let needs_change = selected_cap >= total_output_capacity + PQ_FEE_ESTIMATE + min_change_capacity;
+    let mut outputs = vec![
+        TxOutput {
+            capacity: min_msg_capacity,
+            lock_code_hash: MLDSA_CODE_HASH.to_string(),
+            lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+            lock_args: pq_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: encrypted_hex.clone(),
+        },
+        TxOutput {
+            capacity: min_notif_capacity,
+            lock_code_hash: recipient.lock_code_hash.clone(),
+            lock_hash_type: recipient.lock_hash_type.clone(),
+            lock_args: recipient.lock_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: notif_data_hex.clone(),
+        },
+    ];
+    if needs_change {
+        outputs.push(TxOutput {
+            capacity: selected_cap - total_output_capacity - PQ_FEE_ESTIMATE,
+            lock_code_hash: MLDSA_CODE_HASH.to_string(),
+            lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+            lock_args: pq_args.clone(),
+            type_code_hash: String::new(),
+            type_hash_type: String::new(),
+            type_args: String::new(),
+            data: String::new(),
+        });
+    }
+
+    // Step 6: build, sign, broadcast.
+    let request = TransactionRequest {
+        inputs: selected.iter().map(|c| TxInput { tx_hash: c.tx_hash.clone(), index: c.index, since: 0, capacity: c.capacity }).collect(),
+        outputs: outputs.clone(),
+        cell_deps: vec![TxCellDep { tx_hash: MLDSA_DEP_TX_HASH.to_string(), index: MLDSA_DEP_INDEX, dep_type: DEP_TYPE_CODE }],
+        header_deps: vec![],
+        fee_rate: 1000,
+    };
+    let built = build_transaction(request).map_err(|e| format!("build_transaction: {e}"))?;
+    println!("raw tx_hash: 0x{}", built.tx_hash_hex);
+
+    let input_cells: Vec<MldsaInputCell> = selected.iter().map(|c| MldsaInputCell {
+        capacity: c.capacity,
+        lock_code_hash: MLDSA_CODE_HASH.to_string(),
+        lock_hash_type: MLDSA_HASH_TYPE.to_string(),
+        lock_args: pq_args.clone(),
+        data: String::new(),
+    }).collect();
+    let witness0 = sign_ckb_mldsa65(
+        built.tx_hash_hex.clone(),
+        input_cells,
+        pq.private_key_hex.clone(),
+        pq.public_key_hex.clone(),
+    ).map_err(|e| format!("sign_ckb_mldsa65: {e}"))?;
+
+    let tx = build_tx_json(
+        &selected,
+        &outputs,
+        &witness0,
+        &[(MLDSA_DEP_TX_HASH, MLDSA_DEP_INDEX, "code")],
+        &[],
+    );
+    let tx_hash = send_transaction(&tx)?;
+    println!("\n✅ CEMP message accepted — tx_hash: {tx_hash}");
+    println!("   https://pudge.explorer.nervos.org/transaction/{tx_hash}");
+
+    // Verify decrypt round-trip from the sender's own KEM secret.
+    let kem = cemp_mlkem_from_seed(seed_hex.clone()).map_err(|e| format!("cemp_mlkem_from_seed: {e}"))?;
+    match cemp_decrypt(encrypted_hex, kem.secret_key_hex) {
+        Ok(pt) => {
+            let pt_bytes = hex::decode(pt.trim_start_matches("0x")).unwrap_or_default();
+            println!("   decrypt round-trip: {:?}", String::from_utf8_lossy(&pt_bytes));
+        }
+        Err(e) => println!("   decrypt round-trip (expected to fail — sender cannot decrypt own msg with sender key): {e}"),
+    }
+    Ok(())
+}
+
+/// Scan a recipient's live cells for a CEMP profile cell (Type ID type script)
+/// and return the raw profile molecule hex stored in its output data.
+fn find_cemp_profile_cell(lock_code_hash: &str, lock_hash_type: &str, lock_args: &str) -> Result<String, String> {
+    let search_key = json!({
+        "script": { "code_hash": lock_code_hash, "hash_type": lock_hash_type, "args": lock_args },
+        "script_type": "lock",
+        "filter": { "script": { "code_hash": TYPE_ID_CODE_HASH, "hash_type": TYPE_ID_HASH_TYPE, "args": "0x" } },
+        "with_data": true
+    });
+    let result = rpc("get_cells", json!([search_key, "asc", "0x64"]))?;
+    let empty = vec![];
+    let objects = result.get("objects").and_then(Value::as_array).unwrap_or(&empty);
+    for o in objects {
+        if let Some(data) = o.get("output_data").and_then(Value::as_str) {
+            if data.len() > 2 { // non-empty ("0x")
+                return Ok(data.to_string());
+            }
+        }
+    }
+    Err("recipient has no CEMP profile cell on-chain".into())
+}
+
 fn cmd_checkhash(tx_hash: String) -> Result<(), String> {
     let result = rpc("get_transaction", json!([tx_hash]))?;
     let tx = result.pointer("/transaction").ok_or("tx not found / not confirmed")?;

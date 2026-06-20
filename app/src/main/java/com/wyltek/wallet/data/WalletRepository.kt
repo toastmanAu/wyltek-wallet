@@ -38,7 +38,40 @@ class WalletRepository(context: Context) {
     private val chainManager = ChainManager()
     private val assetScanner = AssetScanner(chainManager)
     private val listingService = ListingService(chainManager)
-    private val messagingService = MessagingService()
+    private val messagingService = MessagingService(
+        onSendMessage = { from, to, plaintextHex ->
+            // Resolve the sender account by its address so we can call sendCempMessage.
+            val acct = accountManager.getAllAccounts()
+                .firstOrNull { a -> a.addresses.any { it.bech32m == from } }
+                ?: return@MessagingService null
+            (sendCempMessage(acct, to, plaintextHex) as? WalletResult.Success)?.data
+        },
+        onCreateProfileCell = { ownerAddress, name ->
+            val acct = accountManager.getAllAccounts()
+                .firstOrNull { a -> a.addresses.any { it.bech32m == ownerAddress } }
+                ?: return@MessagingService null
+            (createProfileCell(acct, name) as? WalletResult.Success)?.data
+        },
+        onDiscoverProfile = { address ->
+            val kemPub = (discoverProfileKem(address) as? WalletResult.Success)?.data
+                ?: return@MessagingService null
+            com.wyltek.wallet.core.messaging.ContactProfile(
+                address = address,
+                name = null,
+                publicKey = kemPub.removePrefix("0x").chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+                discovered = true
+            )
+        },
+        onDecryptMessage = { ciphertextHex, ownerAddress ->
+            val acct = accountManager.getAllAccounts()
+                .firstOrNull { a -> a.addresses.any { it.bech32m == ownerAddress } }
+                ?: return@MessagingService null
+            val seed = seedVault.loadSeed(acct.id) ?: return@MessagingService null
+            val kemKey = cempMlkemFromSeed(seed)
+            val plaintextHex = cempDecrypt(ciphertextHex, kemKey.secretKeyHex)
+            plaintextHex.removePrefix("0x").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }
+    )
     private val contactBook = ContactBook(context)
     private val skinManager = SkinManager(context)
     private val passkeyManager = PasskeyManager(context)
