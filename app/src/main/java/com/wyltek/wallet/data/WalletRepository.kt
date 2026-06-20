@@ -67,9 +67,13 @@ class WalletRepository(context: Context) {
                 .firstOrNull { a -> a.addresses.any { it.bech32m == ownerAddress } }
                 ?: return@MessagingService null
             val seed = seedVault.loadSeed(acct.id) ?: return@MessagingService null
-            val kemKey = cempMlkemFromSeed(seed)
-            val plaintextHex = cempDecrypt(ciphertextHex, kemKey.secretKeyHex)
-            plaintextHex.removePrefix("0x").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            try {
+                val kemKey = cempMlkemFromSeed(seed)
+                val plaintextHex = cempDecrypt(ciphertextHex, kemKey.secretKeyHex)
+                plaintextHex.removePrefix("0x").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            } catch (e: CempException) {
+                ByteArray(0)
+            }
         }
     )
     private val contactBook = ContactBook(context)
