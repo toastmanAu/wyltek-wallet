@@ -19,9 +19,16 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/** v2 → v3: adds relay_intent_id column for tracking relay-originated pending intents. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_intents ADD COLUMN relay_intent_id TEXT")
+    }
+}
+
 @Database(
     entities = [SpendRecordEntity::class, TokenRegistryEntity::class, PendingIntentEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AgentDatabase : RoomDatabase() {
@@ -34,7 +41,7 @@ object AgentDatabaseFactory {
         val factory = SupportFactory(passphrase.copyOf(), null, false)
         return Room.databaseBuilder(context.applicationContext, AgentDatabase::class.java, "agent_gateway.db")
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 }

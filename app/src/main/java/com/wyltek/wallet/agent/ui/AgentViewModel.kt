@@ -9,6 +9,7 @@ import com.wyltek.wallet.agent.service.AgentGatewayService
 import com.wyltek.wallet.agent.server.Tailnet
 import com.wyltek.wallet.agent.db.PENDING_APPROVAL
 import com.wyltek.wallet.agent.db.PENDING_DENIED
+import com.wyltek.wallet.agent.relay.RelayPairing
 import com.wyltek.wallet.core.native.TokenSpec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +38,9 @@ data class AgentUiState(
     val bindAddress: String? = null,
     val pendingCount: Int = 0,
     val lastMintedToken: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val relayPaired: Boolean = false,
+    val relayUrl: String? = null
 )
 
 class AgentViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,12 +55,37 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh() = viewModelScope.launch {
+        val relayUrl = gateway.secure.loadBlob(RelayPairing.KEY_RELAY_BASE_URL)
+            ?.let { String(it, Charsets.UTF_8) }
         _uiState.value = _uiState.value.copy(
             tokens = gateway.tokenService.list().map { TokenRow(it.tokenId, it.account, it.revoked) },
             serverRunning = AgentGatewayService.isRunning(),
             bindAddress = Tailnet.bindAddress(),
-            pendingCount = gateway.dispatcher.listPending().size
+            pendingCount = gateway.dispatcher.listPending().size,
+            relayPaired = relayUrl != null,
+            relayUrl = relayUrl
         )
+    }
+
+    fun pairRelay(baseUrl: String) = viewModelScope.launch {
+        try {
+            val pairing = RelayPairing(gateway.keyStore, gateway.secure)
+            val ok = pairing.pair(baseUrl)
+            if (ok) {
+                refresh()
+            } else {
+                _uiState.value = _uiState.value.copy(error = "Relay pairing failed — check the URL and try again")
+            }
+        } catch (e: Throwable) {
+            _uiState.value = _uiState.value.copy(error = e.message ?: "Relay pairing error")
+        }
+    }
+
+    fun unpairRelay() {
+        gateway.secure.deleteBlob(RelayPairing.KEY_RELAY_BASE_URL)
+        gateway.secure.deleteBlob(RelayPairing.KEY_RELAY_DEVICE_TOKEN)
+        gateway.secure.deleteBlob(RelayPairing.KEY_RELAY_DEVICE_ID)
+        _uiState.value = _uiState.value.copy(relayPaired = false, relayUrl = null)
     }
 
     fun startServer() {
