@@ -21,6 +21,13 @@ hkdf = "0.12"
 sha2 = "0.10"
 rand = "0.8"
 
+# CEMP-PQ messaging
+fips203 = { version = "0.4", features = ["default-rng"] }
+aes-gcm = "0.10"
+
+# Agent Gateway tokens (Ed25519 + Datalog caveats)
+biscuit-auth = "5"
+
 # BIP39
 bip39 = "2"
 

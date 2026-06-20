@@ -86,6 +86,13 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
 
+    // Agent Gateway encrypted ledger
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
+    implementation("androidx.sqlite:sqlite:2.4.0")
+
     // QR Code
     implementation("com.google.zxing:core:3.5.3")
 
@@ -95,6 +102,17 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
+
+    // Agent Gateway Relay transport (OkHttp WebSocket)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Agent Gateway Direct transport
+    implementation("io.ktor:ktor-server-core-jvm:3.1.3")
+    implementation("io.ktor:ktor-server-cio-jvm:3.1.3")
+    implementation("io.ktor:ktor-server-content-negotiation-jvm:3.1.3")
+    implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:3.1.3")
+    testImplementation("io.ktor:ktor-server-test-host-jvm:3.1.3")
+    testImplementation("io.ktor:ktor-client-content-negotiation-jvm:3.1.3")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

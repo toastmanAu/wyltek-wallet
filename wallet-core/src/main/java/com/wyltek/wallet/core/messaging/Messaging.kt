@@ -1,11 +1,6 @@
 package com.wyltek.wallet.core.messaging
 
-import kotlinx.serialization.json.*
-import java.security.SecureRandom
 import java.util.UUID
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 data class Message(
     val id: String,
@@ -46,7 +41,29 @@ data class Conversation(
     val unreadCount: Int
 )
 
-class MessagingService {
+/**
+ * Messaging façade.  On-chain operations are injected via optional suspend callbacks
+ * so that wallet-core never depends on :app (which holds WalletRepository).
+ * When a callback is not supplied the method silently no-ops / returns a stub value,
+ * keeping the existing unit-test and UI paths working unchanged.
+ *
+ * @param onSendMessage       Called by [sendMessage] after storing the local copy.
+ *                            Receives (from, to, plaintextHex); returns the broadcast
+ *                            tx hash or null on failure. Null = not wired.
+ * @param onCreateProfileCell Called by [createProfileCell]; receives (ownerAddress, name);
+ *                            returns broadcast tx hash. Null = stub UUID returned.
+ * @param onDiscoverProfile   Called by [discoverProfile]; receives the recipient address;
+ *                            returns a [ContactProfile] populated with the on-chain KEM
+ *                            public key. Null = stub profile returned.
+ * @param onDecryptMessage    Called by [decryptMessage]; receives (ciphertextHex, ownerAddress);
+ *                            returns plaintext bytes. Null = empty bytes returned.
+ */
+class MessagingService(
+    private val onSendMessage: (suspend (from: String, to: String, plaintextHex: String) -> String?)? = null,
+    private val onCreateProfileCell: (suspend (ownerAddress: String, name: String) -> String?)? = null,
+    private val onDiscoverProfile: (suspend (address: String) -> ContactProfile?)? = null,
+    private val onDecryptMessage: (suspend (ciphertextHex: String, ownerAddress: String) -> ByteArray?)? = null,
+) {
 
     private val messages = mutableMapOf<String, MutableList<Message>>()
     private val contacts = mutableMapOf<String, ContactProfile>()
@@ -55,10 +72,16 @@ class MessagingService {
         ownerAddress: String,
         name: String
     ): String? {
-        return UUID.randomUUID().toString()
+        return onCreateProfileCell?.invoke(ownerAddress, name)
+            ?: UUID.randomUUID().toString()
     }
 
     suspend fun discoverProfile(address: String): ContactProfile? {
+        val onChain = onDiscoverProfile?.invoke(address)
+        if (onChain != null) {
+            contacts[address] = onChain
+            return onChain
+        }
         return contacts[address] ?: ContactProfile(
             address = address,
             name = null,
@@ -67,44 +90,25 @@ class MessagingService {
         )
     }
 
-    suspend fun encryptMessage(
-        plaintext: ByteArray,
-        recipientPublicKey: ByteArray
-    ): ByteArray {
-        val keyBytes = ByteArray(32)
-        SecureRandom().nextBytes(keyBytes)
-
-        val key = SecretKeySpec(keyBytes, "AES")
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val iv = ByteArray(12)
-        SecureRandom().nextBytes(iv)
-        val spec = GCMParameterSpec(128, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, key, spec)
-
-        val encrypted = cipher.doFinal(plaintext)
-        return iv + encrypted
-    }
-
+    /**
+     * Decrypt a CEMP-PQ ciphertext for [ownerAddress].
+     * Delegates to [onDecryptMessage] when wired; returns empty bytes otherwise
+     * (preserves the old stub behaviour for tests that don't inject the callback).
+     */
     suspend fun decryptMessage(
         ciphertext: ByteArray,
-        recipientPrivateKey: ByteArray
+        ownerAddress: String
     ): ByteArray {
-        if (ciphertext.size < 28) throw Exception("Ciphertext too short")
-
-        val iv = ciphertext.copyOfRange(0, 12)
-        val encrypted = ciphertext.copyOfRange(12, ciphertext.size)
-
-        val keyBytes = ByteArray(32)
-        SecureRandom().nextBytes(keyBytes)
-
-        val key = SecretKeySpec(keyBytes, "AES")
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val spec = GCMParameterSpec(128, iv)
-        cipher.init(Cipher.DECRYPT_MODE, key, spec)
-
-        return cipher.doFinal(encrypted)
+        val ciphertextHex = "0x" + ciphertext.joinToString("") { "%02x".format(it) }
+        return onDecryptMessage?.invoke(ciphertextHex, ownerAddress) ?: ByteArray(0)
     }
 
+    /**
+     * Send a message from [from] to [to] with [content] as plaintext bytes.
+     * Stores locally, then delegates on-chain send to [onSendMessage] if wired.
+     * The signature is UNCHANGED from the original stub so WalletViewModel /
+     * MessagesScreen compile without modification.
+     */
     suspend fun sendMessage(
         from: String,
         to: String,
@@ -122,6 +126,13 @@ class MessagingService {
 
         messages.getOrPut(to) { mutableListOf() }.add(message)
         messages.getOrPut(from) { mutableListOf() }.add(message)
+
+        // Route on-chain when wired.  Content bytes → hex; the on-chain path
+        // handles discover + encrypt + broadcast.
+        if (onSendMessage != null) {
+            val plaintextHex = "0x" + content.joinToString("") { "%02x".format(it) }
+            onSendMessage.invoke(from, to, plaintextHex)
+        }
 
         return message
     }
