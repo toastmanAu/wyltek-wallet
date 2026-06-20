@@ -23,11 +23,13 @@ class AgentGateway(context: Context) {
     private val ledger = AgentLedger(db)
 
     val tokenService = AgentTokenService(keyStore, db)
+    val pendingStore = PendingStore(db)
 
     val dispatcher = AgentActionDispatcher(
         keyStore = keyStore,
         ledger = ledger,
         tokenService = tokenService,
+        pendingStore = pendingStore,
         resolveAccount = { addr ->
             repository.getAllAccounts().firstOrNull { a -> a.addresses.any { it.bech32m == addr } }
         },

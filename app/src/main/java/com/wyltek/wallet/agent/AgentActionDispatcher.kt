@@ -1,5 +1,10 @@
 package com.wyltek.wallet.agent
 
+import com.wyltek.wallet.agent.db.PENDING_APPROVAL
+import com.wyltek.wallet.agent.db.PENDING_DENIED
+import com.wyltek.wallet.agent.db.PENDING_FAILED
+import com.wyltek.wallet.agent.db.PENDING_SENT
+import com.wyltek.wallet.agent.db.PendingIntentEntity
 import com.wyltek.wallet.core.model.WalletAccount
 import com.wyltek.wallet.core.native.Decision
 import com.wyltek.wallet.core.native.Intent
@@ -10,7 +15,7 @@ import com.wyltek.wallet.data.WalletResult
 
 sealed class DispatchResult {
     data class Sent(val txHash: String, val tokenId: String) : DispatchResult()
-    data class Approval(val tokenId: String, val asset: String, val amount: Long) : DispatchResult()
+    data class Approval(val pendingId: Long, val tokenId: String, val asset: String, val amount: Long) : DispatchResult()
     data class Denied(val reason: String) : DispatchResult()
     data class Failed(val message: String) : DispatchResult()
 }
@@ -28,6 +33,7 @@ class AgentActionDispatcher(
     private val keyStore: AgentKeyStore,
     private val ledger: AgentLedger,
     private val tokenService: AgentTokenService,
+    private val pendingStore: PendingStore,
     private val resolveAccount: (bech32m: String) -> WalletAccount?,
     private val sendCkb: suspend (acct: WalletAccount, to: String, amount: Long) -> WalletResult<String>,
     private val sendToken: suspend (acct: WalletAccount, assetId: String, to: String, amount: Long) -> WalletResult<String>,
@@ -61,12 +67,82 @@ class AgentActionDispatcher(
         val ctx = RequestCtx(account = reg.account, sourceIp = sourceIp, nowUnix = nowUnix)
         return when (val d = decide(token, pub, intent, view, ctx)) {
             is Decision.Deny -> DispatchResult.Denied(d.reason)
-            is Decision.NeedApproval -> DispatchResult.Approval(d.tokenId, d.asset, d.amount)
+            is Decision.NeedApproval -> {
+                val entity = PendingIntentEntity(
+                    token = token,
+                    op = intent.op,
+                    asset = intent.asset,
+                    to = intent.to,
+                    amount = intent.amount,
+                    nonce = intent.nonce,
+                    action = intent.action,
+                    daoRef = intent.daoRef,
+                    sourceIp = sourceIp,
+                    status = PENDING_APPROVAL,
+                    createdAt = nowUnix
+                )
+                val rowId = pendingStore.put(entity)
+                DispatchResult.Approval(pendingId = rowId, tokenId = d.tokenId, asset = d.asset, amount = d.amount)
+            }
             is Decision.AllowAuto -> executeAuto(d.tokenId, reg.account, intent, nowUnix)
         }
     }
 
-    private suspend fun executeAuto(
+    suspend fun listPending() = pendingStore.listPending()
+
+    /** Re-validates and executes a human-approved pending intent. */
+    suspend fun executeApproved(pendingId: Long): DispatchResult {
+        val p = pendingStore.get(pendingId) ?: return DispatchResult.Denied("pending intent not found")
+        if (p.status != PENDING_APPROVAL) return DispatchResult.Denied("already ${p.status}")
+        val intent = Intent(
+            op = p.op,
+            asset = p.asset,
+            to = p.to,
+            amount = p.amount,
+            nonce = p.nonce,
+            action = p.action,
+            daoRef = p.daoRef
+        )
+        val reg = tokenService.list().firstOrNull { it.token == p.token }
+            ?: return finishPending(pendingId, DispatchResult.Denied("unknown token"))
+        if (reg.revoked) return finishPending(pendingId, DispatchResult.Denied("token revoked"))
+        val now = nowSeconds()
+        val pub = keyStore.rootPublicHex()
+        val caps = try { tokenService.caps(p.token) } catch (e: Throwable) {
+            return finishPending(pendingId, DispatchResult.Denied("bad token: ${e.message}"))
+        }
+        val cap = caps.firstOrNull { it.asset == p.asset }
+            ?: return finishPending(pendingId, DispatchResult.Denied("no cap for asset ${p.asset}"))
+        val base = ledger.view(reg.tokenId, p.asset, cap.windowSeconds, now)
+        val view = LedgerView(
+            cumulativeSpent = base.cumulativeSpent,
+            windowSpent = base.windowSpent,
+            nonceSeen = ledger.nonceSeen(reg.tokenId, p.nonce)
+        )
+        val ctx = RequestCtx(account = reg.account, sourceIp = p.sourceIp, nowUnix = now)
+        // Approved intents may execute on AllowAuto OR NeedApproval (both = policy-valid within caps). Deny aborts.
+        return when (val d = decide(p.token, pub, intent, view, ctx)) {
+            is Decision.Deny -> finishPending(pendingId, DispatchResult.Denied(d.reason))
+            else -> {
+                val r = executeAuto(reg.tokenId, reg.account, intent, now)
+                finishPending(pendingId, r)
+            }
+        }
+    }
+
+    private suspend fun finishPending(id: Long, r: DispatchResult): DispatchResult {
+        when (r) {
+            is DispatchResult.Sent -> pendingStore.setResult(id, PENDING_SENT, r.txHash, null)
+            is DispatchResult.Denied -> pendingStore.setResult(id, PENDING_DENIED, null, r.reason)
+            is DispatchResult.Failed -> pendingStore.setResult(id, PENDING_FAILED, null, r.message)
+            else -> {}
+        }
+        return r
+    }
+
+    private fun nowSeconds(): Long = System.currentTimeMillis() / 1000
+
+    internal suspend fun executeAuto(
         tokenId: String,
         accountAddr: String,
         intent: Intent,

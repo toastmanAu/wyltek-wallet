@@ -103,6 +103,13 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
 
+    // Agent Gateway Direct transport
+    implementation("io.ktor:ktor-server-core-jvm:3.1.3")
+    implementation("io.ktor:ktor-server-cio-jvm:3.1.3")
+    implementation("io.ktor:ktor-server-content-negotiation-jvm:3.1.3")
+    implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:3.1.3")
+    testImplementation("io.ktor:ktor-server-test-host-jvm:3.1.3")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
