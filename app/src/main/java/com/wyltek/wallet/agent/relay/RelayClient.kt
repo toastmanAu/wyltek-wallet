@@ -6,6 +6,7 @@ import com.wyltek.wallet.agent.server.AgentDispatchPort
 import com.wyltek.wallet.core.native.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,6 +45,7 @@ class RelayClient(
 
     @Volatile private var ws: WebSocket? = null
     @Volatile private var reconnectDelayMs: Long = 5_000L
+    private var heartbeatJob: Job? = null
 
     fun connect() {
         val req = Request.Builder()
@@ -59,7 +61,7 @@ class RelayClient(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val msg = try { JSONObject(text) } catch (e: Exception) {
-                    Log.w(TAG, "Relay: bad JSON frame: $text"); return
+                    Log.w(TAG, "Relay: bad JSON frame (${text.length} bytes)"); return
                 }
                 if (msg.optString("type") != "intent") return
                 scope.launch(Dispatchers.IO) { handleIntent(msg) }
@@ -82,7 +84,8 @@ class RelayClient(
         })
 
         // Heartbeat — keeps the server-side session alive between OkHttp pings
-        scope.launch {
+        heartbeatJob?.cancel()
+        heartbeatJob = scope.launch {
             while (isActive) {
                 delay(25_000)
                 ws?.send("ping")
@@ -165,6 +168,7 @@ class RelayClient(
     }
 
     fun disconnect() {
+        heartbeatJob?.cancel()
         ws?.close(1000, "bye")
         ws = null
     }
