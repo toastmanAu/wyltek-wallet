@@ -36,6 +36,10 @@ data class MldsaLockConfig(
 
 object NetworkConfig {
 
+    // CKB built-in Type ID system script — same code_hash on every network.
+    const val TYPE_ID_CODE_HASH = "0x00000000000000000000000000000000000000000000000000545950455f4944"
+    const val TYPE_ID_HASH_TYPE = "type"
+
     private val mainnet = NetworkConstants(
         rpcUrl = "https://mainnet.ckb.dev",
         rpcName = "CKB Mainnet (public)",
