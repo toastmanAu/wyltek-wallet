@@ -396,11 +396,11 @@ private fun MintTokenForm(
             }
 
             // CKB caps
-            Text("CKB Caps (shannons)", style = MaterialTheme.typography.labelMedium, color = NeonCyan)
+            Text("CKB Caps", style = MaterialTheme.typography.labelMedium, color = NeonCyan)
             OutlinedTextField(
                 value = cumulativeCkb,
                 onValueChange = { cumulativeCkb = it },
-                label = { Text("Cumulative CKB limit") },
+                label = { Text("Cumulative cap (CKB)") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = NeonCyan,
@@ -410,7 +410,7 @@ private fun MintTokenForm(
             OutlinedTextField(
                 value = autoLimitCkb,
                 onValueChange = { autoLimitCkb = it },
-                label = { Text("Auto-approve limit (per tx)") },
+                label = { Text("Auto-approve limit per tx (CKB)") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = NeonCyan,
@@ -460,12 +460,12 @@ private fun MintTokenForm(
                         if (scopeDao) add(Scope.DAO)
                         if (scopeMessaging) add(Scope.MESSAGING)
                     }
-                    val cumulative = cumulativeCkb.toLongOrNull() ?: 0L
-                    val autoLimit = autoLimitCkb.toLongOrNull() ?: 0L
-                    val caps = if (scopeSendCkb || scopes.isNotEmpty()) {
+                    val cumulative = (cumulativeCkb.toLongOrNull() ?: 0L) * 100_000_000L
+                    val autoLimit = (autoLimitCkb.toLongOrNull() ?: 0L) * 100_000_000L
+                    val caps = if (scopeSendCkb) {
                         listOf(
                             CapInfo(
-                                asset = "ckb",
+                                asset = "CKB",
                                 cumulative = cumulative,
                                 windowSeconds = 0L,
                                 windowLimit = 0L,

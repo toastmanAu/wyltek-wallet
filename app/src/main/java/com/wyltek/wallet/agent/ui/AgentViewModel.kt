@@ -49,11 +49,13 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startServer() {
         AgentGatewayService.start(getApplication())
+        _uiState.value = _uiState.value.copy(serverRunning = true)
         refresh()
     }
 
     fun stopServer() {
         AgentGatewayService.stop(getApplication())
+        _uiState.value = _uiState.value.copy(serverRunning = false)
         refresh()
     }
 
