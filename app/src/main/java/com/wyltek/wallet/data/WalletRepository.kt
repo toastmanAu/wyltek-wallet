@@ -963,9 +963,13 @@ class WalletRepository(context: Context) {
                 args = fromInfo.lockArgs
             )
 
+            // Pure-CKB inputs only. A type/data cell here would diverge the PQ
+            // CighashAll digest from the on-chain lock (error 46) and could burn
+            // an sUDT cell in a plain send. See [CellSelection].
             val cells = chainManager.getCellsByLock(lockScript)
+                .filter { CellSelection.isPureCkb(it.type_ != null, it.data) }
             if (cells.isEmpty()) {
-                return WalletResult.Error("No available cells to spend")
+                return WalletResult.Error("No pure-CKB cells available to fund this send. Receive CKB to this address first (token and message cells can't pay capacity).")
             }
 
             val sortedCells = cells.sortedBy { it.capacity }
@@ -1155,9 +1159,12 @@ class WalletRepository(context: Context) {
                 args = fromInfo.lockArgs
             )
 
+            // Pure-CKB inputs only — the profile cell is funded by plain capacity;
+            // a type/data input would diverge the PQ digest (error 46). See [CellSelection].
             val cells = chainManager.getCellsByLock(lockScript)
+                .filter { CellSelection.isPureCkb(it.type_ != null, it.data) }
             if (cells.isEmpty()) {
-                return WalletResult.Error("No available cells to spend")
+                return WalletResult.Error("No pure-CKB cells available to fund this send. Receive CKB to this address first (token and message cells can't pay capacity).")
             }
 
             // Compute minimum capacity from actual cell contents (1 byte = 1 CKB = 1e8 shannons).
@@ -1449,8 +1456,13 @@ class WalletRepository(context: Context) {
                 hashType = senderInfo.lockHashType,
                 args = senderInfo.lockArgs
             )
+            // Pure-CKB inputs only — message/notification cells are funded by plain
+            // capacity; a type/data input would diverge the PQ digest (error 46). See
+            // [CellSelection]. (This also avoids spending an existing notification cell
+            // as fee capacity — the harness code-46 trigger.)
             val cells = chainManager.getCellsByLock(senderLockScript)
-            if (cells.isEmpty()) return WalletResult.Error("No available cells to spend")
+                .filter { CellSelection.isPureCkb(it.type_ != null, it.data) }
+            if (cells.isEmpty()) return WalletResult.Error("No pure-CKB cells available to fund this send. Receive CKB to this address first (token and message cells can't pay capacity).")
 
             val sortedCells = cells.sortedBy { it.capacity }
             val selected = mutableListOf<Utxo>()
@@ -1672,12 +1684,10 @@ class WalletRepository(context: Context) {
             val sudtFeeEstimate = signCtx.minFeeEstimate
 
             // Fetch CKB cells for capacity. Pure-CKB only: no type script AND no
-            // output data. Empty cells report data as "0x" (not null/""), so
-            // normalize before the emptiness check — otherwise every pure cell is
-            // excluded and the send fails with a spurious "insufficient CKB".
-            val ckbCells = chainManager.getCellsByLock(fromLock).filter {
-                it.type_ == null && (it.data?.removePrefix("0x")?.isEmpty() ?: true)
-            }
+            // output data (see [CellSelection]) — a data/type fee input would
+            // diverge the PQ digest (error 46) or burn another sUDT cell.
+            val ckbCells = chainManager.getCellsByLock(fromLock)
+                .filter { CellSelection.isPureCkb(it.type_ != null, it.data) }
 
             val sudtOutputCount = if (selectedSudtAmount > amount) 2uL else 1uL
             val neededCkb = sudtOutputCount * minSudtCellCapacity + sudtFeeEstimate

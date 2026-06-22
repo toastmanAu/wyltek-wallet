@@ -116,6 +116,16 @@ fn main() {
             arg(&args, 2, "to_address"),
             arg(&args, 3, "amount_ckb"),
         ),
+        "spend-pq-appfilter" => cmd_spend_pq_appfilter(
+            arg(&args, 1, "seed_hex"),
+            arg(&args, 2, "to_address"),
+            arg(&args, 3, "amount_ckb"),
+        ),
+        "spend-pq-nofilter" => cmd_spend_pq_nofilter(
+            arg(&args, 1, "seed_hex"),
+            arg(&args, 2, "to_address"),
+            arg(&args, 3, "amount_ckb"),
+        ),
         "spend-secp" => cmd_spend_secp(
             arg(&args, 1, "seed_hex"),
             arg(&args, 2, "to_address"),
@@ -261,6 +271,85 @@ fn cmd_spend_pq(seed_hex: String, to_address: String, amount_ckb: String) -> Res
     Ok(())
 }
 
+/// Parity proof for the app fix: replicate `WalletRepository.sendCkb` end to end
+/// — fetch ALL cells at the PQ lock (as `getCellsByLock` does), apply the app's
+/// `CellSelection.isPureCkb` filter in code, then sign + broadcast. On a lock
+/// that holds sUDT / CEMP cells this MUST skip them and accept the tx; the
+/// pre-fix code would have grabbed the smallest (a data cell) and hit error 46.
+fn cmd_spend_pq_appfilter(seed_hex: String, to_address: String, amount_ckb: String) -> Result<(), String> {
+    let seed = seed_hex.trim_start_matches("0x").to_string();
+    let amount = amount_ckb
+        .parse::<u64>()
+        .map_err(|_| "amount_ckb must be a whole number of CKB".to_string())?
+        .checked_mul(1_0000_0000)
+        .ok_or("amount overflow")?;
+    let (pq_args, _) = pq_lock_for_seed(&seed)?;
+
+    let all = get_cells_unfiltered(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
+    println!("PQ lock holds {} live cell(s) (app sees all of these):", all.len());
+    for c in &all {
+        let dlen = c.data.trim_start_matches("0x").len() / 2;
+        println!(
+            "  {:>10.2} CKB | type={} | data={:>4}B | {}",
+            c.capacity as f64 / 1e8,
+            if c.has_type { "yes" } else { "no " },
+            dlen,
+            if is_pure_ckb(c.has_type, &c.data) { "PURE ✓ selectable" } else { "skip (would diverge digest → 46)" },
+        );
+    }
+
+    let pure: Vec<Cell> = all
+        .iter()
+        .filter(|c| is_pure_ckb(c.has_type, &c.data))
+        .map(|c| Cell { tx_hash: c.tx_hash.clone(), index: c.index, capacity: c.capacity, since: 0 })
+        .collect();
+    println!("→ after CellSelection.isPureCkb: {} pure-CKB candidate(s)", pure.len());
+    if pure.is_empty() {
+        return Err("no pure-CKB cells available — the app would prompt to receive CKB first".into());
+    }
+
+    let hash = broadcast_pq_send(&seed, &to_address, amount, pure)?;
+    println!("\n✅ accepted by pool — tx_hash: {hash}");
+    println!("   https://pudge.explorer.nervos.org/transaction/{hash}");
+    Ok(())
+}
+
+/// Negative control: the PRE-FIX behavior. Fetch ALL cells, do NOT filter, and
+/// let `sortedBy capacity` pick the smallest first (a data/type cell). The
+/// signer encodes it as type-less/empty-data while the lock streams its real
+/// data → digest divergence → lock error 46. No funds move (pool rejects).
+/// Pick a small `amount_ckb` (≤33) so a single data cell satisfies selection
+/// and the rejection is cleanly attributable to the lock.
+fn cmd_spend_pq_nofilter(seed_hex: String, to_address: String, amount_ckb: String) -> Result<(), String> {
+    let seed = seed_hex.trim_start_matches("0x").to_string();
+    let amount = amount_ckb
+        .parse::<u64>()
+        .map_err(|_| "amount_ckb must be a whole number of CKB".to_string())?
+        .checked_mul(1_0000_0000)
+        .ok_or("amount overflow")?;
+    let (pq_args, _) = pq_lock_for_seed(&seed)?;
+
+    let all = get_cells_unfiltered(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
+    let cells: Vec<Cell> = all
+        .iter()
+        .map(|c| Cell { tx_hash: c.tx_hash.clone(), index: c.index, capacity: c.capacity, since: 0 })
+        .collect();
+    println!(
+        "NO filter — {} candidate cell(s); sortedBy capacity picks the smallest (a data/type cell) first.",
+        cells.len()
+    );
+    match broadcast_pq_send(&seed, &to_address, amount, cells) {
+        Ok(h) => {
+            println!("⚠️ UNEXPECTEDLY accepted: {h} — the bug did not reproduce (lock may have only pure cells)");
+            Ok(())
+        }
+        Err(e) => {
+            println!("✅ EXPECTED rejection — this is the bug the app fix prevents:\n   {e}");
+            Ok(())
+        }
+    }
+}
+
 /// Core PQ send logic, shared by `spend-pq` and `agent-intent`.
 /// Returns the broadcast tx hash on success.
 fn spend_pq(seed_hex: &str, to_address: &str, amount_ckb: u64) -> Result<String, String> {
@@ -269,15 +358,31 @@ fn spend_pq(seed_hex: &str, to_address: &str, amount_ckb: u64) -> Result<String,
         .checked_mul(1_0000_0000)
         .ok_or("amount overflow")?;
 
-    let pq = mldsa65_from_seed(seed_hex.clone()).map_err(|e| format!("mldsa65_from_seed: {e}"))?;
     let (pq_args, _) = pq_lock_for_seed(&seed_hex)?;
-    let to = decode_address(to_address.to_string()).map_err(|e| format!("decode to_address: {e}"))?;
 
-    // 1. Gather live cells at the PQ lock (pure-CKB only).
+    // 1. Gather live cells at the PQ lock (pure-CKB only — indexer-filtered).
     let cells = get_cells(MLDSA_CODE_HASH, MLDSA_HASH_TYPE, &pq_args)?;
     if cells.is_empty() {
         return Err("no spendable cells at the PQ lock — fund it first".into());
     }
+    broadcast_pq_send(&seed_hex, to_address, amount, cells)
+}
+
+/// Selection → sign → broadcast — the tail shared by `spend-pq` and the
+/// app-parity proof commands (`spend-pq-appfilter` / `spend-pq-nofilter`).
+///
+/// `cells` is the candidate input set already chosen by the caller; this body
+/// is byte-for-byte `WalletRepository.sendCkb`'s selection + ML-DSA signing.
+/// `amount` is in shannons.
+fn broadcast_pq_send(
+    seed_hex: &str,
+    to_address: &str,
+    amount: u64,
+    cells: Vec<Cell>,
+) -> Result<String, String> {
+    let pq = mldsa65_from_seed(seed_hex.to_string()).map_err(|e| format!("mldsa65_from_seed: {e}"))?;
+    let (pq_args, _) = pq_lock_for_seed(seed_hex)?;
+    let to = decode_address(to_address.to_string()).map_err(|e| format!("decode to_address: {e}"))?;
 
     // 2. Cell selection — mirrors WalletRepository.sendCkb exactly.
     let mut sorted = cells.clone();
@@ -1907,6 +2012,56 @@ fn get_cells(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<Cell>, 
         });
     }
     Ok(cells)
+}
+
+/// A live cell with its type-presence and output data — what the *app's*
+/// `chainManager.getCellsByLock` returns (it does NOT pre-filter at the
+/// indexer; the app filters in Kotlin via `CellSelection.isPureCkb`).
+struct RawCell {
+    tx_hash: String,
+    index: u32,
+    capacity: u64,
+    has_type: bool,
+    data: String,
+}
+
+/// Mirror of `WalletRepository.chainManager.getCellsByLock`: ALL live cells at
+/// the lock, type/data included — no `script_len_range`/`output_data_len_range`
+/// indexer filter. The app-parity proof commands fetch this way and then apply
+/// the app's own `isPureCkb` filter, exactly as the fixed `sendCkb` does.
+fn get_cells_unfiltered(code_hash: &str, hash_type: &str, args: &str) -> Result<Vec<RawCell>, String> {
+    let search_key = json!({
+        "script": { "code_hash": code_hash, "hash_type": hash_type, "args": args },
+        "script_type": "lock",
+        "with_data": true
+    });
+    let result = rpc("get_cells", json!([search_key, "asc", "0x3e8"]))?;
+    let empty = vec![];
+    let objects = result.get("objects").and_then(Value::as_array).unwrap_or(&empty);
+
+    let mut cells = Vec::new();
+    for o in objects {
+        let cap_hex = o.pointer("/output/capacity").and_then(Value::as_str).unwrap_or("0x0");
+        let tx_hash = o.pointer("/out_point/tx_hash").and_then(Value::as_str).unwrap_or("");
+        let idx_hex = o.pointer("/out_point/index").and_then(Value::as_str).unwrap_or("0x0");
+        let has_type = o.pointer("/output/type").map(|t| !t.is_null()).unwrap_or(false);
+        let data = o.get("output_data").and_then(Value::as_str).unwrap_or("0x").to_string();
+        cells.push(RawCell {
+            tx_hash: tx_hash.to_string(),
+            index: parse_hex_u32(idx_hex)?,
+            capacity: parse_hex_u64(cap_hex)?,
+            has_type,
+            data,
+        });
+    }
+    Ok(cells)
+}
+
+/// Exact replica of the app's `CellSelection.isPureCkb(hasType, data)`: a cell
+/// can fund pure-CKB capacity iff it has no type script and no output data.
+/// (`"0x"`/empty/absent data all normalise to empty.)
+fn is_pure_ckb(has_type: bool, data: &str) -> bool {
+    !has_type && data.trim_start_matches("0x").is_empty()
 }
 
 #[derive(Clone)]
