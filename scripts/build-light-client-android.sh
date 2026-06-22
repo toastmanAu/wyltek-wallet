@@ -57,7 +57,7 @@ for i in "${!ABIS[@]}"; do
   echo ""
   echo "==> building ckb-light-client for $abi (api $API_LEVEL, sqlite, no rocksdb/openssl)…"
   # arm64 is the real device target → must succeed; x86_64 (emulator) is best-effort.
-  if cargo ndk -t "$abi" -p "$API_LEVEL" build --release --bin ckb-light-client \
+  if cargo ndk -t "$abi" --platform "$API_LEVEL" build --release --bin ckb-light-client \
         --no-default-features --features sqlite; then
     echo "==> $abi: build OK"
   else
