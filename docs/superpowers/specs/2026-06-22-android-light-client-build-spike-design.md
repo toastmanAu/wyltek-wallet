@@ -134,6 +134,51 @@ binary. Pinned source: upstream `v0.5.5-rc1` (commit `e4f62a9`).
 **M1 verdict:** the subprocess-binary shape is build-feasible. Remaining gate is
 M2 (does it run + exec-from-nativeLibDir + serve `get_cells` on a device).
 
+## M2 Outcome (2026-06-22) — ✅ RUNS ON-DEVICE, SERVES `get_cells`
+
+**Device:** Samsung SM-A536E (Galaxy A53), arm64-v8a, **Android 16 / API 36**.
+
+- **Exec smoke:** `ckblc --version` → `CKB Light Client 0.5.5 (e4f62a9)` — the
+  Android binary executes on the device's Bionic.
+- **Daemon:** `ckblc run --config-file …` (testnet, `upnp = false`, RPC
+  `127.0.0.1:9000`) connected to **8 testnet peers** and **synced to tip
+  21,509,588**. SQLite store + network dirs under app-writable storage.
+- **Indexer RPC proven:** `set_scripts(PQ lock @ block 21,508,955)` accepted,
+  confirmed by `get_scripts`; `get_cells_capacity` → **95044.9996 CKB**;
+  `get_cells` → 1 cell `95044.9996 CKB @ 0x394a72e7…#1` (block 21,509,005) —
+  **byte-identical to the public indexer** for that outpoint. (Only one cell
+  because the scan start bounded it above the older CEMP/sUDT cells — correct
+  light-client behavior; a real wallet sets the start to its funding block.)
+- Driven over `adb forward` + localhost from the host. Proof captured at
+  `build/M2-proof.txt` (gitignored).
+
+**Caveat (deferred to integration, low risk):** M2 exec'd via `adb shell` from
+`/data/local/tmp`, which proves Bionic/arch compatibility and the full RPC path.
+The app-context exec must run from the read-only `nativeLibraryDir` (the
+established Tor/IPFS pattern) — an integration-phase detail, not a feasibility
+unknown.
+
+## Spike Verdict — ✅ GO
+
+The embedded light client is feasible end-to-end on Android: it **builds**
+(cargo-ndk, 19 MB stripped), **runs** on a real device, **joins** testnet,
+**syncs**, and serves the exact indexer RPC (`get_cells`/`get_cells_capacity`)
+the wallet's `ChainProvider` already consumes. Proceed to the integration
+checkpoint.
+
+## Follow-up — Integration checkpoint (next)
+
+1. `LightClientProvider : ChainProvider` pointed at `127.0.0.1:PORT`, with a
+   `set_scripts` registration step (the wallet's locks at their funding blocks)
+   the current `RpcProfile` lacks.
+2. Foreground service modeled on `AgentGatewayService` to run the binary
+   (exec from `nativeLibraryDir`); ship `libckblightclient.so` in `jniLibs`.
+3. Wire the Settings "Light Client" row (`SettingsScreen.kt:64`) → start/stop +
+   sync-progress UI; add real tip-lag thresholding in `RpcHealthChecker` so a
+   still-syncing client isn't reported "healthy".
+4. Optional shrink: disable tentacle's UPnP feature to drop the (dormant)
+   vendored openssl and reduce the 19 MB binary.
+
 ## Risks
 
 | Risk | Likelihood | Mitigation |
