@@ -103,6 +103,37 @@ wallet's real testnet cells via `get_cells`, proving (a) the Android ELF runs,
 (b) exec-from-nativeLibDir works at the target API level, (c) the indexer RPC the
 wallet needs is served locally.
 
+## M1 Outcome (2026-06-22) — ✅ BUILD FEASIBLE
+
+`scripts/build-light-client-android.sh arm64-v8a` produced a working Android
+binary. Pinned source: upstream `v0.5.5-rc1` (commit `e4f62a9`).
+
+- **Artifact:** `ELF 64-bit PIE executable, ARM aarch64, interpreter
+  /system/bin/linker64` — a true Android Bionic binary. **NEEDED = only
+  `libdl`/`libm`/`libc`** (Bionic system libs on every device); otherwise
+  self-contained. 25 MB unstripped → **19 MB stripped** (staged as
+  `build/libckblightclient.so`).
+- **C deps all cross-compiled cleanly:** `secp256k1-sys`, bundled `libsqlite3-sys`
+  (944 sqlite symbols, statically linked ✓), `tikv-jemalloc-sys`. rocksdb **not**
+  linked (excluded as intended).
+- **Correction to the pre-build finding:** openssl **is** pulled in — vendored and
+  statically linked (256 symbols). It arrives transitively via `tentacle`'s
+  UPnP/`igd-next` NAT-traversal (`attohttpc` → native-tls), *not* through the
+  bin's feature flags, so `--no-default-features --features sqlite` does not
+  exclude it. It vendored-compiled for Android without intervention, so it is not
+  a blocker — but it inflates the binary. A future optimization (integration
+  phase) is to disable tentacle's UPnP feature to drop openssl + shrink the lib.
+- **The one real obstacle was generic, not CKB-specific:** NDK r23+ removed
+  `libgcc.a` (replaced by `libunwind`), but the toolchain still requests `-lgcc`
+  → `ld.lld: unable to find library -lgcc`. Fixed with the canonical shim — a
+  `build/ndk-shim/libgcc.a` linker script containing `INPUT(-lunwind)`, added to
+  the link path via `RUSTFLAGS -L`. Baked into the build script.
+- cargo-ndk 4.x note: the Android API level is `--platform N` (`-p` is forwarded
+  to cargo as `--package`).
+
+**M1 verdict:** the subprocess-binary shape is build-feasible. Remaining gate is
+M2 (does it run + exec-from-nativeLibDir + serve `get_cells` on a device).
+
 ## Risks
 
 | Risk | Likelihood | Mitigation |

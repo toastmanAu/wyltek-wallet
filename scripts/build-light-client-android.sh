@@ -42,6 +42,15 @@ esac
 echo "==> ensuring rust targets: ${TRIPLES[*]}"
 rustup target add "${TRIPLES[@]}" >/dev/null
 
+# NDK r23+ removed libgcc.a (replaced by libunwind), but the toolchain still
+# requests `-lgcc` when linking Rust binaries → "unable to find library -lgcc".
+# Canonical fix: a libgcc.a linker script that redirects -lgcc to -lunwind.
+SHIM_DIR="${REPO_ROOT}/build/ndk-shim"
+mkdir -p "$SHIM_DIR"
+printf 'INPUT(-lunwind)\n' > "$SHIM_DIR/libgcc.a"
+export RUSTFLAGS="${RUSTFLAGS:-} -L ${SHIM_DIR}"
+echo "==> libgcc→libunwind shim: $SHIM_DIR"
+
 # ── Source ───────────────────────────────────────────────────────────────────
 if [[ ! -d "$SRC_DIR/.git" ]]; then
   echo "==> cloning $REPO_URL @ $PIN_TAG"
@@ -85,4 +94,15 @@ for triple in "${TRIPLES[@]}"; do
   echo -n "  sqlite present:  "; { strings -a "$bin" | grep -ciE "sqlite3" || true; }
 done
 echo "========================================================"
-echo "Done. Next (M2): stage arm64 binary as a native lib, push via adb, run on-device, drive set_scripts + get_cells."
+
+# Stage the arm64 binary as a strippable native library (Android execs binaries
+# only from the read-only nativeLibraryDir, so it must ship named lib*.so).
+ARM_BIN="$SRC_DIR/target/aarch64-linux-android/release/ckb-light-client"
+if [[ -f "$ARM_BIN" ]]; then
+  STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+  STAGED="$REPO_ROOT/build/libckblightclient.so"
+  cp "$ARM_BIN" "$STAGED"
+  [[ -x "$STRIP" ]] && "$STRIP" --strip-all "$STAGED" && echo "==> staged + stripped: $STAGED ($(ls -lh "$STAGED" | awk '{print $5}'))"
+fi
+
+echo "Done. Next (M2): push the staged lib to a device's nativeLibraryDir, run on-device, drive set_scripts + get_cells."
