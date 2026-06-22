@@ -49,6 +49,11 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            // Extract native libs to nativeLibraryDir so the light-client binary
+            // can be exec'd (Android blocks exec from compressed-in-APK libs).
+            useLegacyPackaging = true
+        }
     }
 }
 

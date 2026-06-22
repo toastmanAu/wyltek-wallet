@@ -105,4 +105,12 @@ if [[ -f "$ARM_BIN" ]]; then
   [[ -x "$STRIP" ]] && "$STRIP" --strip-all "$STAGED" && echo "==> staged + stripped: $STAGED ($(ls -lh "$STAGED" | awk '{print $5}'))"
 fi
 
-echo "Done. Next (M2): push the staged lib to a device's nativeLibraryDir, run on-device, drive set_scripts + get_cells."
+# Place the stripped lib where the app packages native code from.
+JNI_DST="$REPO_ROOT/app/src/main/jniLibs/arm64-v8a"
+if [[ -f "$REPO_ROOT/build/libckblightclient.so" ]]; then
+  mkdir -p "$JNI_DST"
+  cp "$REPO_ROOT/build/libckblightclient.so" "$JNI_DST/libckblightclient.so"
+  echo "==> placed in jniLibs: $JNI_DST/libckblightclient.so"
+fi
+
+echo "Done. Next: build the app (jniLibs useLegacyPackaging extracts the binary to nativeLibraryDir)."
