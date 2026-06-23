@@ -101,3 +101,4 @@ uniffi_out/
 
 # Wave generated files (Rust Android)
 app/src/main/jniLibs/
+app/src/main/jniLibs/**/libckblightclient.so

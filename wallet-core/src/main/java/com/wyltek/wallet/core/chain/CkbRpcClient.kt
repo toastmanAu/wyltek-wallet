@@ -3,8 +3,10 @@ package com.wyltek.wallet.core.chain
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
@@ -84,6 +86,20 @@ class CkbRpcClient(private val url: String) {
     suspend fun getTipHeader(): HeaderResponse {
         val result = call("get_tip_header")
         return json.decodeFromJsonElement<HeaderResponse>(result)
+    }
+
+    /** Register lock scripts for the light client to sync from `blockNumber`. */
+    suspend fun setScripts(scripts: List<ScriptStatus>) {
+        val params = buildJsonArray {
+            add(json.encodeToJsonElement(ListSerializer(ScriptStatus.serializer()), scripts))
+        }
+        call("set_scripts", params)
+    }
+
+    /** The scripts the light client is currently watching. */
+    suspend fun getScripts(): List<ScriptStatus> {
+        val result = call("get_scripts")
+        return json.decodeFromJsonElement(ListSerializer(ScriptStatus.serializer()), result)
     }
 
     suspend fun getCellsByLock(
@@ -277,6 +293,17 @@ data class Script(
     val code_hash: String,
     val hash_type: String,
     val args: String
+)
+
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@Serializable
+data class ScriptStatus(
+    val script: Script,
+    // Must always serialize even though it equals its default — kotlinx omits
+    // defaults otherwise, and the set_scripts RPC requires script_type present.
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.ALWAYS)
+    @SerialName("script_type") val scriptType: String = "lock",
+    @SerialName("block_number") val blockNumber: String
 )
 
 @Serializable
