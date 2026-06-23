@@ -1,6 +1,7 @@
 package com.wyltek.wallet.lightclient
 
 import android.content.Context
+import android.util.Log
 import com.wyltek.wallet.core.chain.LightClientProvider
 import com.wyltek.wallet.core.model.LockScript
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,9 +48,20 @@ class LightClientController(private val appContext: Context) {
         if (!LightClientService.isRunning()) { _state.value = LightClientState.STOPPED; return }
         val clientTip = runCatching { provider.getTipHeader()?.number }.getOrNull()
         if (clientTip != null && provider.getRegisteredScriptsSafe().isEmpty()) {
-            runCatching { provider.registerScripts(locks, startBlockHex) }
+            // I1: validate startBlockHex prefix before calling registerScripts
+            if (!startBlockHex.startsWith("0x", ignoreCase = true)) {
+                Log.w(TAG, "registerScripts skipped: startBlockHex missing 0x prefix: \"$startBlockHex\"")
+            } else {
+                // I2: log registration failures instead of silently discarding them
+                runCatching { provider.registerScripts(locks, startBlockHex) }
+                    .onFailure { e -> Log.w(TAG, "registerScripts failed", e) }
+            }
         }
         _state.value = classifyState(true, clientTip, networkTip)
+    }
+
+    companion object {
+        private const val TAG = "LightClientController"
     }
 }
 

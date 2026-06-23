@@ -9,6 +9,8 @@ import android.util.Log
 import com.wyltek.wallet.agent.service.AgentNotifications
 import com.wyltek.wallet.core.chain.LightClientConfig
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Foreground service that runs the embedded ckb-light-client subprocess.
@@ -31,9 +33,16 @@ class LightClientService : Service() {
     }
 
     private fun handleStart() {
-        if (running) return
+        // C1: atomic guard — prevents double-start races
+        if (!running.compareAndSet(false, true)) return
+
         val bin = File(applicationInfo.nativeLibraryDir, "libckblightclient.so")
-        if (!bin.exists()) { Log.e(TAG, "binary missing at ${bin.path}"); stopSelf(); return }
+        if (!bin.exists()) {
+            Log.e(TAG, "binary missing at ${bin.path}")
+            running.set(false)
+            stopSelf()
+            return
+        }
 
         val root = File(filesDir, "lightclient").apply { mkdirs() }
         val store = File(root, "store").apply { mkdirs() }
@@ -52,11 +61,12 @@ class LightClientService : Service() {
                 .redirectErrorStream(true)
                 .redirectOutput(File(root, "lc.log"))
                 .start()
-            running = true
             Log.i(TAG, "light client started ($bin)")
         } catch (e: Exception) {
             Log.e(TAG, "failed to start light client: ${e.message}")
-            stopSelf(); return
+            running.set(false)
+            stopSelf()
+            return
         }
 
         startForeground(
@@ -67,9 +77,8 @@ class LightClientService : Service() {
     }
 
     private fun handleStop() {
-        process?.destroy()
-        process = null
-        running = false
+        killProcess()
+        running.set(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         Log.i(TAG, "light client stopped")
@@ -77,7 +86,31 @@ class LightClientService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        process?.destroy(); process = null; running = false
+        killProcess()
+        running.set(false)
+    }
+
+    /**
+     * C2 + C3: Graceful-then-forcible kill on a short-lived background thread so the
+     * service main thread is never blocked by waitFor().  Streams are always closed.
+     */
+    private fun killProcess() {
+        val proc = process ?: return
+        process = null
+        Thread {
+            try {
+                proc.destroy()
+                if (!proc.waitFor(5, TimeUnit.SECONDS)) {
+                    proc.destroyForcibly()
+                }
+            } catch (_: InterruptedException) {
+                proc.destroyForcibly()
+            } finally {
+                runCatching { proc.outputStream.close() }
+                runCatching { proc.inputStream.close() }
+                runCatching { proc.errorStream.close() }
+            }
+        }.start()
     }
 
     companion object {
@@ -96,12 +129,13 @@ class LightClientService : Service() {
             "/ip4/34.216.103.183/tcp/8111/p2p/Qmd41MaByDprkC5gP1XBKgamZ9DTLNk37zbPgwtiWCzRV6"
         )
 
-        @Volatile var running: Boolean = false; private set
+        // C1: AtomicBoolean replaces @Volatile Boolean for thread-safe compareAndSet guard
+        private val running = AtomicBoolean(false)
 
         fun start(context: Context) =
             context.startForegroundService(Intent(context, LightClientService::class.java).apply { action = ACTION_START })
         fun stop(context: Context) =
             context.startService(Intent(context, LightClientService::class.java).apply { action = ACTION_STOP })
-        fun isRunning() = running
+        fun isRunning() = running.get()
     }
 }
