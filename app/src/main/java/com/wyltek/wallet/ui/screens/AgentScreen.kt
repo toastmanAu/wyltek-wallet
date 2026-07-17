@@ -589,7 +589,7 @@ private fun RelayCard(
                     value = relayInput,
                     onValueChange = { relayInput = it },
                     label = { Text("Relay base URL") },
-                    placeholder = { Text("https://wyltek-10700.tail6db685.ts.net:9992", color = TextSecondary) },
+                    placeholder = { Text("http://192.168.68.134:9991", color = TextSecondary) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
