@@ -87,7 +87,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         gateway.secure.deleteBlob(RelayPairing.KEY_RELAY_BASE_URL)
         gateway.secure.deleteBlob(RelayPairing.KEY_RELAY_DEVICE_TOKEN)
         gateway.secure.deleteBlob(RelayPairing.KEY_RELAY_DEVICE_ID)
-        _uiState.value = _uiState.value.copy(relayPaired = false, relayUrl = null)
+        _uiState.value = _uiState.value.copy(relayPaired = false, relayUrl = null, deviceId = null)
     }
 
     fun startServer() {

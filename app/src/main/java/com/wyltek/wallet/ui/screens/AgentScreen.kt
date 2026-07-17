@@ -249,7 +249,7 @@ fun AgentScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             // NOTE: buildProvisioningBundle assumes quote-free inputs (UUID device_id, URL-safe base64 token) and does not enforce it.
                             val bundle = buildProvisioningBundle(uiState.deviceId, token)
-                            if (bundle != null) {
+                            if (bundle != null && uiState.relayPaired) {
                                 QrCodeImage(
                                     content = bundle,
                                     modifier = Modifier.size(220.dp)
