@@ -64,12 +64,20 @@ that owns the POS contract:
 /** Compact provisioning bundle for the POS, or null if unpaired (deviceId blank). */
 fun buildProvisioningBundle(deviceId: String?, token: String): String? {
     val id = deviceId?.ifBlank { null } ?: return null
-    return JSONObject().put("device_id", id).put("token", token).toString()
+    return """{"device_id":"$id","token":"$token"}"""
 }
 ```
 
-This keeps the byte-exact POS contract out of the `@Composable` (which needs an
-instrumented harness to test) and into fast JVM unit tests.
+**Manual string, not `org.json.JSONObject`.** This repo's JVM unit tests use
+kotlinx.serialization; `org.json` is stubbed in `android.jar` as
+`throw RuntimeException("Stub!")`, so a `JSONObject` call inside `buildProvisioningBundle`
+would crash a plain JVM unit test (no Robolectric / `returnDefaultValues` /
+`org.json:json` test dep is configured). A manual compact template string is pure
+Kotlin, needs no Android runtime, and is byte-exact. The handoff doc explicitly
+permits this ("use it, or build the string manually"). Safe because both values are
+quote-free by construction (UUID + URL-safe base64 `[A-Za-z0-9_-=]`), so no escaping
+is required. Keeping the builder pure also keeps the byte-exact POS contract out of
+the `@Composable` (which would need an instrumented harness) and into fast JVM tests.
 
 ### 3. `AgentViewModel` + `AgentScreen.kt` — surface deviceId, render bundle, guard
 
@@ -102,7 +110,8 @@ Unit tests on `buildProvisioningBundle` (pure JVM, no Android harness):
 - Values intact: a realistic ~700-char base64 token appears whole and un-truncated,
   closing `"` present.
 - Guard: `null` deviceId → returns `null`; blank/whitespace deviceId → returns `null`.
-- Well-formed: output re-parses via `JSONObject` back to the same two values.
+- Well-formed: output equals the exact expected string for known inputs (stronger than
+  re-parsing, and matches the POS's literal-substring contract). No `org.json` in tests.
 
 End-to-end (real POS scan → Provisioned → refund round-trip) stays a manual checkpoint
 per the handoff doc; not automatable here.
