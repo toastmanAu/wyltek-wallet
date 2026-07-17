@@ -40,7 +40,8 @@ data class AgentUiState(
     val lastMintedToken: String? = null,
     val error: String? = null,
     val relayPaired: Boolean = false,
-    val relayUrl: String? = null
+    val relayUrl: String? = null,
+    val deviceId: String? = null
 )
 
 class AgentViewModel(application: Application) : AndroidViewModel(application) {
@@ -63,7 +64,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             bindAddress = Tailnet.bindAddress(),
             pendingCount = gateway.dispatcher.listPending().size,
             relayPaired = relayUrl != null,
-            relayUrl = relayUrl
+            relayUrl = relayUrl,
+            deviceId = RelayPairing.deviceId(gateway.secure)
         )
     }
 
