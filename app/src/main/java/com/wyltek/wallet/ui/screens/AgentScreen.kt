@@ -16,8 +16,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.wyltek.wallet.agent.provisioning.buildProvisioningBundle
 import com.wyltek.wallet.agent.ui.AgentViewModel
 import com.wyltek.wallet.core.native.CapInfo
 import com.wyltek.wallet.core.native.Scope
@@ -245,10 +247,21 @@ fun AgentScreen(
                                 color = WarningOrange
                             )
                             Spacer(modifier = Modifier.height(12.dp))
-                            QrCodeImage(
-                                content = token,
-                                modifier = Modifier.size(220.dp)
-                            )
+                            // NOTE: buildProvisioningBundle assumes quote-free inputs (UUID device_id, URL-safe base64 token) and does not enforce it.
+                            val bundle = buildProvisioningBundle(uiState.deviceId, token)
+                            if (bundle != null) {
+                                QrCodeImage(
+                                    content = bundle,
+                                    modifier = Modifier.size(220.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "Pair this device with the relay before provisioning a POS",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = WarningOrange,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             SelectionContainer {
                                 Text(
