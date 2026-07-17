@@ -98,6 +98,12 @@ class RelayPairing(
                 deviceToken = deviceToken,
             )
         }
+
+        /** Stored relay device id, or null if this device never paired. */
+        fun deviceId(secure: AgentSecureStore): String? =
+            secure.loadBlob(KEY_RELAY_DEVICE_ID)
+                ?.let { String(it, Charsets.UTF_8) }
+                ?.ifBlank { null }
     }
 }
 
