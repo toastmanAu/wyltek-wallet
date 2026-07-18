@@ -76,7 +76,11 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         val r = dispatcher.dispatch(token, intent, sourceIp, nowUnix)
         if (r is DispatchResult.Approval) {
             AgentNotifications.ensureChannels(app)
-            val summary = "${intent.op} ${r.amount} ${r.asset} to ${intent.to}"
+            // r.amount is in shannons (1 CKB = 1e8). Format to CKB — matching the
+            // pending-row formatter in AgentViewModel — so the approval prompt
+            // doesn't show the raw shannon value (which reads as a huge number).
+            val amountCkb = "%.4f".format(r.amount / 100_000_000.0)
+            val summary = "${intent.op} $amountCkb ${r.asset} to ${intent.to}"
             val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(r.pendingId.toInt(), AgentNotifications.approvalNotification(app, r.pendingId, summary))
         }
