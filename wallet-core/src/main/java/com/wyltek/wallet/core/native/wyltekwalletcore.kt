@@ -1808,6 +1808,15 @@ data class MldsaInputCell (
     , 
     var `lockArgs`: kotlin.String
     , 
+    /**
+     * sUDT (or other) type script; "" = pure-CKB cell, no type script.
+     */
+    var `typeCodeHash`: kotlin.String
+    , 
+    var `typeHashType`: kotlin.String
+    , 
+    var `typeArgs`: kotlin.String
+    , 
     var `data`: kotlin.String
     
 ){
@@ -1830,6 +1839,9 @@ public object FfiConverterTypeMldsaInputCell: FfiConverterRustBuffer<MldsaInputC
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
@@ -1838,6 +1850,9 @@ public object FfiConverterTypeMldsaInputCell: FfiConverterRustBuffer<MldsaInputC
             FfiConverterString.allocationSize(value.`lockCodeHash`) +
             FfiConverterString.allocationSize(value.`lockHashType`) +
             FfiConverterString.allocationSize(value.`lockArgs`) +
+            FfiConverterString.allocationSize(value.`typeCodeHash`) +
+            FfiConverterString.allocationSize(value.`typeHashType`) +
+            FfiConverterString.allocationSize(value.`typeArgs`) +
             FfiConverterString.allocationSize(value.`data`)
     )
 
@@ -1846,6 +1861,9 @@ public object FfiConverterTypeMldsaInputCell: FfiConverterRustBuffer<MldsaInputC
             FfiConverterString.write(value.`lockCodeHash`, buf)
             FfiConverterString.write(value.`lockHashType`, buf)
             FfiConverterString.write(value.`lockArgs`, buf)
+            FfiConverterString.write(value.`typeCodeHash`, buf)
+            FfiConverterString.write(value.`typeHashType`, buf)
+            FfiConverterString.write(value.`typeArgs`, buf)
             FfiConverterString.write(value.`data`, buf)
     }
 }
