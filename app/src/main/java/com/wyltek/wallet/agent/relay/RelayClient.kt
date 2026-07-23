@@ -2,6 +2,7 @@ package com.wyltek.wallet.agent.relay
 
 import android.util.Log
 import com.wyltek.wallet.agent.DispatchResult
+import com.wyltek.wallet.agent.PendingStore
 import com.wyltek.wallet.agent.server.AgentDispatchPort
 import com.wyltek.wallet.core.native.Intent
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,8 @@ class RelayClient(
     private val deviceToken: String,
     private val dispatchPort: AgentDispatchPort,
     private val scope: CoroutineScope,
+    /** Null in tests that only exercise dispatch; required for the approval round-trip. */
+    private val pendingStore: PendingStore? = null,
 ) {
     private val TAG = "RelayClient"
     private val json = "application/json".toMediaType()
@@ -124,11 +127,18 @@ class RelayClient(
             is DispatchResult.Denied   -> Triple("denied",           null,          result.reason)
             is DispatchResult.Failed   -> Triple("failed",           null,          result.message)
         }
-        postResult(intentId, status, txHash, error)
+        // Stamp the relay's intent_id onto the pending row BEFORE answering the relay.
+        // The approval completes later on a different path (user taps Approve ->
+        // AgentViewModel.approve -> AgentGateway.reportRelayResult); this link is the
+        // only way that path can tell the relay WHICH intent finished. Without it the
+        // relay sits on `needs_approval` forever and a polling agent times out even
+        // though the transaction was signed and broadcast.
+        if (result is DispatchResult.Approval) {
+            pendingStore?.linkRelayIntent(result.pendingId, intentId)
+                ?: Log.w(TAG, "no pendingStore — approval for $intentId cannot report back")
+        }
 
-        // TODO Task-4-relay: When approval completes (B2 executeApproved), call
-        //   postRelayResult(resultUrl, deviceToken, intentId, status, txHash, error)
-        // Track relay origin by storing intentId on PendingIntentEntity.relayIntentId.
+        postResult(intentId, status, txHash, error)
     }
 
     private fun postResult(intentId: String, status: String, txHash: String?, error: String?) {

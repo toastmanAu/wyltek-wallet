@@ -2,6 +2,15 @@ package com.wyltek.wallet.agent
 
 import android.app.NotificationManager
 import android.content.Context
+import android.util.Log
+import com.wyltek.wallet.agent.relay.RelayPairing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import com.wyltek.wallet.agent.db.AgentDatabaseFactory
 import com.wyltek.wallet.agent.server.AccountInfo
 import com.wyltek.wallet.agent.server.AgentDispatchPort
@@ -87,6 +96,42 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         return r
     }
 
+    /**
+     * Report a completed approval back to the relay.
+     *
+     * Without this the relay never learns the outcome: [RelayClient] posts
+     * `needs_approval` when the intent arrives and then forgets it, so a POS (or any
+     * agent) polling `GET /relay/intent/{id}` sees `needs_approval` forever and times
+     * out — even though the transaction was signed and broadcast. No-ops for intents
+     * that did not originate from the relay (`relay_intent_id` null), e.g. ones served
+     * over the on-device HTTP gateway.
+     */
+    suspend fun reportRelayResult(pendingId: Long, status: String, txHash: String?, error: String?) {
+        val row = pendingStore.get(pendingId) ?: return
+        val relayIntentId = row.relayIntentId ?: return
+        val cfg = RelayPairing.loadConfig(secure) ?: return
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("device_token", cfg.deviceToken)
+                .put("intent_id", relayIntentId)
+                .put("status", status)
+                .put("tx_hash", txHash)
+                .put("error", error)
+                .toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            try {
+                OkHttpClient().newCall(
+                    Request.Builder().url(cfg.resultUrl).post(body).build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) Log.w(TAG, "relay result POST ${resp.code} for $relayIntentId")
+                    else Log.i(TAG, "relay result POST ok: $relayIntentId -> $status")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "relay result POST failed for $relayIntentId: ${e.message}")
+            }
+        }
+    }
+
     override suspend fun pendingStatus(id: Long): IntentStatusResponse? {
         val entity = pendingStore.get(id) ?: return null
         return IntentStatusResponse(
@@ -133,5 +178,9 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         if (parts.size != 2) return false
         val idx = parts[1].toUIntOrNull() ?: return false
         return deposit.outPoint.txHash == parts[0] && deposit.outPoint.index == idx
+    }
+
+    companion object {
+        private const val TAG = "AgentGateway"
     }
 }

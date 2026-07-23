@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AgentDao {
@@ -62,4 +63,13 @@ interface AgentDao {
 
     @Query("UPDATE pending_intents SET status=:status, resultTxHash=:txHash, resultError=:error WHERE id=:id")
     suspend fun setPendingResult(id: Long, status: String, txHash: String?, error: String?)
+
+    /** Live view of the approval queue. Room re-emits on any write to the table, so a screen
+     *  collecting this updates itself when the relay pushes a new intent — no manual refresh. */
+    @Query("SELECT * FROM pending_intents WHERE status=:status ORDER BY createdAt DESC")
+    fun pendingByStatusFlow(status: String): Flow<List<PendingIntentEntity>>
+
+    /** Record which relay intent a pending row came from, so approving it can report back. */
+    @Query("UPDATE pending_intents SET relay_intent_id=:relayIntentId WHERE id=:id")
+    suspend fun setRelayIntentId(id: Long, relayIntentId: String)
 }

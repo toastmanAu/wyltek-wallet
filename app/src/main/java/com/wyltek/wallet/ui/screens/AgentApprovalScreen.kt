@@ -27,7 +27,7 @@ fun AgentApprovalScreen(
     val biometric = rememberBiometricAuth()
 
     LaunchedEffect(Unit) {
-        viewModel.loadPending()
+        viewModel.observePending()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {

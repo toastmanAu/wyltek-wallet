@@ -81,6 +81,7 @@ class AgentGatewayService : Service() {
                 deviceToken = relayConfig.deviceToken,
                 dispatchPort = androidApp.agentGateway,
                 scope       = serviceScope,
+                pendingStore = androidApp.agentGateway.pendingStore,
             )
             client.connect()
             relayClient = client
