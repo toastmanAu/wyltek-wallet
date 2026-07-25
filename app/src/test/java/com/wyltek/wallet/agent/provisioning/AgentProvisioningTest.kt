@@ -9,9 +9,9 @@ import org.junit.Test
 class AgentProvisioningTest {
 
     @Test
-    fun `bundle is compact json carrying both keys`() {
+    fun `bundle is compact json carrying device_id token and service_name`() {
         val out = buildProvisioningBundle("dev-123", "tok-abc")
-        assertEquals("""{"device_id":"dev-123","token":"tok-abc"}""", out)
+        assertEquals("""{"device_id":"dev-123","token":"tok-abc","service_name":"blackbox-dev123"}""", out)
     }
 
     @Test
