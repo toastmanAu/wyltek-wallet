@@ -9,21 +9,26 @@ import com.wyltek.wallet.WyltekWalletApp
 import com.wyltek.wallet.agent.relay.RelayClient
 import com.wyltek.wallet.agent.relay.RelayPairing
 import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.AgentTls
+import com.wyltek.wallet.agent.server.LanAddress
 import com.wyltek.wallet.agent.server.Tailnet
 import com.wyltek.wallet.agent.server.agentModule
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.engine.sslConnector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 
 /**
- * Foreground service that hosts the Ktor CIO HTTP server on the device's Tailscale address.
+ * Foreground service that hosts the Ktor CIO HTTPS server on the device's LAN (Wi-Fi) address,
+ * with a Tailnet connector added as well when a Tailscale address is also present. TLS uses a
+ * persisted self-signed cert (see [AgentTls]) — trust comes from the biscuit token, not the cert.
  *
  * Lifecycle:
- *  - ACTION_START: resolve Tailnet address, start CIO server, call startForeground
+ *  - ACTION_START: resolve LAN/Tailnet addresses, start CIO server, call startForeground
  *  - ACTION_STOP: stop server, stopForeground, stopSelf
  *
  * The Android [application] property is captured into a local BEFORE entering the Ktor lambda
@@ -51,13 +56,14 @@ class AgentGatewayService : Service() {
     }
 
     private fun handleStart() {
-        val bindAddr = Tailnet.bindAddress()
-        if (bindAddr == null) {
-            Log.w(TAG, "Tailnet unavailable — cannot start agent gateway")
+        val lan = LanAddress.bindAddress()
+        val tailnet = Tailnet.bindAddress()
+        if (lan == null && tailnet == null) {
+            Log.w(TAG, "no LAN or Tailnet address — cannot start agent gateway")
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             nm.notify(
                 NOTIF_ID_TAILNET_ERROR,
-                AgentNotifications.serverNotification(this, "tailnet unavailable")
+                AgentNotifications.serverNotification(this, "no local network")
             )
             stopSelf()
             return
@@ -66,11 +72,27 @@ class AgentGatewayService : Service() {
         // Capture the Android Application before entering the Ktor lambda — Ktor's
         // Application receiver would shadow the Android `application` property otherwise.
         val androidApp = application as WyltekWalletApp
-        val port: AgentDispatchPort = androidApp.agentGateway
+        // Named `dispatchPort` (not `port`) so it doesn't collide with the `port` property
+        // inside the sslConnector builder lambdas below.
+        val dispatchPort: AgentDispatchPort = androidApp.agentGateway
+        val ks = AgentTls.keyStore(this)
 
-        server = embeddedServer(CIO, host = bindAddr, port = SERVER_PORT) {
-            agentModule(port)
-        }.start(wait = false)
+        server = embeddedServer(CIO, configure = {
+            if (lan != null) {
+                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
+                    host = lan
+                    port = SERVER_PORT
+                }
+            }
+            if (tailnet != null) {
+                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
+                    host = tailnet
+                    port = SERVER_PORT
+                }
+            }
+        }, module = { agentModule(dispatchPort) }).start(wait = false)
+
+        val boundAddr = lan ?: tailnet
 
         // Start relay client if already paired
         val relayConfig = RelayPairing.loadConfig(androidApp.agentGateway.secure)
@@ -91,11 +113,11 @@ class AgentGatewayService : Service() {
         }
 
         running = true
-        Log.i(TAG, "Agent gateway started on $bindAddr:$SERVER_PORT")
+        Log.i(TAG, "Agent gateway started on $boundAddr:$SERVER_PORT")
 
         startForeground(
             NOTIF_ID,
-            AgentNotifications.serverNotification(this, "$bindAddr:$SERVER_PORT"),
+            AgentNotifications.serverNotification(this, "$boundAddr:$SERVER_PORT"),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
     }
