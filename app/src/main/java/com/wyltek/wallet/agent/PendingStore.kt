@@ -22,4 +22,19 @@ class PendingStore(db: AgentDatabase) {
 
     suspend fun linkRelayIntent(id: Long, relayIntentId: String) =
         dao.setRelayIntentId(id, relayIntentId)
+
+    suspend fun getByRelayIntentId(id: String): PendingIntentEntity? = dao.pendingByRelayIntentId(id)
+
+    /** Insert (idempotently) a terminal tracking row for an auto-Sent/Denied/Failed /relay intent. */
+    suspend fun putTerminalByRelayIntent(
+        intentId: String, intent: com.wyltek.wallet.core.native.Intent,
+        sourceIp: String, now: Long, status: String, txHash: String?, error: String?,
+    ): Long = dao.insertTerminalRelay(
+        com.wyltek.wallet.agent.db.PendingIntentEntity(
+            token = "", op = intent.op, asset = intent.asset, to = intent.to, amount = intent.amount,
+            nonce = intent.nonce, action = intent.action, daoRef = intent.daoRef, sourceIp = sourceIp,
+            status = status, createdAt = now, resultTxHash = txHash, resultError = error,
+            relayIntentId = intentId,
+        )
+    )
 }

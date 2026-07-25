@@ -72,4 +72,19 @@ interface AgentDao {
     /** Record which relay intent a pending row came from, so approving it can report back. */
     @Query("UPDATE pending_intents SET relay_intent_id=:relayIntentId WHERE id=:id")
     suspend fun setRelayIntentId(id: Long, relayIntentId: String)
+
+    @Query("SELECT * FROM pending_intents WHERE relay_intent_id=:rid LIMIT 1")
+    suspend fun pendingByRelayIntentId(rid: String): PendingIntentEntity?
+
+    @Query("SELECT COUNT(*) FROM pending_intents WHERE relay_intent_id=:rid")
+    suspend fun countByRelayIntentId(rid: String): Int
+
+    /** Atomic idempotent insert of a terminal /relay tracking row. Returns the row id,
+     *  or the existing row's id if this relay_intent_id was already recorded. */
+    @Transaction
+    suspend fun insertTerminalRelay(p: PendingIntentEntity): Long {
+        val existing = pendingByRelayIntentId(p.relayIntentId!!)
+        if (existing != null) return existing.id
+        return insertPending(p)
+    }
 }
