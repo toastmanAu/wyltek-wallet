@@ -6,9 +6,11 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import com.wyltek.wallet.WyltekWalletApp
+import com.wyltek.wallet.agent.provisioning.serviceNameFor
 import com.wyltek.wallet.agent.relay.RelayClient
 import com.wyltek.wallet.agent.relay.RelayPairing
 import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.AgentMdns
 import com.wyltek.wallet.agent.server.AgentTls
 import com.wyltek.wallet.agent.server.LanAddress
 import com.wyltek.wallet.agent.server.Tailnet
@@ -21,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that hosts the Ktor CIO HTTPS server on the device's LAN (Wi-Fi) address,
@@ -38,6 +41,8 @@ class AgentGatewayService : Service() {
 
     private var server: EmbeddedServer<*, *>? = null
     private var relayClient: RelayClient? = null
+    private var mdns: AgentMdns? = null
+    private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -120,9 +125,48 @@ class AgentGatewayService : Service() {
             AgentNotifications.serverNotification(this, "$boundAddr:$SERVER_PORT"),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
+
+        if (lan != null) {
+            val deviceId = RelayPairing.deviceId(androidApp.agentGateway.secure)
+            if (deviceId != null) {
+                val svc = serviceNameFor(deviceId)
+                mdns = AgentMdns(this).also { it.register(svc, deviceId, SERVER_PORT) }
+            } else {
+                Log.i(TAG, "No provisioned device_id — skipping mDNS advertisement")
+            }
+        }
+        registerWifiCallback()
+    }
+
+    private fun registerWifiCallback() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) = restart()
+            override fun onLost(network: android.net.Network) = restart()
+        }
+        val req = android.net.NetworkRequest.Builder()
+            .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build()
+        cm.registerNetworkCallback(req, cb)
+        netCallback = cb
+    }
+
+    private fun restart() {
+        // Re-bind + re-advertise on the current Wi-Fi address. Debounce trivial repeats by
+        // only restarting if still running.
+        if (!running) return
+        serviceScope.launch { // hop off the callback thread
+            handleStop()
+            handleStart()
+        }
     }
 
     private fun handleStop() {
+        mdns?.unregister(); mdns = null
+        netCallback?.let {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
+                .unregisterNetworkCallback(it)
+        }
+        netCallback = null
         relayClient?.disconnect()
         relayClient = null
         server?.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
@@ -135,6 +179,12 @@ class AgentGatewayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mdns?.unregister(); mdns = null
+        netCallback?.let {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
+                .unregisterNetworkCallback(it)
+        }
+        netCallback = null
         relayClient?.disconnect()
         relayClient = null
         if (running) {
