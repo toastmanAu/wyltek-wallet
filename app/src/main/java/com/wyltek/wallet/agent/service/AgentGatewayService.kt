@@ -24,6 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Foreground service that hosts the Ktor CIO HTTPS server on the device's LAN (Wi-Fi) address,
@@ -44,6 +46,7 @@ class AgentGatewayService : Service() {
     private var mdns: AgentMdns? = null
     private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val rebindMutex = Mutex()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -74,30 +77,19 @@ class AgentGatewayService : Service() {
             return
         }
 
+        val boundAddr = lan ?: tailnet
+
+        startForeground(
+            NOTIF_ID,
+            AgentNotifications.serverNotification(this, "$boundAddr:$SERVER_PORT"),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        )
+
+        startServerAndMdns()
+
         // Capture the Android Application before entering the Ktor lambda — Ktor's
         // Application receiver would shadow the Android `application` property otherwise.
         val androidApp = application as WyltekWalletApp
-        // Named `dispatchPort` (not `port`) so it doesn't collide with the `port` property
-        // inside the sslConnector builder lambdas below.
-        val dispatchPort: AgentDispatchPort = androidApp.agentGateway
-        val ks = AgentTls.keyStore(this)
-
-        server = embeddedServer(CIO, configure = {
-            if (lan != null) {
-                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
-                    host = lan
-                    port = SERVER_PORT
-                }
-            }
-            if (tailnet != null) {
-                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
-                    host = tailnet
-                    port = SERVER_PORT
-                }
-            }
-        }, module = { agentModule(dispatchPort) }).start(wait = false)
-
-        val boundAddr = lan ?: tailnet
 
         // Start relay client if already paired
         val relayConfig = RelayPairing.loadConfig(androidApp.agentGateway.secure)
@@ -117,14 +109,43 @@ class AgentGatewayService : Service() {
             Log.i(TAG, "No relay pairing found — relay client not started")
         }
 
+        registerWifiCallback()
         running = true
         Log.i(TAG, "Agent gateway started on $boundAddr:$SERVER_PORT")
+    }
 
-        startForeground(
-            NOTIF_ID,
-            AgentNotifications.serverNotification(this, "$boundAddr:$SERVER_PORT"),
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        )
+    /**
+     * Bind the Ktor server (LAN + Tailnet sslConnectors) and register mDNS. No foreground
+     * notification, relay client, or network-callback side effects — safe to call again for
+     * a Wi-Fi rebind without touching the rest of the service's lifecycle.
+     */
+    private fun startServerAndMdns() {
+        // Named `dispatchPort` (not `port`) so it doesn't collide with the `port` property
+        // inside the sslConnector builder lambdas below.
+        val androidApp = application as WyltekWalletApp
+        val dispatchPort: AgentDispatchPort = androidApp.agentGateway
+        val lan = LanAddress.bindAddress()
+        val tailnet = Tailnet.bindAddress()
+        if (lan == null && tailnet == null) {
+            Log.w(TAG, "rebind: no LAN/Tailnet address")
+            return
+        }
+        val ks = AgentTls.keyStore(this)
+
+        server = embeddedServer(CIO, configure = {
+            if (lan != null) {
+                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
+                    host = lan
+                    port = SERVER_PORT
+                }
+            }
+            if (tailnet != null) {
+                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
+                    host = tailnet
+                    port = SERVER_PORT
+                }
+            }
+        }, module = { agentModule(dispatchPort) }).start(wait = false)
 
         if (lan != null) {
             val deviceId = RelayPairing.deviceId(androidApp.agentGateway.secure)
@@ -132,10 +153,18 @@ class AgentGatewayService : Service() {
                 val svc = serviceNameFor(deviceId)
                 mdns = AgentMdns(this).also { it.register(svc, deviceId, SERVER_PORT) }
             } else {
-                Log.i(TAG, "No provisioned device_id — skipping mDNS advertisement")
+                Log.i(TAG, "no provisioned device_id — mDNS advertise skipped")
             }
         }
-        registerWifiCallback()
+        Log.i(TAG, "gateway server on ${lan ?: tailnet}:$SERVER_PORT")
+    }
+
+    /** Stop the server + mDNS only. Leaves foreground state, relay, network callback, and
+     *  serviceScope intact — used both by the real stop path and by the Wi-Fi rebind path. */
+    private fun stopServerAndMdns() {
+        mdns?.unregister(); mdns = null
+        server?.stop(gracePeriodMillis = 300, timeoutMillis = 1500)
+        server = null
     }
 
     private fun registerWifiCallback() {
@@ -150,30 +179,36 @@ class AgentGatewayService : Service() {
         netCallback = cb
     }
 
+    /**
+     * Wi-Fi changed: rebind the server + re-advertise mDNS only. Deliberately does NOT call
+     * handleStop()/handleStart() — those touch startForeground/stopSelf/serviceScope/netCallback,
+     * and stopSelf() queues an async onDestroy() that would race a rebind and tear down the
+     * freshly-restarted state (or permanently cancel serviceScope). Mutex-guarded because
+     * onAvailable/onLost can fire back-to-back on a single Wi-Fi flip.
+     */
     private fun restart() {
-        // Re-bind + re-advertise on the current Wi-Fi address. Debounce trivial repeats by
-        // only restarting if still running.
         if (!running) return
         serviceScope.launch { // hop off the callback thread
-            handleStop()
-            handleStart()
+            rebindMutex.withLock {
+                if (!running) return@withLock // a real stop won the race
+                stopServerAndMdns()
+                startServerAndMdns()
+            }
         }
     }
 
     private fun handleStop() {
-        mdns?.unregister(); mdns = null
+        stopServerAndMdns()
+        relayClient?.disconnect()
+        relayClient = null
         netCallback?.let {
             (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
                 .unregisterNetworkCallback(it)
         }
         netCallback = null
-        relayClient?.disconnect()
-        relayClient = null
-        server?.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
-        server = null
-        running = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        running = false
         Log.i(TAG, "Agent gateway stopped")
     }
 
