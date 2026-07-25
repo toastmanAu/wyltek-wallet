@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import com.wyltek.wallet.agent.relay.RelayPairing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -42,6 +43,10 @@ class AgentGateway(context: Context) : AgentDispatchPort {
 
     val tokenService = AgentTokenService(keyStore, db)
     val pendingStore = PendingStore(db)
+
+    private val gatewayScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
 
     val dispatcher = AgentActionDispatcher(
         keyStore = keyStore,
@@ -145,6 +150,52 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         tokenService.list().map { t ->
             AccountInfo(tokenId = t.tokenId, account = t.account, revoked = t.revoked)
         }
+
+    override suspend fun submitRelayIntent(
+        token: String, intent: Intent, sourceIp: String, nowUnix: Long
+    ): String {
+        val intentId = relayIntentId(token, intent.nonce)
+        // Idempotent: if we already track this intent_id, don't re-dispatch.
+        if (pendingStore.getByRelayIntentId(intentId) != null) return intentId
+
+        gatewayScope.launch {
+            val result = try {
+                dispatcher.dispatch(token, intent, sourceIp, nowUnix)
+            } catch (e: Throwable) {
+                pendingStore.putTerminalByRelayIntent(
+                    intentId, intent, sourceIp, nowUnix,
+                    com.wyltek.wallet.agent.db.PENDING_FAILED, null, e.message ?: "dispatch error"
+                )
+                return@launch
+            }
+            when (result) {
+                is DispatchResult.Sent -> pendingStore.putTerminalByRelayIntent(
+                    intentId, intent, sourceIp, nowUnix,
+                    com.wyltek.wallet.agent.db.PENDING_SENT, result.txHash, null
+                )
+                is DispatchResult.Denied -> pendingStore.putTerminalByRelayIntent(
+                    intentId, intent, sourceIp, nowUnix,
+                    com.wyltek.wallet.agent.db.PENDING_DENIED, null, result.reason
+                )
+                is DispatchResult.Failed -> pendingStore.putTerminalByRelayIntent(
+                    intentId, intent, sourceIp, nowUnix,
+                    com.wyltek.wallet.agent.db.PENDING_FAILED, null, result.message
+                )
+                is DispatchResult.Approval ->
+                    // The approval row already exists (dispatch created it); make it findable by
+                    // intent_id so the merchant's later Approve updates the row the POS polls.
+                    pendingStore.linkRelayIntent(result.pendingId, intentId)
+            }
+        }
+        return intentId
+    }
+
+    override suspend fun relayIntentStatus(intentId: String): IntentStatusResponse? {
+        val row = pendingStore.getByRelayIntentId(intentId) ?: return null
+        return IntentStatusResponse(
+            status = row.status, txHash = row.resultTxHash, error = row.resultError
+        )
+    }
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
