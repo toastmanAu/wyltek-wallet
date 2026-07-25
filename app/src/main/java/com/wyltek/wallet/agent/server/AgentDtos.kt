@@ -1,5 +1,6 @@
 package com.wyltek.wallet.agent.server
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -34,4 +35,10 @@ data class AccountInfo(
     val tokenId: String,
     val account: String,
     val revoked: Boolean
+)
+
+@Serializable
+data class RelayAcceptResponse(
+    val status: String,
+    @SerialName("intent_id") val intentId: String
 )

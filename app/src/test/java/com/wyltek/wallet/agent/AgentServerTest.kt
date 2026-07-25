@@ -5,6 +5,7 @@ import com.wyltek.wallet.agent.server.AgentDispatchPort
 import com.wyltek.wallet.agent.server.IntentRequest
 import com.wyltek.wallet.agent.server.IntentResponse
 import com.wyltek.wallet.agent.server.IntentStatusResponse
+import com.wyltek.wallet.agent.server.RelayAcceptResponse
 import com.wyltek.wallet.agent.server.agentModule
 import com.wyltek.wallet.core.native.Intent
 import io.ktor.client.call.body
@@ -41,19 +42,22 @@ class AgentServerTest {
 
     /** Simple token→result dispatch table injected per test. */
     private fun fakePort(
-        dispatchResult: DispatchResult
+        dispatchResult: DispatchResult,
+        relayStatus: IntentStatusResponse? = IntentStatusResponse("sent", "0xrelay", null),
     ): AgentDispatchPort = object : AgentDispatchPort {
-        override suspend fun dispatch(
-            token: String,
-            intent: Intent,
-            sourceIp: String,
-            nowUnix: Long
-        ): DispatchResult = dispatchResult
+        val submitted = mutableMapOf<String, IntentStatusResponse?>()
 
-        override suspend fun pendingStatus(id: Long): IntentStatusResponse? =
-            if (id == 42L) storedStatus else null
-
+        override suspend fun dispatch(token: String, intent: Intent, sourceIp: String, nowUnix: Long) = dispatchResult
+        override suspend fun pendingStatus(id: Long): IntentStatusResponse? = if (id == 42L) storedStatus else null
         override suspend fun accounts(): List<AccountInfo> = accounts
+
+        override suspend fun submitRelayIntent(token: String, intent: Intent, sourceIp: String, nowUnix: Long): String {
+            val id = "id-${intent.nonce}"                 // deterministic + idempotent per nonce
+            submitted.putIfAbsent(id, relayStatus)
+            return id
+        }
+        override suspend fun relayIntentStatus(intentId: String): IntentStatusResponse? =
+            if (submitted.containsKey(intentId)) submitted[intentId] else null
     }
 
     // ---------------------  helpers  -----------------------
@@ -161,5 +165,48 @@ class AgentServerTest {
         assertEquals(false, body[0].revoked)
         assertEquals("tok2", body[1].tokenId)
         assertEquals(true, body[1].revoked)
+    }
+
+    @Test
+    fun `POST relay intent returns 200 queued with intent_id`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
+        val client = jsonClient(this)
+        val resp = client.post("/relay/intent") {
+            contentType(ContentType.Application.Json); setBody(validReq)
+        }
+        assertEquals(HttpStatusCode.OK, resp.status)
+        val body = resp.body<RelayAcceptResponse>()
+        assertEquals("queued", body.status)
+        assertEquals("id-n1", body.intentId)
+    }
+
+    @Test
+    fun `POST relay intent is idempotent per nonce`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
+        val client = jsonClient(this)
+        val a = client.post("/relay/intent") { contentType(ContentType.Application.Json); setBody(validReq) }
+            .body<RelayAcceptResponse>()
+        val b = client.post("/relay/intent") { contentType(ContentType.Application.Json); setBody(validReq) }
+            .body<RelayAcceptResponse>()
+        assertEquals(a.intentId, b.intentId)
+    }
+
+    @Test
+    fun `GET relay intent id returns mapped status`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"),
+            relayStatus = IntentStatusResponse("sent", "0xfeed", null))) }
+        val client = jsonClient(this)
+        client.post("/relay/intent") { contentType(ContentType.Application.Json); setBody(validReq) }
+        val resp = client.get("/relay/intent/id-n1")
+        assertEquals(HttpStatusCode.OK, resp.status)
+        val body = resp.body<IntentStatusResponse>()
+        assertEquals("sent", body.status); assertEquals("0xfeed", body.txHash)
+    }
+
+    @Test
+    fun `GET relay intent unknown id returns 404`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
+        val client = jsonClient(this)
+        assertEquals(HttpStatusCode.NotFound, client.get("/relay/intent/nope").status)
     }
 }
