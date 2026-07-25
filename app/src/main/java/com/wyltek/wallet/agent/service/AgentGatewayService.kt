@@ -192,11 +192,13 @@ class AgentGatewayService : Service() {
      * freshly-restarted state (or permanently cancel serviceScope). Mutex-guarded because
      * onAvailable/onLost can fire back-to-back on a single Wi-Fi flip.
      *
-     * Re-checks `stopping`/`running` both before AND after stopServerAndMdns(): handleStop()
-     * (main thread, unguarded by rebindMutex) sets `stopping = true` as its very first line, so
-     * if a real stop began mid-rebind, the post-stopServerAndMdns() check sees it and bails
-     * instead of resurrecting a server the stop path is in the middle of tearing down — which
-     * would otherwise leak a zombie HTTPS listener + mDNS advertisement with no handle to stop it.
+     * Re-checks `stopping`/`running` three times: before stopServerAndMdns(), after it (before
+     * rebinding), and once more after startServerAndMdns() binds the new server/mdns — undoing
+     * the rebind if a stop raced in during the bind itself. handleStop() (main thread, unguarded
+     * by rebindMutex) sets `stopping = true` as its very first line, so any of these checks will
+     * observe a concurrent stop and either bail or self-undo instead of leaving a server/mDNS
+     * advertisement bound with no handle left to stop it (onDestroy()'s cleanup is `if (running)`,
+     * which is already false once handleStop() has run).
      */
     private fun restart() {
         if (!running) return
@@ -206,6 +208,7 @@ class AgentGatewayService : Service() {
                 stopServerAndMdns()
                 if (stopping || !running) return@withLock // a real stop began mid-rebind — don't resurrect
                 startServerAndMdns()
+                if (stopping || !running) stopServerAndMdns() // a stop raced our rebind — undo it
             }
         }
     }
