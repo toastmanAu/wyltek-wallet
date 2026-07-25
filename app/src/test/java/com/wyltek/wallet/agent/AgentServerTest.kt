@@ -2,6 +2,7 @@ package com.wyltek.wallet.agent
 
 import com.wyltek.wallet.agent.server.AccountInfo
 import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.ChainProxyResult
 import com.wyltek.wallet.agent.server.IntentRequest
 import com.wyltek.wallet.agent.server.IntentResponse
 import com.wyltek.wallet.agent.server.IntentStatusResponse
@@ -11,17 +12,21 @@ import com.wyltek.wallet.core.native.Intent
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.headers
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Pure host-JVM test — no Android runtime required. */
@@ -44,6 +49,7 @@ class AgentServerTest {
     private fun fakePort(
         dispatchResult: DispatchResult,
         relayStatus: IntentStatusResponse? = IntentStatusResponse("sent", "0xrelay", null),
+        proxyResult: ChainProxyResult = ChainProxyResult.Ok("""{"result":{"capacity":"0x123"}}"""),
     ): AgentDispatchPort = object : AgentDispatchPort {
         val submitted = mutableMapOf<String, IntentStatusResponse?>()
 
@@ -58,6 +64,12 @@ class AgentServerTest {
         }
         override suspend fun relayIntentStatus(intentId: String): IntentStatusResponse? =
             if (submitted.containsKey(intentId)) submitted[intentId] else null
+
+        override suspend fun proxyChainRead(token: String, method: String, rawBody: String): ChainProxyResult {
+            if (token != "good-token") return ChainProxyResult.BadToken
+            if (method !in setOf("get_cells_capacity", "get_transactions")) return ChainProxyResult.BadMethod
+            return proxyResult
+        }
     }
 
     // ---------------------  helpers  -----------------------
@@ -75,6 +87,9 @@ class AgentServerTest {
         amount = 100_000_000L,
         nonce = "n1"
     )
+
+    private fun ckbBody(method: String) =
+        """{"id":42,"jsonrpc":"2.0","method":"$method","params":[]}"""
 
     // ---------------------  tests  -------------------------
 
@@ -208,5 +223,52 @@ class AgentServerTest {
         application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
         val client = jsonClient(this)
         assertEquals(HttpStatusCode.NotFound, client.get("/relay/intent/nope").status)
+    }
+
+    @Test
+    fun `relay ckb valid token and method returns 200 node body`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"),
+            proxyResult = ChainProxyResult.Ok("""{"result":{"capacity":"0xdead"}}"""))) }
+        val client = jsonClient(this)
+        val resp = client.post("/relay/ckb") {
+            headers { append("x-device-token", "good-token") }
+            contentType(ContentType.Application.Json); setBody(ckbBody("get_cells_capacity"))
+        }
+        assertEquals(HttpStatusCode.OK, resp.status)
+        assertTrue(resp.bodyAsText().contains("0xdead"))
+    }
+
+    @Test
+    fun `relay ckb bad token returns 401`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
+        val client = jsonClient(this)
+        val resp = client.post("/relay/ckb") {
+            headers { append("x-device-token", "wrong") }
+            contentType(ContentType.Application.Json); setBody(ckbBody("get_cells_capacity"))
+        }
+        assertEquals(HttpStatusCode.Unauthorized, resp.status)
+    }
+
+    @Test
+    fun `relay ckb non-whitelisted method returns 403`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
+        val client = jsonClient(this)
+        val resp = client.post("/relay/ckb") {
+            headers { append("x-device-token", "good-token") }
+            contentType(ContentType.Application.Json); setBody(ckbBody("get_cells"))
+        }
+        assertEquals(HttpStatusCode.Forbidden, resp.status)
+    }
+
+    @Test
+    fun `relay ckb upstream failure returns 502`() = testApplication {
+        application { agentModule(fakePort(DispatchResult.Denied("n/a"),
+            proxyResult = ChainProxyResult.Upstream("node down"))) }
+        val client = jsonClient(this)
+        val resp = client.post("/relay/ckb") {
+            headers { append("x-device-token", "good-token") }
+            contentType(ContentType.Application.Json); setBody(ckbBody("get_transactions"))
+        }
+        assertEquals(HttpStatusCode.BadGateway, resp.status)
     }
 }

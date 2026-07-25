@@ -15,6 +15,7 @@ import org.json.JSONObject
 import com.wyltek.wallet.agent.db.AgentDatabaseFactory
 import com.wyltek.wallet.agent.server.AccountInfo
 import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.ChainProxyResult
 import com.wyltek.wallet.agent.server.IntentStatusResponse
 import com.wyltek.wallet.agent.service.AgentNotifications
 import com.wyltek.wallet.agent.store.AgentSecureStore
@@ -204,6 +205,31 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         return IntentStatusResponse(
             status = row.status, txHash = row.resultTxHash, error = row.resultError
         )
+    }
+
+    /**
+     * Token-gated, method-whitelisted verbatim proxy of a CKB read RPC to the phone's own
+     * active node — lets a Tier-1 POS confirm sales / read balance through the phone instead
+     * of standing up its own indexer. Reads only; the token check here is a PRESENCE check
+     * (registered + not revoked), not a full biscuit spend-authorization — nothing is spent.
+     */
+    override suspend fun proxyChainRead(token: String, method: String, rawBody: String): ChainProxyResult {
+        val entry = db.agentDao().tokenByString(token)
+        if (entry == null || entry.revoked) return ChainProxyResult.BadToken
+        if (method != "get_cells_capacity" && method != "get_transactions") return ChainProxyResult.BadMethod
+        val nodeUrl = repository.activeNodeUrl() ?: return ChainProxyResult.Upstream("no active node")
+        return withContext(Dispatchers.IO) {
+            try {
+                OkHttpClient().newCall(
+                    Request.Builder().url(nodeUrl)
+                        .post(rawBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) ChainProxyResult.Upstream("node HTTP ${resp.code}")
+                    else ChainProxyResult.Ok(resp.body?.string() ?: "")
+                }
+            } catch (e: Exception) { ChainProxyResult.Upstream(e.message ?: "node error") }
+        }
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────

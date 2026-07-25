@@ -26,4 +26,8 @@ interface AgentDispatchPort {
 
     /** Poll a relay-facade intent by intent_id. Null = unknown/not-yet-tracked → 404. */
     suspend fun relayIntentStatus(intentId: String): IntentStatusResponse?
+
+    /** Token-gated, method-whitelisted proxy of a CKB read RPC to the phone's node.
+     *  Reads only (get_cells_capacity / get_transactions); returns the node body verbatim. */
+    suspend fun proxyChainRead(token: String, method: String, rawBody: String): ChainProxyResult
 }
