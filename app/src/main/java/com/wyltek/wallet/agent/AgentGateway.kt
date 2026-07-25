@@ -48,6 +48,8 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
     )
 
+    private val inFlightRelay = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     val dispatcher = AgentActionDispatcher(
         keyStore = keyStore,
         ledger = ledger,
@@ -157,34 +159,41 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         val intentId = relayIntentId(token, intent.nonce)
         // Idempotent: if we already track this intent_id, don't re-dispatch.
         if (pendingStore.getByRelayIntentId(intentId) != null) return intentId
+        // Concurrent-duplicate guard: only one racing POST for this intent_id launches
+        // dispatch; the other returns the same intent_id and the POS polls the single row.
+        if (!inFlightRelay.add(intentId)) return intentId
 
         gatewayScope.launch {
-            val result = try {
-                dispatcher.dispatch(token, intent, sourceIp, nowUnix)
-            } catch (e: Throwable) {
-                pendingStore.putTerminalByRelayIntent(
-                    intentId, intent, sourceIp, nowUnix,
-                    com.wyltek.wallet.agent.db.PENDING_FAILED, null, e.message ?: "dispatch error"
-                )
-                return@launch
-            }
-            when (result) {
-                is DispatchResult.Sent -> pendingStore.putTerminalByRelayIntent(
-                    intentId, intent, sourceIp, nowUnix,
-                    com.wyltek.wallet.agent.db.PENDING_SENT, result.txHash, null
-                )
-                is DispatchResult.Denied -> pendingStore.putTerminalByRelayIntent(
-                    intentId, intent, sourceIp, nowUnix,
-                    com.wyltek.wallet.agent.db.PENDING_DENIED, null, result.reason
-                )
-                is DispatchResult.Failed -> pendingStore.putTerminalByRelayIntent(
-                    intentId, intent, sourceIp, nowUnix,
-                    com.wyltek.wallet.agent.db.PENDING_FAILED, null, result.message
-                )
-                is DispatchResult.Approval ->
-                    // The approval row already exists (dispatch created it); make it findable by
-                    // intent_id so the merchant's later Approve updates the row the POS polls.
-                    pendingStore.linkRelayIntent(result.pendingId, intentId)
+            try {
+                val result = try {
+                    dispatch(token, intent, sourceIp, nowUnix)
+                } catch (e: Throwable) {
+                    pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_FAILED, null, e.message ?: "dispatch error"
+                    )
+                    return@launch
+                }
+                when (result) {
+                    is DispatchResult.Sent -> pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_SENT, result.txHash, null
+                    )
+                    is DispatchResult.Denied -> pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_DENIED, null, result.reason
+                    )
+                    is DispatchResult.Failed -> pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_FAILED, null, result.message
+                    )
+                    is DispatchResult.Approval ->
+                        // The approval row already exists (dispatch created it); make it findable by
+                        // intent_id so the merchant's later Approve updates the row the POS polls.
+                        pendingStore.linkRelayIntent(result.pendingId, intentId)
+                }
+            } finally {
+                inFlightRelay.remove(intentId)
             }
         }
         return intentId
