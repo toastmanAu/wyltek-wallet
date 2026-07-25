@@ -48,6 +48,11 @@ class AgentGatewayService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val rebindMutex = Mutex()
 
+    // Set as the very first step of a real stop (handleStop, main thread) and cleared near the
+    // top of a real start (handleStart, main thread); read from the serviceScope (IO) coroutine
+    // in restart() to detect a stop that began mid-rebind. @Volatile for cross-thread visibility.
+    @Volatile private var stopping = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -78,6 +83,7 @@ class AgentGatewayService : Service() {
         }
 
         val boundAddr = lan ?: tailnet
+        stopping = false // defensive reset — a stray stop shouldn't poison the next start
 
         startForeground(
             NOTIF_ID,
@@ -185,19 +191,27 @@ class AgentGatewayService : Service() {
      * and stopSelf() queues an async onDestroy() that would race a rebind and tear down the
      * freshly-restarted state (or permanently cancel serviceScope). Mutex-guarded because
      * onAvailable/onLost can fire back-to-back on a single Wi-Fi flip.
+     *
+     * Re-checks `stopping`/`running` both before AND after stopServerAndMdns(): handleStop()
+     * (main thread, unguarded by rebindMutex) sets `stopping = true` as its very first line, so
+     * if a real stop began mid-rebind, the post-stopServerAndMdns() check sees it and bails
+     * instead of resurrecting a server the stop path is in the middle of tearing down — which
+     * would otherwise leak a zombie HTTPS listener + mDNS advertisement with no handle to stop it.
      */
     private fun restart() {
         if (!running) return
         serviceScope.launch { // hop off the callback thread
             rebindMutex.withLock {
-                if (!running) return@withLock // a real stop won the race
+                if (!running || stopping) return@withLock // a real stop won the race
                 stopServerAndMdns()
+                if (stopping || !running) return@withLock // a real stop began mid-rebind — don't resurrect
                 startServerAndMdns()
             }
         }
     }
 
     private fun handleStop() {
+        stopping = true
         stopServerAndMdns()
         relayClient?.disconnect()
         relayClient = null
