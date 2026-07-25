@@ -41,9 +41,9 @@ import kotlinx.coroutines.sync.withLock
  */
 class AgentGatewayService : Service() {
 
-    private var server: EmbeddedServer<*, *>? = null
+    @Volatile private var server: EmbeddedServer<*, *>? = null
     private var relayClient: RelayClient? = null
-    private var mdns: AgentMdns? = null
+    @Volatile private var mdns: AgentMdns? = null
     private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val rebindMutex = Mutex()
@@ -92,6 +92,14 @@ class AgentGatewayService : Service() {
         )
 
         startServerAndMdns()
+        if (server == null) {
+            // §9: bind failed on the initial start (not a Wi-Fi rebind) — log+notify already
+            // happened inside startServerAndMdns(); nothing left to run this service for.
+            Log.e(TAG, "initial server bind failed — stopping agent gateway service")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
 
         // Capture the Android Application before entering the Ktor lambda — Ktor's
         // Application receiver would shadow the Android `application` property otherwise.
@@ -136,22 +144,35 @@ class AgentGatewayService : Service() {
             Log.w(TAG, "rebind: no LAN/Tailnet address")
             return
         }
-        val ks = AgentTls.keyStore(this)
-
-        server = embeddedServer(CIO, configure = {
-            if (lan != null) {
-                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
-                    host = lan
-                    port = SERVER_PORT
+        // §9: keystore load and server bind can both fail (corrupt/foreign keystore file,
+        // port already bound, etc). Neither should crash this foreground service — log, notify,
+        // leave `server = null`, and let the caller (handleStart) decide whether to stopSelf().
+        try {
+            val ks = AgentTls.keyStore(this)
+            server = embeddedServer(CIO, configure = {
+                if (lan != null) {
+                    sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
+                        host = lan
+                        port = SERVER_PORT
+                    }
                 }
-            }
-            if (tailnet != null) {
-                sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
-                    host = tailnet
-                    port = SERVER_PORT
+                if (tailnet != null) {
+                    sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
+                        host = tailnet
+                        port = SERVER_PORT
+                    }
                 }
-            }
-        }, module = { agentModule(dispatchPort) }).start(wait = false)
+            }, module = { agentModule(dispatchPort) }).start(wait = false)
+        } catch (e: Exception) {
+            Log.e(TAG, "TLS keystore load/bind failed — agent gateway not started", e)
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.notify(
+                NOTIF_ID_TAILNET_ERROR,
+                AgentNotifications.serverNotification(this, "tls/bind error")
+            )
+            server = null
+            return
+        }
 
         if (lan != null) {
             val deviceId = RelayPairing.deviceId(androidApp.agentGateway.secure)

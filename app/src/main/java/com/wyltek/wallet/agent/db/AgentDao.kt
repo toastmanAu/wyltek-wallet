@@ -76,9 +76,6 @@ interface AgentDao {
     @Query("SELECT * FROM pending_intents WHERE relay_intent_id=:rid LIMIT 1")
     suspend fun pendingByRelayIntentId(rid: String): PendingIntentEntity?
 
-    @Query("SELECT COUNT(*) FROM pending_intents WHERE relay_intent_id=:rid")
-    suspend fun countByRelayIntentId(rid: String): Int
-
     /** Atomic idempotent insert of a terminal /relay tracking row. Returns the row id,
      *  or the existing row's id if this relay_intent_id was already recorded. */
     @Transaction
