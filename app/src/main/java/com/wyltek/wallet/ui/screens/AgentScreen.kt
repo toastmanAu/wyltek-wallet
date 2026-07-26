@@ -248,15 +248,18 @@ fun AgentScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             // NOTE: buildProvisioningBundle assumes quote-free inputs (UUID device_id, URL-safe base64 token) and does not enforce it.
+                            // Tier-1 companion-direct provisioning needs NO relay — the bundle
+                            // ({device_id, token, service_name}) is buildable without pairing,
+                            // and the same QR serves node tier too. Render whenever it's buildable.
                             val bundle = buildProvisioningBundle(uiState.deviceId, token)
-                            if (bundle != null && uiState.relayPaired) {
+                            if (bundle != null) {
                                 QrCodeImage(
                                     content = bundle,
                                     modifier = Modifier.size(220.dp)
                                 )
                             } else {
                                 Text(
-                                    text = "Pair this device with the relay before provisioning a POS",
+                                    text = "No device ID yet — start the Agent Gateway once to initialise, then re-mint",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = WarningOrange,
                                     textAlign = TextAlign.Center
