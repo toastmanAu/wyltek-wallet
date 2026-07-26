@@ -2,9 +2,20 @@ package com.wyltek.wallet.agent
 
 import android.app.NotificationManager
 import android.content.Context
+import android.util.Log
+import com.wyltek.wallet.agent.relay.RelayPairing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import com.wyltek.wallet.agent.db.AgentDatabaseFactory
 import com.wyltek.wallet.agent.server.AccountInfo
 import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.ChainProxyResult
 import com.wyltek.wallet.agent.server.IntentStatusResponse
 import com.wyltek.wallet.agent.service.AgentNotifications
 import com.wyltek.wallet.agent.store.AgentSecureStore
@@ -33,6 +44,12 @@ class AgentGateway(context: Context) : AgentDispatchPort {
 
     val tokenService = AgentTokenService(keyStore, db)
     val pendingStore = PendingStore(db)
+
+    private val gatewayScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
+
+    private val inFlightRelay = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     val dispatcher = AgentActionDispatcher(
         keyStore = keyStore,
@@ -76,11 +93,51 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         val r = dispatcher.dispatch(token, intent, sourceIp, nowUnix)
         if (r is DispatchResult.Approval) {
             AgentNotifications.ensureChannels(app)
-            val summary = "${intent.op} ${r.amount} ${r.asset} to ${intent.to}"
+            // r.amount is in shannons (1 CKB = 1e8). Format to CKB — matching the
+            // pending-row formatter in AgentViewModel — so the approval prompt
+            // doesn't show the raw shannon value (which reads as a huge number).
+            val amountCkb = "%.4f".format(r.amount / 100_000_000.0)
+            val summary = "${intent.op} $amountCkb ${r.asset} to ${intent.to}"
             val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(r.pendingId.toInt(), AgentNotifications.approvalNotification(app, r.pendingId, summary))
         }
         return r
+    }
+
+    /**
+     * Report a completed approval back to the relay.
+     *
+     * Without this the relay never learns the outcome: [RelayClient] posts
+     * `needs_approval` when the intent arrives and then forgets it, so a POS (or any
+     * agent) polling `GET /relay/intent/{id}` sees `needs_approval` forever and times
+     * out — even though the transaction was signed and broadcast. No-ops for intents
+     * that did not originate from the relay (`relay_intent_id` null), e.g. ones served
+     * over the on-device HTTP gateway.
+     */
+    suspend fun reportRelayResult(pendingId: Long, status: String, txHash: String?, error: String?) {
+        val row = pendingStore.get(pendingId) ?: return
+        val relayIntentId = row.relayIntentId ?: return
+        val cfg = RelayPairing.loadConfig(secure) ?: return
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("device_token", cfg.deviceToken)
+                .put("intent_id", relayIntentId)
+                .put("status", status)
+                .put("tx_hash", txHash)
+                .put("error", error)
+                .toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            try {
+                OkHttpClient().newCall(
+                    Request.Builder().url(cfg.resultUrl).post(body).build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) Log.w(TAG, "relay result POST ${resp.code} for $relayIntentId")
+                    else Log.i(TAG, "relay result POST ok: $relayIntentId -> $status")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "relay result POST failed for $relayIntentId: ${e.message}")
+            }
+        }
     }
 
     override suspend fun pendingStatus(id: Long): IntentStatusResponse? {
@@ -96,6 +153,84 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         tokenService.list().map { t ->
             AccountInfo(tokenId = t.tokenId, account = t.account, revoked = t.revoked)
         }
+
+    override suspend fun submitRelayIntent(
+        token: String, intent: Intent, sourceIp: String, nowUnix: Long
+    ): String {
+        val intentId = relayIntentId(token, intent.nonce)
+        // Idempotent: if we already track this intent_id, don't re-dispatch.
+        if (pendingStore.getByRelayIntentId(intentId) != null) return intentId
+        // Concurrent-duplicate guard: only one racing POST for this intent_id launches
+        // dispatch; the other returns the same intent_id and the POS polls the single row.
+        if (!inFlightRelay.add(intentId)) return intentId
+
+        gatewayScope.launch {
+            try {
+                val result = try {
+                    dispatch(token, intent, sourceIp, nowUnix)
+                } catch (e: Throwable) {
+                    pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_FAILED, null, e.message ?: "dispatch error"
+                    )
+                    return@launch
+                }
+                when (result) {
+                    is DispatchResult.Sent -> pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_SENT, result.txHash, null
+                    )
+                    is DispatchResult.Denied -> pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_DENIED, null, result.reason
+                    )
+                    is DispatchResult.Failed -> pendingStore.putTerminalByRelayIntent(
+                        intentId, intent, sourceIp, nowUnix,
+                        com.wyltek.wallet.agent.db.PENDING_FAILED, null, result.message
+                    )
+                    is DispatchResult.Approval ->
+                        // The approval row already exists (dispatch created it); make it findable by
+                        // intent_id so the merchant's later Approve updates the row the POS polls.
+                        pendingStore.linkRelayIntent(result.pendingId, intentId)
+                }
+            } finally {
+                inFlightRelay.remove(intentId)
+            }
+        }
+        return intentId
+    }
+
+    override suspend fun relayIntentStatus(intentId: String): IntentStatusResponse? {
+        val row = pendingStore.getByRelayIntentId(intentId) ?: return null
+        return IntentStatusResponse(
+            status = row.status, txHash = row.resultTxHash, error = row.resultError
+        )
+    }
+
+    /**
+     * Token-gated, method-whitelisted verbatim proxy of a CKB read RPC to the phone's own
+     * active node — lets a Tier-1 POS confirm sales / read balance through the phone instead
+     * of standing up its own indexer. Reads only; the token check here is a PRESENCE check
+     * (registered + not revoked), not a full biscuit spend-authorization — nothing is spent.
+     */
+    override suspend fun proxyChainRead(token: String, method: String, rawBody: String): ChainProxyResult {
+        val entry = db.agentDao().tokenByString(token)
+        if (entry == null || entry.revoked) return ChainProxyResult.BadToken
+        if (method != "get_cells_capacity" && method != "get_transactions") return ChainProxyResult.BadMethod
+        val nodeUrl = repository.activeNodeUrl() ?: return ChainProxyResult.Upstream("no active node")
+        return withContext(Dispatchers.IO) {
+            try {
+                OkHttpClient().newCall(
+                    Request.Builder().url(nodeUrl)
+                        .post(rawBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) ChainProxyResult.Upstream("node HTTP ${resp.code}")
+                    else ChainProxyResult.Ok(resp.body?.string() ?: "")
+                }
+            } catch (e: Exception) { ChainProxyResult.Upstream(e.message ?: "node error") }
+        }
+    }
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
@@ -129,5 +264,9 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         if (parts.size != 2) return false
         val idx = parts[1].toUIntOrNull() ?: return false
         return deposit.outPoint.txHash == parts[0] && deposit.outPoint.index == idx
+    }
+
+    companion object {
+        private const val TAG = "AgentGateway"
     }
 }

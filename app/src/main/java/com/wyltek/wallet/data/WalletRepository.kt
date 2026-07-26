@@ -141,6 +141,18 @@ class WalletRepository(context: Context) {
 
     fun getAvailableRpcs(): List<String> = chainManager.getAllProviders().map { it.name }
 
+    /**
+     * Active CKB node RPC URL (e.g. https://testnet.ckbapp.dev) for the chain-read proxy.
+     *
+     * NOTE: `ChainProvider` (the interface `chainManager.getActiveProvider()` returns) does
+     * NOT expose `url` — only the concrete `RpcProfile` does. `RpcProfile` is the only
+     * provider this class ever registers (see the `addProvider(testnetProfile, ...)` /
+     * `addProvider(mainnetProfile, ...)` calls above), so a safe smart-cast is used instead
+     * of widening the `ChainProvider` interface or reaching into `ChainManager`'s private
+     * `providerUrls` map (neither of which is in this task's file list).
+     */
+    fun activeNodeUrl(): String? = (chainManager.getActiveProvider() as? RpcProfile)?.url
+
     suspend fun scanDaoDeposits(lockScript: LockScript, network: NetworkType): WalletResult<List<DaoDeposit>> {
         return try {
             val deposits = daoProvider.scanDaoDeposits(lockScript, network)

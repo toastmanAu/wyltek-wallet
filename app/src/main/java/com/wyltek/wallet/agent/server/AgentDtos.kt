@@ -1,5 +1,6 @@
 package com.wyltek.wallet.agent.server
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -35,3 +36,17 @@ data class AccountInfo(
     val account: String,
     val revoked: Boolean
 )
+
+@Serializable
+data class RelayAcceptResponse(
+    val status: String,
+    @SerialName("intent_id") val intentId: String
+)
+
+/** Result of a token-gated, method-whitelisted CKB read-RPC proxy call. */
+sealed class ChainProxyResult {
+    data class Ok(val body: String) : ChainProxyResult()
+    object BadToken : ChainProxyResult()
+    object BadMethod : ChainProxyResult()
+    data class Upstream(val message: String) : ChainProxyResult()
+}
