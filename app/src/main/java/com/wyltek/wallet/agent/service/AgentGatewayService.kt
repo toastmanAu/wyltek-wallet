@@ -159,13 +159,11 @@ class AgentGatewayService : Service() {
         }
 
         if (lan != null) {
-            val deviceId = RelayPairing.deviceId(androidApp.agentGateway.secure)
-            if (deviceId != null) {
-                val svc = serviceNameFor(deviceId)
-                mdns = AgentMdns(this).also { it.register(svc, deviceId, SERVER_PORT) }
-            } else {
-                Log.i(TAG, "no provisioned device_id — mDNS advertise skipped")
-            }
+            // ensure (not just read) so the advertised service_name matches the QR's, even on a
+            // Tier-1 device that was never relay-paired (same stable id from the secure store).
+            val deviceId = RelayPairing.ensureDeviceId(androidApp.agentGateway.secure)
+            val svc = serviceNameFor(deviceId)
+            mdns = AgentMdns(this).also { it.register(svc, deviceId, SERVER_PORT) }
         }
         Log.i(TAG, "gateway server on ${lan ?: tailnet}:$SERVER_PORT")
     }
