@@ -49,7 +49,11 @@ suspend fun routeAgentRequest(
 
     return when {
         method == "POST" && path == "/v1/intent" -> {
-            val req = json.decodeFromString(IntentRequest.serializer(), body)
+            val req = try {
+                json.decodeFromString(IntentRequest.serializer(), body)
+            } catch (e: Exception) {
+                return result(400, IntentStatusResponse("bad_request"))
+            }
             val intent = Intent(
                 op = req.op,
                 asset = req.asset,
@@ -85,7 +89,11 @@ suspend fun routeAgentRequest(
             ok(port.accounts(), ListSerializers.accountInfoList)
 
         method == "POST" && path == "/relay/intent" -> {
-            val req = json.decodeFromString(IntentRequest.serializer(), body)
+            val req = try {
+                json.decodeFromString(IntentRequest.serializer(), body)
+            } catch (e: Exception) {
+                return result(400, IntentStatusResponse("bad_request"))
+            }
             val intent = Intent(
                 op = req.op, asset = req.asset, to = req.to, amount = req.amount,
                 nonce = req.nonce, action = req.action, daoRef = req.daoRef

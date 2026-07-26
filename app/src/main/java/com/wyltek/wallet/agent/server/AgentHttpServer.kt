@@ -38,8 +38,15 @@ class AgentHttpServer(
             ""
         }
 
-        val r = runBlocking {
-            routeAgentRequest(method, path, header, bodyStr, dispatchPort, session.remoteIpAddress ?: "0.0.0.0")
+        // Safety net: no route should ever throw out to NanoHTTPD (that resets the socket →
+        // the client sees a connection error, not an HTTP status). Any unexpected throw → 500.
+        val r = try {
+            runBlocking {
+                routeAgentRequest(method, path, header, bodyStr, dispatchPort, session.remoteIpAddress ?: "0.0.0.0")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AgentHttpServer", "route error for $method $path", e)
+            RouteResult(500, "application/json", "")
         }
 
         return newFixedLengthResponse(statusFor(r.status), r.contentType, r.body)

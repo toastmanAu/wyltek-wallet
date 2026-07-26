@@ -101,6 +101,13 @@ class AgentServerTest {
     }
 
     @Test
+    fun `malformed intent body returns 400 not a connection reset`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        assertEquals(400, route("POST", "/v1/intent", port, "{}").status)
+        assertEquals(400, route("POST", "/relay/intent", port, "not json").status)
+    }
+
+    @Test
     fun `over-limit intent returns 202 needs_approval with pendingId`() {
         val port = fakePort(DispatchResult.Approval(pendingId = 7L, tokenId = "tok1", asset = "CKB", amount = 100L))
         val resp = route("POST", "/v1/intent", port, validReqBody)
