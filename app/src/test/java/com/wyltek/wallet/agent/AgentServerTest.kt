@@ -7,29 +7,17 @@ import com.wyltek.wallet.agent.server.IntentRequest
 import com.wyltek.wallet.agent.server.IntentResponse
 import com.wyltek.wallet.agent.server.IntentStatusResponse
 import com.wyltek.wallet.agent.server.RelayAcceptResponse
-import com.wyltek.wallet.agent.server.agentModule
+import com.wyltek.wallet.agent.server.routeAgentRequest
 import com.wyltek.wallet.core.native.Intent
-import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.get
-import io.ktor.client.request.headers
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.http.headers
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Pure host-JVM test — no Android runtime required. */
+/** Pure host-JVM test — calls [routeAgentRequest] directly, no HTTP server involved. */
 class AgentServerTest {
 
     // ---------------------  fake port  ---------------------
@@ -74,10 +62,7 @@ class AgentServerTest {
 
     // ---------------------  helpers  -----------------------
 
-    private fun jsonClient(app: io.ktor.server.testing.ApplicationTestBuilder) =
-        app.createClient {
-            install(ContentNegotiation) { json() }
-        }
+    private val noHeader: (String) -> String? = { null }
 
     private val validReq = IntentRequest(
         token = "good-token",
@@ -88,92 +73,82 @@ class AgentServerTest {
         nonce = "n1"
     )
 
+    private val validReqBody = Json.encodeToString(IntentRequest.serializer(), validReq)
+
     private fun ckbBody(method: String) =
         """{"id":42,"jsonrpc":"2.0","method":"$method","params":[]}"""
+
+    private fun route(
+        method: String,
+        path: String,
+        port: AgentDispatchPort,
+        body: String = "",
+        header: (String) -> String? = noHeader,
+    ) = runBlocking { routeAgentRequest(method, path, header, body, port) }
 
     // ---------------------  tests  -------------------------
 
     @Test
-    fun `within-cap intent returns 200 sent with txHash`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Sent("0xdeadbeef", "tok1"))) }
-        val client = jsonClient(this)
+    fun `within-cap intent returns 200 sent with txHash`() {
+        val port = fakePort(DispatchResult.Sent("0xdeadbeef", "tok1"))
+        val resp = route("POST", "/v1/intent", port, validReqBody)
 
-        val resp = client.post("/v1/intent") {
-            contentType(ContentType.Application.Json)
-            setBody(validReq)
-        }
-
-        assertEquals(HttpStatusCode.OK, resp.status)
-        val body = resp.body<IntentResponse>()
+        assertEquals(200, resp.status)
+        val body = Json.decodeFromString(IntentResponse.serializer(), resp.body)
         assertEquals("sent", body.status)
         assertEquals("0xdeadbeef", body.txHash)
         assertNull(body.pendingId)
     }
 
     @Test
-    fun `over-limit intent returns 202 needs_approval with pendingId`() = testApplication {
-        application {
-            agentModule(fakePort(DispatchResult.Approval(pendingId = 7L, tokenId = "tok1", asset = "CKB", amount = 100L)))
-        }
-        val client = jsonClient(this)
+    fun `over-limit intent returns 202 needs_approval with pendingId`() {
+        val port = fakePort(DispatchResult.Approval(pendingId = 7L, tokenId = "tok1", asset = "CKB", amount = 100L))
+        val resp = route("POST", "/v1/intent", port, validReqBody)
 
-        val resp = client.post("/v1/intent") {
-            contentType(ContentType.Application.Json)
-            setBody(validReq)
-        }
-
-        assertEquals(HttpStatusCode.Accepted, resp.status)
-        val body = resp.body<IntentResponse>()
+        assertEquals(202, resp.status)
+        val body = Json.decodeFromString(IntentResponse.serializer(), resp.body)
         assertEquals("needs_approval", body.status)
         assertEquals(7L, body.pendingId)
         assertNull(body.txHash)
     }
 
     @Test
-    fun `bad token returns 403 denied`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("unknown token"))) }
-        val client = jsonClient(this)
+    fun `bad token returns 403 denied`() {
+        val port = fakePort(DispatchResult.Denied("unknown token"))
+        val resp = route("POST", "/v1/intent", port, validReqBody)
 
-        val resp = client.post("/v1/intent") {
-            contentType(ContentType.Application.Json)
-            setBody(validReq)
-        }
-
-        assertEquals(HttpStatusCode.Forbidden, resp.status)
-        val body = resp.body<IntentResponse>()
+        assertEquals(403, resp.status)
+        val body = Json.decodeFromString(IntentResponse.serializer(), resp.body)
         assertEquals("denied", body.status)
         assertEquals("unknown token", body.reason)
     }
 
     @Test
-    fun `GET intent id returns stored status`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
+    fun `GET intent id returns stored status`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val resp = route("GET", "/v1/intent/42", port)
 
-        val resp = client.get("/v1/intent/42")
-        assertEquals(HttpStatusCode.OK, resp.status)
-        val body = resp.body<IntentStatusResponse>()
+        assertEquals(200, resp.status)
+        val body = Json.decodeFromString(IntentStatusResponse.serializer(), resp.body)
         assertEquals("sent", body.status)
         assertEquals("0xabc123", body.txHash)
     }
 
     @Test
-    fun `GET intent unknown id returns 404`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
+    fun `GET intent unknown id returns 404`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val resp = route("GET", "/v1/intent/999", port)
 
-        val resp = client.get("/v1/intent/999")
-        assertEquals(HttpStatusCode.NotFound, resp.status)
+        assertEquals(404, resp.status)
     }
 
     @Test
-    fun `GET account returns account list`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
+    fun `GET account returns account list`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val resp = route("GET", "/v1/account", port)
 
-        val resp = client.get("/v1/account")
-        assertEquals(HttpStatusCode.OK, resp.status)
-        val body = resp.body<List<AccountInfo>>()
+        assertEquals(200, resp.status)
+        val body = Json.decodeFromString(ListSerializer(AccountInfo.serializer()), resp.body)
         assertEquals(2, body.size)
         assertEquals("tok1", body[0].tokenId)
         assertEquals("ckb1abc", body[0].account)
@@ -183,92 +158,79 @@ class AgentServerTest {
     }
 
     @Test
-    fun `POST relay intent returns 200 queued with intent_id`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
-        val resp = client.post("/relay/intent") {
-            contentType(ContentType.Application.Json); setBody(validReq)
-        }
-        assertEquals(HttpStatusCode.OK, resp.status)
-        val body = resp.body<RelayAcceptResponse>()
+    fun `POST relay intent returns 200 queued with intent_id`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val resp = route("POST", "/relay/intent", port, validReqBody)
+
+        assertEquals(200, resp.status)
+        val body = Json.decodeFromString(RelayAcceptResponse.serializer(), resp.body)
         assertEquals("queued", body.status)
         assertEquals("id-n1", body.intentId)
     }
 
     @Test
-    fun `POST relay intent is idempotent per nonce`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
-        val a = client.post("/relay/intent") { contentType(ContentType.Application.Json); setBody(validReq) }
-            .body<RelayAcceptResponse>()
-        val b = client.post("/relay/intent") { contentType(ContentType.Application.Json); setBody(validReq) }
-            .body<RelayAcceptResponse>()
+    fun `POST relay intent is idempotent per nonce`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val a = Json.decodeFromString(RelayAcceptResponse.serializer(), route("POST", "/relay/intent", port, validReqBody).body)
+        val b = Json.decodeFromString(RelayAcceptResponse.serializer(), route("POST", "/relay/intent", port, validReqBody).body)
         assertEquals(a.intentId, b.intentId)
     }
 
     @Test
-    fun `GET relay intent id returns mapped status`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"),
-            relayStatus = IntentStatusResponse("sent", "0xfeed", null))) }
-        val client = jsonClient(this)
-        client.post("/relay/intent") { contentType(ContentType.Application.Json); setBody(validReq) }
-        val resp = client.get("/relay/intent/id-n1")
-        assertEquals(HttpStatusCode.OK, resp.status)
-        val body = resp.body<IntentStatusResponse>()
+    fun `GET relay intent id returns mapped status`() {
+        val port = fakePort(DispatchResult.Denied("n/a"), relayStatus = IntentStatusResponse("sent", "0xfeed", null))
+        route("POST", "/relay/intent", port, validReqBody)
+        val resp = route("GET", "/relay/intent/id-n1", port)
+
+        assertEquals(200, resp.status)
+        val body = Json.decodeFromString(IntentStatusResponse.serializer(), resp.body)
         assertEquals("sent", body.status); assertEquals("0xfeed", body.txHash)
     }
 
     @Test
-    fun `GET relay intent unknown id returns 404`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
-        assertEquals(HttpStatusCode.NotFound, client.get("/relay/intent/nope").status)
+    fun `GET relay intent unknown id returns 404`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        assertEquals(404, route("GET", "/relay/intent/nope", port).status)
     }
 
     @Test
-    fun `relay ckb valid token and method returns 200 node body`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"),
-            proxyResult = ChainProxyResult.Ok("""{"result":{"capacity":"0xdead"}}"""))) }
-        val client = jsonClient(this)
-        val resp = client.post("/relay/ckb") {
-            headers { append("x-device-token", "good-token") }
-            contentType(ContentType.Application.Json); setBody(ckbBody("get_cells_capacity"))
+    fun `relay ckb valid token and method returns 200 node body`() {
+        val port = fakePort(DispatchResult.Denied("n/a"), proxyResult = ChainProxyResult.Ok("""{"result":{"capacity":"0xdead"}}"""))
+        val resp = route("POST", "/relay/ckb", port, ckbBody("get_cells_capacity")) { name ->
+            if (name == "x-device-token") "good-token" else null
         }
-        assertEquals(HttpStatusCode.OK, resp.status)
-        assertTrue(resp.bodyAsText().contains("0xdead"))
+
+        assertEquals(200, resp.status)
+        assertTrue(resp.body.contains("0xdead"))
     }
 
     @Test
-    fun `relay ckb bad token returns 401`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
-        val resp = client.post("/relay/ckb") {
-            headers { append("x-device-token", "wrong") }
-            contentType(ContentType.Application.Json); setBody(ckbBody("get_cells_capacity"))
+    fun `relay ckb bad token returns 401`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val resp = route("POST", "/relay/ckb", port, ckbBody("get_cells_capacity")) { name ->
+            if (name == "x-device-token") "wrong" else null
         }
-        assertEquals(HttpStatusCode.Unauthorized, resp.status)
+
+        assertEquals(401, resp.status)
     }
 
     @Test
-    fun `relay ckb non-whitelisted method returns 403`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"))) }
-        val client = jsonClient(this)
-        val resp = client.post("/relay/ckb") {
-            headers { append("x-device-token", "good-token") }
-            contentType(ContentType.Application.Json); setBody(ckbBody("get_cells"))
+    fun `relay ckb non-whitelisted method returns 403`() {
+        val port = fakePort(DispatchResult.Denied("n/a"))
+        val resp = route("POST", "/relay/ckb", port, ckbBody("get_cells")) { name ->
+            if (name == "x-device-token") "good-token" else null
         }
-        assertEquals(HttpStatusCode.Forbidden, resp.status)
+
+        assertEquals(403, resp.status)
     }
 
     @Test
-    fun `relay ckb upstream failure returns 502`() = testApplication {
-        application { agentModule(fakePort(DispatchResult.Denied("n/a"),
-            proxyResult = ChainProxyResult.Upstream("node down"))) }
-        val client = jsonClient(this)
-        val resp = client.post("/relay/ckb") {
-            headers { append("x-device-token", "good-token") }
-            contentType(ContentType.Application.Json); setBody(ckbBody("get_transactions"))
+    fun `relay ckb upstream failure returns 502`() {
+        val port = fakePort(DispatchResult.Denied("n/a"), proxyResult = ChainProxyResult.Upstream("node down"))
+        val resp = route("POST", "/relay/ckb", port, ckbBody("get_transactions")) { name ->
+            if (name == "x-device-token") "good-token" else null
         }
-        assertEquals(HttpStatusCode.BadGateway, resp.status)
+
+        assertEquals(502, resp.status)
     }
 }

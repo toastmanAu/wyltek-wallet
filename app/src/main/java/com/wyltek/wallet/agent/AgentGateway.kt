@@ -32,7 +32,7 @@ import java.math.BigInteger
  * Manual DI — mirrors the pattern used by WalletRepository itself.
  *
  * Implements [AgentDispatchPort] so [AgentGatewayService] can pass `agentGateway`
- * directly to `agentModule(port)` without an extra adapter.
+ * directly to `AgentHttpServer`/`routeAgentRequest` without an extra adapter.
  */
 class AgentGateway(context: Context) : AgentDispatchPort {
     private val app = context.applicationContext

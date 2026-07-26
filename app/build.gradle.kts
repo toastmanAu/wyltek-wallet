@@ -107,6 +107,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Agent Gateway Direct transport
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("io.ktor:ktor-server-core-jvm:3.1.3")
     implementation("io.ktor:ktor-server-cio-jvm:3.1.3")
     implementation("io.ktor:ktor-server-content-negotiation-jvm:3.1.3")
