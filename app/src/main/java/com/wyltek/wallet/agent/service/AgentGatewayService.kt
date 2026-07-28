@@ -10,15 +10,12 @@ import com.wyltek.wallet.agent.provisioning.serviceNameFor
 import com.wyltek.wallet.agent.relay.RelayClient
 import com.wyltek.wallet.agent.relay.RelayPairing
 import com.wyltek.wallet.agent.server.AgentDispatchPort
+import com.wyltek.wallet.agent.server.AgentHttpServer
 import com.wyltek.wallet.agent.server.AgentMdns
 import com.wyltek.wallet.agent.server.AgentTls
 import com.wyltek.wallet.agent.server.LanAddress
 import com.wyltek.wallet.agent.server.Tailnet
-import com.wyltek.wallet.agent.server.agentModule
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.EmbeddedServer
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.engine.sslConnector
+import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,20 +25,20 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Foreground service that hosts the Ktor CIO HTTPS server on the device's LAN (Wi-Fi) address,
- * with a Tailnet connector added as well when a Tailscale address is also present. TLS uses a
- * persisted self-signed cert (see [AgentTls]) — trust comes from the biscuit token, not the cert.
+ * Foreground service that hosts the NanoHTTPD HTTPS server on the device's LAN (Wi-Fi) address.
+ * TLS uses a persisted self-signed cert (see [AgentTls]) — trust comes from the biscuit token,
+ * not the cert.
+ *
+ * NanoHTTPD binds a single host — this deliberately drops the old Ktor CIO Tailnet co-connector
+ * simplification; Tier-1 is LAN, so LAN wins when both a LAN and a Tailnet address are present.
  *
  * Lifecycle:
- *  - ACTION_START: resolve LAN/Tailnet addresses, start CIO server, call startForeground
+ *  - ACTION_START: resolve LAN/Tailnet addresses, start the NanoHTTPD server, call startForeground
  *  - ACTION_STOP: stop server, stopForeground, stopSelf
- *
- * The Android [application] property is captured into a local BEFORE entering the Ktor lambda
- * because Ktor's ApplicationCall receiver shadows the Android property name.
  */
 class AgentGatewayService : Service() {
 
-    @Volatile private var server: EmbeddedServer<*, *>? = null
+    @Volatile private var server: NanoHTTPD? = null
     private var relayClient: RelayClient? = null
     @Volatile private var mdns: AgentMdns? = null
     private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
@@ -88,7 +85,7 @@ class AgentGatewayService : Service() {
         startForeground(
             NOTIF_ID,
             AgentNotifications.serverNotification(this, "$boundAddr:$SERVER_PORT"),
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
 
         startServerAndMdns()
@@ -101,8 +98,6 @@ class AgentGatewayService : Service() {
             return
         }
 
-        // Capture the Android Application before entering the Ktor lambda — Ktor's
-        // Application receiver would shadow the Android `application` property otherwise.
         val androidApp = application as WyltekWalletApp
 
         // Start relay client if already paired
@@ -129,13 +124,12 @@ class AgentGatewayService : Service() {
     }
 
     /**
-     * Bind the Ktor server (LAN + Tailnet sslConnectors) and register mDNS. No foreground
-     * notification, relay client, or network-callback side effects — safe to call again for
-     * a Wi-Fi rebind without touching the rest of the service's lifecycle.
+     * Bind the NanoHTTPD server (LAN address, falling back to Tailnet — NanoHTTPD binds a
+     * single host) and register mDNS. No foreground notification, relay client, or
+     * network-callback side effects — safe to call again for a Wi-Fi rebind without touching
+     * the rest of the service's lifecycle.
      */
     private fun startServerAndMdns() {
-        // Named `dispatchPort` (not `port`) so it doesn't collide with the `port` property
-        // inside the sslConnector builder lambdas below.
         val androidApp = application as WyltekWalletApp
         val dispatchPort: AgentDispatchPort = androidApp.agentGateway
         val lan = LanAddress.bindAddress()
@@ -149,20 +143,10 @@ class AgentGatewayService : Service() {
         // leave `server = null`, and let the caller (handleStart) decide whether to stopSelf().
         try {
             val ks = AgentTls.keyStore(this)
-            server = embeddedServer(CIO, configure = {
-                if (lan != null) {
-                    sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
-                        host = lan
-                        port = SERVER_PORT
-                    }
-                }
-                if (tailnet != null) {
-                    sslConnector(ks, AgentTls.ALIAS, { AgentTls.password() }, { AgentTls.password() }) {
-                        host = tailnet
-                        port = SERVER_PORT
-                    }
-                }
-            }, module = { agentModule(dispatchPort) }).start(wait = false)
+            val srv = AgentHttpServer(lan ?: tailnet!!, SERVER_PORT, dispatchPort)
+            srv.secure(ks, AgentTls.password())
+            srv.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            server = srv
         } catch (e: Exception) {
             Log.e(TAG, "TLS keystore load/bind failed — agent gateway not started", e)
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
@@ -175,13 +159,11 @@ class AgentGatewayService : Service() {
         }
 
         if (lan != null) {
-            val deviceId = RelayPairing.deviceId(androidApp.agentGateway.secure)
-            if (deviceId != null) {
-                val svc = serviceNameFor(deviceId)
-                mdns = AgentMdns(this).also { it.register(svc, deviceId, SERVER_PORT) }
-            } else {
-                Log.i(TAG, "no provisioned device_id — mDNS advertise skipped")
-            }
+            // ensure (not just read) so the advertised service_name matches the QR's, even on a
+            // Tier-1 device that was never relay-paired (same stable id from the secure store).
+            val deviceId = RelayPairing.ensureDeviceId(androidApp.agentGateway.secure)
+            val svc = serviceNameFor(deviceId)
+            mdns = AgentMdns(this).also { it.register(svc, deviceId, SERVER_PORT) }
         }
         Log.i(TAG, "gateway server on ${lan ?: tailnet}:$SERVER_PORT")
     }
@@ -190,7 +172,7 @@ class AgentGatewayService : Service() {
      *  serviceScope intact — used both by the real stop path and by the Wi-Fi rebind path. */
     private fun stopServerAndMdns() {
         mdns?.unregister(); mdns = null
-        server?.stop(gracePeriodMillis = 300, timeoutMillis = 1500)
+        server?.stop()
         server = null
     }
 
@@ -261,7 +243,7 @@ class AgentGatewayService : Service() {
         relayClient?.disconnect()
         relayClient = null
         if (running) {
-            server?.stop(gracePeriodMillis = 100, timeoutMillis = 500)
+            server?.stop()
             server = null
             running = false
         }

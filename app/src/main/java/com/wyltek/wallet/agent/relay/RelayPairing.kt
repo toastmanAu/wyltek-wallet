@@ -104,6 +104,16 @@ class RelayPairing(
             secure.loadBlob(KEY_RELAY_DEVICE_ID)
                 ?.let { String(it, Charsets.UTF_8) }
                 ?.ifBlank { null }
+
+        /** Load the stable per-device id, generating + persisting one if absent. Independent
+         *  of relay pairing — Tier-1 companion-direct provisioning needs a device_id without a
+         *  relay, and both the QR bundle and the mDNS advertise must derive from the SAME id. */
+        fun ensureDeviceId(secure: AgentSecureStore): String {
+            deviceId(secure)?.let { return it }
+            val id = UUID.randomUUID().toString()
+            secure.storeBlob(KEY_RELAY_DEVICE_ID, id.toByteArray(Charsets.UTF_8))
+            return id
+        }
     }
 }
 

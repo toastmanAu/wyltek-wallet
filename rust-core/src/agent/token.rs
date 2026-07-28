@@ -129,6 +129,16 @@ fn root_public_from_hex(root_pub_hex: &str) -> Result<PublicKey, String> {
     PublicKey::from_bytes(&raw).map_err(|e| format!("bad pubkey: {e}"))
 }
 
+/// Relax the biscuit Datalog execution limits. biscuit-auth's DEFAULT `max_time` is 1 ms —
+/// the desktop harness never trips it, but a phone's slower CPU does (especially the first,
+/// cold biscuit op), surfacing as a `RunLimit` error inside the window `query_all` → a spurious
+/// "denied: bad token". 1 s is generous; real biscuit evaluation here stays sub-millisecond.
+fn relax_limits(authorizer: &mut Authorizer) {
+    let mut limits = biscuit_auth::AuthorizerLimits::default();
+    limits.max_time = std::time::Duration::from_secs(1);
+    authorizer.set_limits(limits);
+}
+
 fn extract_caps(authorizer: &mut Authorizer) -> Result<Vec<CapInfo>, String> {
     let caps: Vec<(String, i64)> = authorizer
         .query_all(rule!("out($a, $v) <- cap($a, $v)"))
@@ -198,6 +208,7 @@ pub(crate) fn parse_and_authorize(
     );
     // Load the token into the authorizer, then verify all checks and policies.
     authorizer.add_token(&biscuit).map_err(|e| format!("authorizer build: {e}"))?;
+    relax_limits(&mut authorizer);
     authorizer.authorize().map_err(|e| format!("denied: {e}"))?;
 
     let token_id = token_id_of_internal(&mut authorizer)?;
@@ -212,6 +223,7 @@ pub fn token_caps(token: String, root_pub_hex: String) -> Result<Vec<CapInfo>, A
     let public = root_public_from_hex(&root_pub_hex).map_err(AgentError::TokenError)?;
     let biscuit = Biscuit::from_base64(&token, public).map_err(tok_err)?;
     let mut authorizer = biscuit.authorizer().map_err(tok_err)?;
+    relax_limits(&mut authorizer);
     extract_caps(&mut authorizer).map_err(AgentError::TokenError)
 }
 
@@ -222,6 +234,7 @@ pub fn token_id_of(token: String, root_pub_hex: String) -> Result<String, AgentE
     let public = root_public_from_hex(&root_pub_hex).map_err(AgentError::TokenError)?;
     let biscuit = Biscuit::from_base64(&token, public).map_err(tok_err)?;
     let mut authorizer = biscuit.authorizer().map_err(tok_err)?;
+    relax_limits(&mut authorizer);
     super::token::token_id_of_internal(&mut authorizer).map_err(AgentError::TokenError)
 }
 

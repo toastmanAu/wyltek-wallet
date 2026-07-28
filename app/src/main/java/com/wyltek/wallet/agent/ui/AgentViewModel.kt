@@ -68,7 +68,9 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         val running    = AgentGatewayService.isRunning()
         val bind       = Tailnet.bindAddress()
         val pendingNow = gateway.dispatcher.listPending().size
-        val devId      = RelayPairing.deviceId(gateway.secure)
+        // ensure (not just read) — a Tier-1 device needs a device_id without relay pairing,
+        // and the provisioning QR can't build without it.
+        val devId      = RelayPairing.ensureDeviceId(gateway.secure)
         _uiState.update { st ->
             st.copy(
                 tokens = tokenRows,
