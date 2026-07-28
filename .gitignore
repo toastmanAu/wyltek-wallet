@@ -101,3 +101,9 @@ uniffi_out/
 
 # Wave generated files (Rust Android)
 app/src/main/jniLibs/
+
+# graphify knowledge-graph output (build artifact)
+graphify-out/
+# Claude Code / superpowers session scratch
+.claude/
+.superpowers/
