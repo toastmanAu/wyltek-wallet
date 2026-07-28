@@ -85,7 +85,7 @@ class AgentGatewayService : Service() {
         startForeground(
             NOTIF_ID,
             AgentNotifications.serverNotification(this, "$boundAddr:$SERVER_PORT"),
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
 
         startServerAndMdns()
