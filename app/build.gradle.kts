@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "com.wyltek.wallet"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.wyltek.wallet"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-dev"
 
