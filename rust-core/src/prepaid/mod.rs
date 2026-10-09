@@ -4,3 +4,4 @@
 //! both sides must reproduce.
 pub mod cmac;
 pub mod record;
+pub mod journal;
