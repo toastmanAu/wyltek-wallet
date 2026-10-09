@@ -5,3 +5,4 @@
 pub mod cmac;
 pub mod record;
 pub mod journal;
+pub mod vectors;
