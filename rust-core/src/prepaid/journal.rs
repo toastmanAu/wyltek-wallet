@@ -123,9 +123,38 @@ mod tests {
     }
 
     #[test]
+    fn zero_amount_fails_for_both_kinds() {
+        let mut e = sample(); e.amount_units = 0;
+        let raw = attest(&key(), &mut e);
+        assert!(!verify(&key(), &raw), "zero-amount debit must fail");
+        let mut e = sample(); e.kind = KIND_REFUND; e.amount_units = 0;
+        let raw = attest(&key(), &mut e);
+        assert!(!verify(&key(), &raw), "zero-amount refund must fail");
+    }
+
+    #[test]
+    fn mac_covers_every_byte_except_tmv() {
+        let mut e = sample();
+        let raw = attest(&key(), &mut e);
+        assert!(verify(&key(), &raw));
+        for i in (0..84).filter(|i| !(68..76).contains(i)) {
+            let mut t = raw; t[i] ^= 1;
+            assert!(!verify(&key(), &t), "flip of byte {i} must fail verify");
+        }
+        for i in [67usize, 76] {
+            let mut t = raw; t[i] ^= 1;
+            assert!(!verify(&key(), &t), "tmv neighbour byte {i} must fail verify");
+        }
+    }
+
+    #[test]
     fn decode_rejects_bad_version_kind_pad() {
         let mut raw = encode(&sample()); raw[0] = 0x01; assert!(decode(&raw).is_none());
         let mut raw = encode(&sample()); raw[1] = 0x03; assert!(decode(&raw).is_none());
         let mut raw = encode(&sample()); raw[90] = 1; assert!(decode(&raw).is_none());
+        let mut raw = encode(&sample()); raw[19] = 1; assert!(decode(&raw).is_none());
+        let mut raw = encode(&sample()); raw[84] = 1; assert!(decode(&raw).is_none());
+        let mut raw = encode(&sample()); raw[95] = 1; assert!(decode(&raw).is_none());
+        let mut raw = encode(&sample()); raw[83] ^= 1; assert!(decode(&raw).is_some(), "byte 83 is sale_ref, not pad");
     }
 }
