@@ -3,3 +3,4 @@
 //! This module is the byte oracle for the POS's prepaid_core; `vectors` emits the golden file
 //! both sides must reproduce.
 pub mod cmac;
+pub mod record;
