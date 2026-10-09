@@ -77,20 +77,48 @@ pub fn is_formatted(r: &DemoCardRecord) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotPick { None, A, B, Ambiguous }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotNoneReason { NoValidSlot, BadVersion, MacFail }
+
+/// Diagnostic for a `SlotPick::None` result. `merchant_hint` is the clear-text merchant_id of a slot
+/// that decoded structurally but failed the MAC. It is UNAUTHENTICATED: use it only to choose a
+/// refusal reason, never to accept a card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SlotDiag { pub reason: SlotNoneReason, pub merchant_hint: Option<[u8; 8]> }
+
 /// Spec §4.2: valid = decodes AND MAC verifies; higher counter wins; equal counters with identical
 /// bytes -> A; equal counters with different bytes -> Ambiguous (refuse); none valid -> None.
 pub fn select_slot(key: &[u8; 16], uid: &[u8; 7], a: &[u8; RECORD_SIZE], b: &[u8; RECORD_SIZE]) -> (SlotPick, Option<DemoCardRecord>) {
+    let (p, r, _) = select_slot_diag(key, uid, a, b);
+    (p, r)
+}
+
+/// As `select_slot`, plus a diagnostic that is only meaningful when the pick is `None`.
+/// BadVersion if either slot has magic "BBD1" but a wrong version/scheme; else MacFail (with the
+/// slot's merchant_id as an unauthenticated hint) if either slot decodes but fails the MAC; else NoValidSlot.
+pub fn select_slot_diag(key: &[u8; 16], uid: &[u8; 7], a: &[u8; RECORD_SIZE], b: &[u8; RECORD_SIZE]) -> (SlotPick, Option<DemoCardRecord>, SlotDiag) {
     let va = decode(a).filter(|_| verify(key, uid, a));
     let vb = decode(b).filter(|_| verify(key, uid, b));
+    let none_diag = SlotDiag { reason: SlotNoneReason::NoValidSlot, merchant_hint: None };
     match (va, vb) {
-        (None, None) => (SlotPick::None, None),
-        (Some(ra), None) => (SlotPick::A, Some(ra)),
-        (None, Some(rb)) => (SlotPick::B, Some(rb)),
+        (None, None) => {
+            let bad_ver = |x: &[u8; RECORD_SIZE]| x[0..4] == MAGIC && decode(x).is_none();
+            if bad_ver(a) || bad_ver(b) {
+                return (SlotPick::None, None, SlotDiag { reason: SlotNoneReason::BadVersion, merchant_hint: None });
+            }
+            let mac_fail = [a, b].into_iter().find_map(|x| decode(x).map(|r| r.merchant_id));
+            match mac_fail {
+                Some(m) => (SlotPick::None, None, SlotDiag { reason: SlotNoneReason::MacFail, merchant_hint: Some(m) }),
+                None => (SlotPick::None, None, none_diag),
+            }
+        }
+        (Some(ra), None) => (SlotPick::A, Some(ra), none_diag),
+        (None, Some(rb)) => (SlotPick::B, Some(rb), none_diag),
         (Some(ra), Some(rb)) => {
-            if ra.counter > rb.counter { (SlotPick::A, Some(ra)) }
-            else if rb.counter > ra.counter { (SlotPick::B, Some(rb)) }
-            else if a == b { (SlotPick::A, Some(ra)) }
-            else { (SlotPick::Ambiguous, None) }
+            if ra.counter > rb.counter { (SlotPick::A, Some(ra), none_diag) }
+            else if rb.counter > ra.counter { (SlotPick::B, Some(rb), none_diag) }
+            else if a == b { (SlotPick::A, Some(ra), none_diag) }
+            else { (SlotPick::Ambiguous, None, none_diag) }
         }
     }
 }
@@ -168,5 +196,37 @@ mod tests {
         // equal counters, different bytes -> Ambiguous, no record
         let mut r5b = sample(); r5b.balance_units = 1; let a5b = seal(&k, &u, &mut r5b);
         assert_eq!(select_slot(&k, &u, &a5, &a5b), (SlotPick::Ambiguous, None));
+    }
+
+    #[test]
+    fn slot_selection_extra_orderings() {
+        let (k, u) = (key(), uid());
+        let uo = [0x04, 0xEB, 0xBB, 0x02, 0xCD, 0x2A, 0x81];
+        let mut r1 = sample(); let rec1 = seal(&k, &u, &mut r1);
+        let mut r2 = sample(); r2.counter = 6; r2.balance_units = 998_500; let rec2 = seal(&k, &u, &mut r2);
+        let mut bad = rec2; bad[60] ^= 0xFF;
+        assert_eq!(select_slot(&k, &u, &rec2, &rec1).0, SlotPick::A);
+        assert_eq!(select_slot(&k, &u, &rec1, &bad).0, SlotPick::A);
+        assert_eq!(select_slot(&k, &u, &bad, &rec1).0, SlotPick::B);
+        let mut r2o = r2.clone(); let rec2o = seal(&k, &uo, &mut r2o);
+        // higher-counter slot invalid for this tag must lose
+        assert_eq!(select_slot(&k, &u, &rec2o, &rec1).0, SlotPick::B);
+    }
+
+    #[test]
+    fn slot_diagnostics() {
+        let (k, u) = (key(), uid());
+        let uo = [0x04, 0xEB, 0xBB, 0x02, 0xCD, 0x2A, 0x81];
+        let zero = [0u8; 64];
+        let mut r = sample(); let good = seal(&k, &u, &mut r);
+        let mut badver = good; badver[4] = 0x01;
+        let d = select_slot_diag(&k, &u, &badver, &zero);
+        assert_eq!((d.0, d.2.reason), (SlotPick::None, SlotNoneReason::BadVersion));
+        let mut ro = sample(); let other = seal(&k, &uo, &mut ro);
+        let d = select_slot_diag(&k, &u, &other, &zero);
+        assert_eq!(d.0, SlotPick::None);
+        assert_eq!(d.2, SlotDiag { reason: SlotNoneReason::MacFail, merchant_hint: Some(sample().merchant_id) });
+        let d = select_slot_diag(&k, &u, &zero, &zero);
+        assert_eq!(d.2, SlotDiag { reason: SlotNoneReason::NoValidSlot, merchant_hint: None });
     }
 }

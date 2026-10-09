@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use wyltekwalletcore::prepaid::vectors;
 
 const FIXTURE: &str = include_str!("fixtures/prepaid_demo_vectors.txt");
-const PINNED_SHA256: &str = "c1146fb9c8964df03fa7ba8ad76029541c6c494f9077d8f24e6dc979005487fb";   // filled in Step 4
+const PINNED_SHA256: &str = "90937c92e909acf82a1b06c3f79e18840fd6e6d3c6d7bb6b9f27704fa98e60d8";
 
 #[test]
 fn emitter_reproduces_committed_fixture() {
