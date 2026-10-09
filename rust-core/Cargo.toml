@@ -18,6 +18,8 @@ blake2b-ref = "0.3"
 secp256k1 = { version = "0.29", features = ["recovery", "rand-std"] }
 fips204 = { version = "0.4.6", features = ["default-rng"] }
 hkdf = "0.12"
+aes = "0.8"
+cmac = "0.7"
 sha2 = "0.10"
 rand = "0.8"
 

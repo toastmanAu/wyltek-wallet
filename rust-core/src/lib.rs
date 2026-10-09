@@ -10,6 +10,7 @@ pub mod hashing;
 pub mod molecule;
 pub mod agent;
 pub mod cemp;
+pub mod prepaid;
 
 pub use mnemonic::{MnemonicResult, generate_mnemonic, validate_mnemonic, mnemonic_to_seed};
 pub use keys::{KeyPair, generate_secp256k1_keypair, public_key_to_ckb_address, public_key_to_pq_address};
