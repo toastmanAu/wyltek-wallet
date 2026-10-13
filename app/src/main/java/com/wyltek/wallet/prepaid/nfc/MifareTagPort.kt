@@ -6,23 +6,59 @@ import android.nfc.tech.NfcA
 import com.wyltek.wallet.core.native.SlotPickFfi
 import com.wyltek.wallet.prepaid.TagLostException
 import com.wyltek.wallet.prepaid.TagPort
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-/** [TagPort] over Android's MifareUltralight. One connection per call; every I/O error is a [TagLostException]. */
+/**
+ * [TagPort] over Android's MifareUltralight. One connection per call. Every tag I/O failure
+ * (IOException, stale-tag SecurityException, closed-tech IllegalStateException) surfaces as a [TagLostException].
+ * Sessions and probes share [lock] so a probe never closes a connection mid-write.
+ */
 class MifareTagPort(private val tag: Tag) : TagPort {
     override val uidHex: String = SlotPages.uidHexOf(tag.id)
 
-    override fun isPresent(): Boolean = try {
-        val mu = MifareUltralight.get(tag) ?: return false
-        mu.connect(); val ok = mu.isConnected; mu.close(); ok
-    } catch (e: Exception) { false }
+    private val lock = Mutex()
+
+    /** Non-suspending. While a session holds the lock the tag is in the field, so report present. */
+    override fun isPresent(): Boolean {
+        if (!lock.tryLock()) return true
+        var mu: MifareUltralight? = null
+        return try {
+            val tech = MifareUltralight.get(tag) ?: return false
+            mu = tech
+            tech.connect()
+            tech.isConnected
+        } catch (e: Exception) {
+            false
+        } finally {
+            try { mu?.close() } catch (_: Exception) {}
+            lock.unlock()
+        }
+    }
 
     private suspend fun <T> session(block: (MifareUltralight) -> T): T = withContext(Dispatchers.IO) {
-        val mu = MifareUltralight.get(tag) ?: throw TagLostException("not an Ultralight tag")
-        try { mu.connect(); block(mu) } catch (e: IOException) { throw TagLostException(e.message ?: "tag lost") }
-        finally { try { mu.close() } catch (_: IOException) {} }
+        lock.withLock {
+            val mu = MifareUltralight.get(tag) ?: throw TagLostException("not an Ultralight tag")
+            try {
+                mu.connect()
+                block(mu)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                throw TagLostException(e.message ?: "tag lost", e)
+            } catch (e: SecurityException) {
+                throw TagLostException(e.message ?: "tag out of date", e)
+            } catch (e: IllegalStateException) {
+                throw TagLostException(e.message ?: "tech not connected", e)
+            } finally {
+                // A failed close after a completed operation is not a failure of the operation.
+                try { mu.close() } catch (_: Exception) {}
+            }
+        }
     }
 
     override suspend fun readSlots(): ByteArray = session { mu ->

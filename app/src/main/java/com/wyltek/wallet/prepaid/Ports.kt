@@ -36,7 +36,7 @@ interface Protocol {
     fun lockOf(address: String): LockScript?
 }
 
-class TagLostException(message: String) : Exception(message)
+class TagLostException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 interface TagPort {
     val uidHex: String

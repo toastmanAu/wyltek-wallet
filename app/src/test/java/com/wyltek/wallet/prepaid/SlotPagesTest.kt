@@ -4,6 +4,7 @@ import com.wyltek.wallet.core.native.SlotPickFfi
 import com.wyltek.wallet.prepaid.nfc.SlotPages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,6 +20,11 @@ class SlotPagesTest {
         assertFalse(SlotPages.isNtag21x(4, 0x08, false))   // MIFARE Classic
         assertFalse(SlotPages.isNtag21x(7, 0x20, false))   // DESFire
         assertFalse(SlotPages.isNtag21x(7, 0, false))
+        assertFalse(SlotPages.isNtag21x(4, 0, true))       // wrong UID length
     }
     @Test fun `uid hex is lowercase without prefix`() { assertEquals("04958caa5c5e80", SlotPages.uidHexOf(byteArrayOf(0x04, 0x95.toByte(), 0x8c.toByte(), 0xaa.toByte(), 0x5c, 0x5e, 0x80.toByte()))) }
+    @Test fun `firstPage rejects slots that are not addressable`() {
+        assertThrows(IllegalArgumentException::class.java) { SlotPages.firstPage(SlotPickFfi.NONE) }
+        assertThrows(IllegalArgumentException::class.java) { SlotPages.firstPage(SlotPickFfi.AMBIGUOUS) }
+    }
 }
