@@ -291,13 +291,14 @@ fun AppNavigation(
                 )
             }
             composable(Screen.Prepaid.route) { backStackEntry ->
-                val scanned = backStackEntry.savedStateHandle.get<String>("scannedAddress")
+                val scanned by backStackEntry.savedStateHandle.getStateFlow<String?>("scannedAddress", null).collectAsState()
                 com.wyltek.wallet.prepaid.ui.PrepaidScreen(
                     onBack = { navController.popBackStack() },
                     onCard = { navController.navigate(Screen.PrepaidCard.route(it)) },
                     onAudit = { navController.navigate(Screen.PrepaidAudit.route) },
                     onScanAddress = { navController.navigate(Screen.QrScanner.route) },
-                    scannedAddress = scanned)
+                    scannedAddress = scanned,
+                    onConsumeScannedAddress = { backStackEntry.savedStateHandle.remove<String>("scannedAddress") })
             }
             composable(Screen.PrepaidCard.route) { backStackEntry ->
                 val reserveId = backStackEntry.arguments?.getString("reserveId")

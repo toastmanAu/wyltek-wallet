@@ -27,11 +27,13 @@ fun PrepaidScreen(
     onCard: (String) -> Unit,
     onAudit: () -> Unit,
     onScanAddress: () -> Unit,
-    scannedAddress: String?,
+    scannedAddress: String? = null,
+    onConsumeScannedAddress: () -> Unit = {},
     viewModel: PrepaidViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     val readerOn = ui.nfcAvailable && ui.unavailableReason == null
+    LaunchedEffect(scannedAddress) { if (scannedAddress != null) { viewModel.consumeScannedAddress(scannedAddress); onConsumeScannedAddress() } }
     NfcReaderMode(enabled = readerOn, onTag = viewModel::onTag)
 
     Scaffold(topBar = {
@@ -60,5 +62,5 @@ fun PrepaidScreen(
             }
         }
     }
-    if (ui.tap != null) PrepaidTapSheet(ui = ui, viewModel = viewModel, onDismiss = viewModel::dismissTap, onScanAddress = onScanAddress, scannedAddress = scannedAddress)
+    if (ui.tap != null) PrepaidTapSheet(ui = ui, viewModel = viewModel, onDismiss = viewModel::dismissTap, onScanAddress = onScanAddress)
 }

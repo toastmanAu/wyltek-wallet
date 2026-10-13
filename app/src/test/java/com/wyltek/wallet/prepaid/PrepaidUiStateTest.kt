@@ -3,6 +3,7 @@ package com.wyltek.wallet.prepaid
 import com.wyltek.wallet.core.native.*
 import com.wyltek.wallet.prepaid.db.*
 import com.wyltek.wallet.prepaid.ui.PrepaidUiReducer
+import com.wyltek.wallet.prepaid.ui.PrepaidUiState
 import com.wyltek.wallet.prepaid.ui.TapAction
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -22,5 +23,17 @@ class PrepaidUiStateTest {
         assertEquals(listOf(TapAction.ADOPT), PrepaidUiReducer.tapActions(TapClass.Bench(rec, slot), true))
         assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Refused("x"), true))
         assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(null, false))
+    }
+
+    @Test fun without_a_tag_only_resume_remains() {
+        assertEquals(listOf(TapAction.RESUME), PrepaidUiReducer.tapActions(TapClass.Resume(card(CARD_ACTIVE), slot), false))
+        assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Known(card(CARD_ACTIVE), rec, slot), false))
+        assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Blank("u"), false))
+    }
+
+    @Test fun scanned_address_is_stored_and_null_is_a_no_op() {
+        val base = PrepaidUiState()
+        assertEquals("ckt1abc", PrepaidUiReducer.consumeScannedAddress(base, "ckt1abc").scannedAddress)
+        assertEquals(base, PrepaidUiReducer.consumeScannedAddress(base, null))
     }
 }

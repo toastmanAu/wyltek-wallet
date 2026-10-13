@@ -16,14 +16,16 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: () -> Unit, onScanAddress: () -> Unit, scannedAddress: String?) {
+fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: () -> Unit, onScanAddress: () -> Unit) {
     val biometric = rememberBiometricAuth()
     var amount by remember { mutableStateOf("") }
     var label by remember { mutableStateOf("") }
     var confirmVoid by remember { mutableStateOf<PrepaidCardEntity?>(null) }
     // Saveable: the address scan navigates away and back, which would otherwise drop the open dialog.
     var cashOutOpen by rememberSaveable { mutableStateOf(false) }
-    var preview by remember { mutableStateOf<CashOutPreview?>(null) }
+    var previewVoid by remember { mutableStateOf<CashOutPreview?>(null) }
+    var previewCashOut by remember { mutableStateOf<CashOutPreview?>(null) }
+    val scannedAddress = ui.scannedAddress
     var authError by remember { mutableStateOf<String?>(null) }
     val actions = PrepaidUiReducer.tapActions(ui.tap, ui.tagPresent)
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
@@ -50,17 +52,18 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (a in actions) when (a) {
-                    TapAction.ISSUE -> Button(enabled = !ui.busy, onClick = { gated("Issue card") { viewModel.issue(amount, label) } }) { Text("Issue") }
-                    TapAction.LOAD -> Button(enabled = !ui.busy, onClick = { gated("Load card") { viewModel.load(amount) } }) { Text("Load") }
-                    TapAction.RESUME -> Button(enabled = !ui.busy, onClick = { viewModel.resume() }) { Text("Finish pending action") }
-                    TapAction.ADOPT -> Button(enabled = !ui.busy, onClick = { gated("Adopt card") { viewModel.adopt() } }) { Text("Adopt") }
-                    TapAction.REPAIR -> OutlinedButton(enabled = !ui.busy, onClick = { viewModel.repair() }) { Text("Repair") }
+                    TapAction.ISSUE -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; val l = label; gated("Issue card") { viewModel.issue(c, a, l) } }) { Text("Issue") }
+                    TapAction.LOAD -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; gated("Load card") { viewModel.load(c, a) } }) { Text("Load") }
+                    TapAction.RESUME -> Button(enabled = !ui.busy, onClick = { viewModel.resume(viewModel.currentContext()) }) { Text("Finish pending action") }
+                    TapAction.ADOPT -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); gated("Adopt card") { viewModel.adopt(c) } }) { Text("Adopt") }
+                    TapAction.REPAIR -> OutlinedButton(enabled = !ui.busy, onClick = { viewModel.repair(viewModel.currentContext()) }) { Text("Repair") }
                     TapAction.REVOKE -> OutlinedButton(enabled = !ui.busy, onClick = { viewModel.tappedCard()?.let(viewModel::revoke) }) { Text("Revoke") }
                     TapAction.REINSTATE -> OutlinedButton(enabled = !ui.busy, onClick = { viewModel.tappedCard()?.let(viewModel::reinstate) }) { Text("Reinstate") }
-                    TapAction.VOID -> OutlinedButton(enabled = !ui.busy, colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed), onClick = { confirmVoid = viewModel.tappedCard() }) { Text("Void") }
-                    TapAction.CASH_OUT -> OutlinedButton(enabled = !ui.busy, onClick = { cashOutOpen = true }) { Text("Cash out") }
+                    TapAction.VOID -> OutlinedButton(enabled = !ui.busy, colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed), onClick = { previewVoid = null; confirmVoid = viewModel.tappedCard() }) { Text("Void") }
+                    TapAction.CASH_OUT -> OutlinedButton(enabled = !ui.busy, onClick = { previewCashOut = null; cashOutOpen = true }) { Text("Cash out") }
                 }
             }
+            if (!ui.tagPresent && ui.tap != null && ui.tap !is TapClass.Refused) Text("Tap the card again to continue.", color = WarningOrange)
             authError?.let { Text(it, color = ErrorRed) }
             if (ui.phases.isNotEmpty()) Column { for ((p, t) in ui.phases) Text("${fmt.format(Date(t))}  ${p.name.lowercase()}", color = if (p == Phase.FAILED) ErrorRed else NeonCyan, style = MaterialTheme.typography.bodySmall) }
             when (val o = ui.outcome) {
@@ -75,19 +78,20 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
     }
 
     confirmVoid?.let { card ->
-        LaunchedEffect(card.reserveId) { preview = viewModel.preview(card) }
+        LaunchedEffect(ui.tapEpoch, card.reserveId) { previewVoid = viewModel.preview(card) }
         AlertDialog(onDismissRequest = { confirmVoid = null }, title = { Text("Void ${card.label ?: card.uid}?") },
             text = { Column { Text("Forfeits ${PrepaidAmount.formatUnits(card.balanceUnits.toLong())} to the merchant.", color = ErrorRed)
-                preview?.unsettledTaps?.takeIf { it > 0 }?.let { Text("$it unsettled terminal taps will be swept too.", color = WarningOrange) } } },
-            confirmButton = { TextButton(onClick = { confirmVoid = null; gated("Void card") { viewModel.voidCard(card) } }) { Text("Void", color = ErrorRed) } },
+                previewVoid?.unsettledTaps?.takeIf { it > 0 }?.let { Text("$it unsettled terminal taps will be swept too.", color = WarningOrange) }
+                if (previewVoid != null && previewVoid?.unsettledTaps == null && ui.tagPresent) Text("Could not read the card: unsettled terminal taps unknown", color = WarningOrange) } },
+            confirmButton = { TextButton(onClick = { val c = viewModel.currentContext(); confirmVoid = null; gated("Void card") { viewModel.voidCard(card, c) } }) { Text("Void", color = ErrorRed) } },
             dismissButton = { TextButton(onClick = { confirmVoid = null }) { Text("Cancel") } })
     }
     val coCard = if (cashOutOpen) viewModel.tappedCard() else null
     if (coCard != null) {
-        LaunchedEffect(coCard.reserveId) { preview = viewModel.preview(coCard) }
-        val pv = preview
+        LaunchedEffect(ui.tapEpoch, coCard.reserveId) { previewCashOut = viewModel.preview(coCard) }
+        val pv = previewCashOut
         val taps = pv?.unsettledTaps
-        AlertDialog(onDismissRequest = { cashOutOpen = false }, title = { Text("Cash out ${coCard.label ?: coCard.uid}") },
+        AlertDialog(onDismissRequest = { cashOutOpen = false; viewModel.clearScannedAddress() }, title = { Text("Cash out ${coCard.label ?: coCard.uid}") },
             text = { Column {
                 Text("Pays ${PrepaidAmount.formatUnits(coCard.balanceUnits.toLong())} to the customer's address; the 61 CKB floor returns to the merchant.")
                 if (pv?.belowMinimum == true) Text("Below the 61 CKB minimum cell: pay this out in cash and void the card instead.", color = ErrorRed)
@@ -96,8 +100,8 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                 Text(scannedAddress?.let { "To: $it" } ?: "Scan the customer's address", color = TextSecondary)
                 TextButton(onClick = onScanAddress) { Text("Scan address") } } },
             confirmButton = { TextButton(enabled = scannedAddress != null && pv != null && !pv.belowMinimum && taps == 0L,
-                onClick = { cashOutOpen = false; gated("Cash out") { viewModel.cashOut(scannedAddress!!) } }) { Text("Pay out") } },
-            dismissButton = { TextButton(onClick = { cashOutOpen = false }) { Text("Cancel") } })
+                onClick = { val c = viewModel.currentContext(); val addr = scannedAddress!!; cashOutOpen = false; viewModel.clearScannedAddress(); gated("Cash out") { viewModel.cashOut(c, addr) } }) { Text("Pay out") } },
+            dismissButton = { TextButton(onClick = { cashOutOpen = false; viewModel.clearScannedAddress() }) { Text("Cancel") } })
     }
 }
 
