@@ -52,10 +52,11 @@ class FakesSelfTest {
         assertEquals(listOf("$h:0"), c.cells.keys.toList()); assertEquals(9_000_000_000uL, c.cellAt("$h:0")!!.capacity)
     }
 
-    @Test fun `fake chain refuses unknown inputs and reports unknown hashes as null`() = runTest {
+    @Test fun `fake chain refuses unknown inputs and reports unknown hashes as explicit UNKNOWN`() = runTest {
         val lock = LockScript("0x" + "11".repeat(32), "type", "0xab")
         val c = FakeChain()
-        assertEquals(null, c.status("0x" + "ee".repeat(32)))
+        assertEquals(TxStatus.UNKNOWN, c.status("0x" + "ee".repeat(32)))
+        try { c.status("ee".repeat(32)); fail("unprefixed hash must be refused like the node does") } catch (e: java.io.IOException) {}
         val ghost = Utxo(OutPoint("0x" + "bb".repeat(32), 0u), 10_000_000_000uL, lock)
         val tx = CkbTxJson.build(listOf(ghost), listOf(PrepaidTxPlanner.output(9_000_000_000uL, lock)), CellDepRef("0x" + "cc".repeat(32), 0u, "dep_group"), "0x")
         assertFalse(c.broadcast(tx, "0x" + "dd".repeat(32)))

@@ -192,4 +192,20 @@ class PrepaidServiceRetireTest {
         val r = h.svc.repair(tag, card)
         assertTrue(r is ActionOutcome.Failed && (r as ActionOutcome.Failed).reason.contains("readable"))
     }
+
+    @Test fun void_timeout_gives_up_only_on_explicit_unknown() = runTest {
+        val h = h(); val card = issued(h, FakeTag(uid))
+        h.chain.confirmAfterPolls = null
+        val hash = (h.svc.void(card, null) as ActionOutcome.StillConfirming).txHash
+        h.clockOffsetMs = 31L * 60 * 1000
+        h.chain.throwOnStatusAlways = true                     // an outage is never "unknown"
+        assertEquals(0, h.svc.recoverPending())
+        assertEquals(KIND_VOID, h.store.card(card.reserveId)!!.pendingKind)
+        h.chain.throwOnStatusAlways = false
+        h.chain.statusQueue[hash] = ArrayDeque(listOf(com.wyltek.wallet.core.chain.TxStatus.UNKNOWN))
+        assertEquals(1, h.svc.recoverPending())
+        val c = h.store.card(card.reserveId)!!
+        assertNull(c.pendingTxHash); assertNull(c.pendingKind); assertEquals(CARD_ACTIVE, c.state)
+        assertEquals(PHASE_FAILED, h.store.phases("a2").last())
+    }
 }

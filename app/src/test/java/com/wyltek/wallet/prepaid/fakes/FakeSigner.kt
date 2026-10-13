@@ -8,6 +8,7 @@ import com.wyltek.wallet.prepaid.CellDepRef
 import com.wyltek.wallet.prepaid.PrepaidTxPlanner
 import com.wyltek.wallet.prepaid.SignerPort
 
+/** Mirrors `SecpSigner` over rust-core EXCEPT the 0x normalisation, so the service's own boundary is exercised. */
 class FakeSigner(override val lock: LockScript) : SignerPort {
     override val cellDep = CellDepRef("0x" + "cc".repeat(32), 0u, "dep_group")
     var builds = 0
@@ -17,7 +18,8 @@ class FakeSigner(override val lock: LockScript) : SignerPort {
         inputs.forEach { digest.update(PrepaidTxPlanner.outpointKey(it).toByteArray()) }
         outputs.forEach { digest.update(it.capacity.toString().toByteArray()); digest.update(it.lockArgs.toByteArray()) }
         digest.update(builds.toString().toByteArray())
-        val h = "0x" + digest.digest().joinToString("") { "%02x".format(it) }
+        // Node-faithful shape: rust-core's build_transaction returns the hash WITHOUT `0x` (C1).
+        val h = digest.digest().joinToString("") { "%02x".format(it) }
         return BuiltTransaction(rawTransactionHex = "", txHashHex = h, estimatedFee = 0uL,
             totalInputCapacity = inputs.fold(0uL) { a, u -> a + u.capacity }, totalOutputCapacity = outputs.fold(0uL) { a, o -> a + o.capacity })
     }

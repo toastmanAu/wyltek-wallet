@@ -26,14 +26,15 @@ object PrepaidTxPlanner {
     fun output(capacity: ULong, lock: LockScript) =
         TxOutput(capacity, lock.codeHash, lock.hashType, lock.args, "", "", "", "")
 
-    fun outpointKey(u: Utxo) = "${u.outPoint.txHash}:${u.outPoint.index}"
+    fun outpointKey(u: Utxo) = "${ensure0x(u.outPoint.txHash)}:${u.outPoint.index}"
 
     fun plan(reserveInputs: List<Utxo>, walletCells: List<Utxo>, excludeOutpoints: Set<String>, fixedOutputs: List<TxOutput>, merchantLock: LockScript): PlannedTx {
         val need = fixedOutputs.fold(0uL) { a, o -> a + o.capacity }
         val reserveKeys = reserveInputs.map { outpointKey(it) }.toSet()
+        val excluded = excludeOutpoints.map { normalizeOutpoint(it) }.toSet()
         val candidates = walletCells
             .filter { CellSelection.isPureCkb(it.type_ != null, it.data) }
-            .filter { outpointKey(it) !in excludeOutpoints && outpointKey(it) !in reserveKeys }
+            .filter { outpointKey(it) !in excluded && outpointKey(it) !in reserveKeys }
             .sortedBy { it.capacity }
         val selected = reserveInputs.toMutableList()
         var total = selected.fold(0uL) { a, u -> a + u.capacity }

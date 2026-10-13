@@ -273,6 +273,9 @@ cells.add(
         }
     }
 
+    /** Raw node status for [txHash]; throws on any transport or RPC failure (see [CkbRpcClient.getTransactionStatusStrict]). */
+    suspend fun getTransactionStatusStrict(txHash: String): String = client.getTransactionStatusStrict(txHash.withHexPrefix())
+
     override suspend fun getTransactionsByLock(lockScript: LockScript): List<TransactionHistoryItem> {
         val script = Script(
             code_hash = lockScript.codeHash.withHexPrefix(),

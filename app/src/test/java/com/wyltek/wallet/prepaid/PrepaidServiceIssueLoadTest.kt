@@ -321,4 +321,17 @@ class PrepaidServiceIssueLoadTest {
         assertTrue(out.toString(), out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("terminal"))
         assertNotNull(h.store.cardByUid(uid1)!!.pendingTxHash)
     }
+
+    @Test fun hashes_and_outpoints_are_0x_although_the_signer_returns_bare_hex() = runTest {
+        val h = h(); val tag = FakeTag(uid1)
+        assertFalse(h.signer.build(emptyList(), emptyList()).txHashHex.startsWith("0x"))   // the node shape rust-core returns
+        assertEquals(ActionOutcome.Done, h.svc.issue(tag, 1000, null))
+        assertEquals(ActionOutcome.Done, h.svc.load(tag, h.store.cardByUid(uid1)!!, 100))
+        val c = h.store.cardByUid(uid1)!!
+        assertTrue(c.firstOutpoint.startsWith("0x") && c.currentOutpoint.startsWith("0x"))
+        assertNotNull(h.chain.cellAt(c.currentOutpoint))
+        assertTrue(h.chain.broadcasts.all { it.first.startsWith("0x") })
+        assertTrue(h.store.events.mapNotNull { it.txHash }.all { it.startsWith("0x") && it == it.lowercase() })
+        assertTrue(h.svc.excludedOutpoints().contains(c.currentOutpoint))
+    }
 }

@@ -177,6 +177,24 @@ class CkbRpcClient(private val url: String) {
         }
     }
 
+    /**
+     * The node's raw `tx_status.status` ("pending", "proposed", "committed", "rejected", "unknown").
+     * Unlike [getTransactionStatus], every transport/RPC failure is rethrown as [RpcException], so a
+     * caller can tell "the node said unknown" from "the node could not be asked".
+     */
+    suspend fun getTransactionStatusStrict(txHash: String): String {
+        val params = buildJsonArray {
+            add(json.parseToJsonElement("\"$txHash\""))
+        }
+        val result = call("get_transaction", params)
+        if (result is JsonNull) throw RpcException("get_transaction returned null")
+        return try {
+            json.decodeFromJsonElement<TransactionStatusResponse>(result).tx_status.status
+        } catch (e: Exception) {
+            throw RpcException("malformed get_transaction response: ${e.message}")
+        }
+    }
+
     suspend fun getTransactionsByLock(
         lockScript: Script,
         order: String = "desc",

@@ -75,7 +75,11 @@ class PrepaidService(
     }
 
     /** Every reserve cell in the index; never a fee input for another card's transaction. */
-    internal suspend fun excludedOutpoints(): Set<String> = store.allCards().map { it.currentOutpoint }.toSet()
+    internal suspend fun excludedOutpoints(): Set<String> = store.allCards().map { normalizeOutpoint(it.currentOutpoint) }.toSet()
+
+    /** Every hash the service stores is `0x` + lower-case, whatever shape the signer returned (C1). */
+    private fun build(planned: PlannedTx): BuiltTransaction =
+        signer.build(planned.inputs, planned.outputs).let { it.copy(txHashHex = ensure0x(it.txHashHex)) }
 
     /** A status query that threw is "no answer", never an abort. */
     internal suspend fun statusOrNull(txHash: String): TxStatus? =
@@ -205,7 +209,7 @@ class PrepaidService(
         val planned = try {
             PrepaidTxPlanner.plan(emptyList(), chain.cellsByLock(signer.lock), excludedOutpoints(), listOf(PrepaidTxPlanner.output(plan.successorCapacity, signer.lock)), signer.lock)
         } catch (e: InsufficientFunds) { return@exclusive ActionOutcome.Failed(e.message!!) }
-        val built = signer.build(planned.inputs, planned.outputs)
+        val built = build(planned)
         val reserveId = protocol.reserveId(built.txHashHex, 0u)
         val a = Audit(newActionId(), KIND_ISSUE, tag.uidHex, reserveId, amountUnits.toLong(), 0, 0)
         val now = clock()
@@ -235,10 +239,10 @@ class PrepaidService(
         val reserve = chain.cellAt(fresh.currentOutpoint) ?: return@exclusive ActionOutcome.Failed("reserve cell not found on chain; use Inspect")
         val plan = try { protocol.plan(PrepaidAction.LOAD, fresh.balanceUnits, reserve.capacity, amountUnits) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed(e.message ?: "refused") }
         val planned = try {
-            PrepaidTxPlanner.plan(listOf(reserve), chain.cellsByLock(signer.lock), excludedOutpoints() - fresh.currentOutpoint,
+            PrepaidTxPlanner.plan(listOf(reserve), chain.cellsByLock(signer.lock), excludedOutpoints() - normalizeOutpoint(fresh.currentOutpoint),
                 listOf(PrepaidTxPlanner.output(plan.successorCapacity, signer.lock)), signer.lock)
         } catch (e: InsufficientFunds) { return@exclusive ActionOutcome.Failed(e.message!!) }
-        val built = signer.build(planned.inputs, planned.outputs)
+        val built = build(planned)
         val a = Audit(newActionId(), KIND_LOAD, fresh.uid, fresh.reserveId, amountUnits.toLong(), fresh.balanceUnits, fresh.counter)
         store.updateCard(fresh.copy(pendingUnits = amountUnits, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false,
             pendingKind = KIND_LOAD, pendingSince = clock(), updatedAt = clock()))
@@ -289,9 +293,9 @@ class PrepaidService(
         try { protocol.plan(PrepaidAction.VOID, fresh.balanceUnits, reserve.capacity, 0) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed(e.message ?: "refused") }
         val preview = inspectForRetire(tag, fresh)
         val planned = try {
-            PrepaidTxPlanner.plan(listOf(reserve), chain.cellsByLock(signer.lock), excludedOutpoints() - fresh.currentOutpoint, emptyList(), signer.lock)
+            PrepaidTxPlanner.plan(listOf(reserve), chain.cellsByLock(signer.lock), excludedOutpoints() - normalizeOutpoint(fresh.currentOutpoint), emptyList(), signer.lock)
         } catch (e: InsufficientFunds) { return@exclusive ActionOutcome.Failed(e.message!!) }
-        val built = signer.build(planned.inputs, planned.outputs)
+        val built = build(planned)
         val a = Audit(newActionId(), KIND_VOID, fresh.uid, fresh.reserveId, -fresh.balanceUnits.toLong(), fresh.balanceUnits, fresh.counter)
         log(a, PHASE_REQUESTED, detail = "forfeit ${fresh.balanceUnits} units; unsettled taps ${preview.unsettledTaps ?: "unknown"}"); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
@@ -361,10 +365,10 @@ class PrepaidService(
         val reserve = chain.cellAt(fresh.currentOutpoint) ?: return@exclusive ActionOutcome.Failed("reserve cell not found on chain; use Inspect")
         val plan = try { protocol.plan(PrepaidAction.CASH_OUT, fresh.balanceUnits, reserve.capacity, 0) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed(e.message ?: "refused") }
         val planned = try {
-            PrepaidTxPlanner.plan(listOf(reserve), chain.cellsByLock(signer.lock), excludedOutpoints() - fresh.currentOutpoint,
+            PrepaidTxPlanner.plan(listOf(reserve), chain.cellsByLock(signer.lock), excludedOutpoints() - normalizeOutpoint(fresh.currentOutpoint),
                 listOf(PrepaidTxPlanner.output(plan.customerShannons, customerLock)), signer.lock)
         } catch (e: InsufficientFunds) { return@exclusive ActionOutcome.Failed(e.message!!) }
-        val built = signer.build(planned.inputs, planned.outputs)
+        val built = build(planned)
         val a = Audit(newActionId(), KIND_CASH_OUT, fresh.uid, fresh.reserveId, -fresh.balanceUnits.toLong(), fresh.balanceUnits, fresh.counter)
         log(a, PHASE_REQUESTED, detail = "to $customerAddress"); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
@@ -421,7 +425,7 @@ class PrepaidService(
         val planned = try {
             PrepaidTxPlanner.plan(emptyList(), chain.cellsByLock(signer.lock), excludedOutpoints(), listOf(PrepaidTxPlanner.output(plan.successorCapacity, signer.lock)), signer.lock)
         } catch (e: InsufficientFunds) { return@exclusive ActionOutcome.Failed(e.message!!) }
-        val built = signer.build(planned.inputs, planned.outputs)
+        val built = build(planned)
         val a = Audit(newActionId(), KIND_ADOPT, tag.uidHex, record.reserveIdHex, record.balanceUnits.toLong(), 0, record.counter.toLong())
         val now = clock()
         store.insertCard(PrepaidCardEntity(reserveId = record.reserveIdHex, uid = tag.uidHex, label = null,
@@ -600,11 +604,11 @@ class PrepaidService(
         val reserves = cards.map { chain.cellAt(it.currentOutpoint) ?: return retryAll() }
         val fixed = moving.mapIndexed { i, n -> PrepaidTxPlanner.output((reserves[i].capacity.toLong() - n.netUnits * UNIT_SHANNONS).toULong(), signer.lock) }
         val planned = try {
-            PrepaidTxPlanner.plan(reserves, chain.cellsByLock(signer.lock), excludedOutpoints() - cards.map { it.currentOutpoint }.toSet(), fixed, signer.lock)
+            PrepaidTxPlanner.plan(reserves, chain.cellsByLock(signer.lock), excludedOutpoints() - cards.map { normalizeOutpoint(it.currentOutpoint) }.toSet(), fixed, signer.lock)
         } catch (e: InsufficientFunds) {
             log(Audit(actionId, KIND_SETTLE, "", null, 0, 0, 0), PHASE_FAILED, detail = "$terminalLabel; ${e.message}"); return retryAll()
         }
-        val built = signer.build(planned.inputs, planned.outputs)
+        val built = build(planned)
         val batchAudit = Audit(actionId, KIND_SETTLE, "", null, moving.sumOf { -it.netUnits }, 0, 0)
         log(batchAudit, PHASE_REQUESTED, detail = "$terminalLabel; ${moving.size} cards")
         return when (val r = broadcastAndAwait(batchAudit, planned, built, {})) {

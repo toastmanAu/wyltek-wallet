@@ -13,10 +13,11 @@ class SecpSigner(seedHex: String, address: CkbAddress, network: NetworkType) : S
     private val cfg = NetworkConfig.forNetwork(network)
     override val lock: LockScript = address.lockScript
     override val cellDep = CellDepRef(cfg.secp256k1DepGroupTxHash, cfg.secp256k1DepGroupIndex, "dep_group")
+    /** rust-core returns the hash without `0x`; the node echoes `0x…`. Normalised here, at the port boundary. */
     override fun build(inputs: List<Utxo>, outputs: List<TxOutput>): BuiltTransaction = buildTransaction(TransactionRequest(
         inputs = inputs.map { TxInput(it.outPoint.txHash, it.outPoint.index, 0uL, it.capacity) },
         outputs = outputs,
         cellDeps = listOf(TxCellDep(cfg.secp256k1DepGroupTxHash, cfg.secp256k1DepGroupIndex, 1.toUByte())),
-        feeRate = 1000uL))
+        feeRate = 1000uL)).let { it.copy(txHashHex = ensure0x(it.txHashHex)) }
     override fun witness0(txHashHex: String, numInputs: Int): String = "0x" + signCkbSecp256k1Witness(txHashHex, numInputs.toUInt(), keyPair.privateKeyHex)
 }

@@ -12,6 +12,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 // A tiny UTXO set that applies a broadcast tx the first time it reports CONFIRMED.
+// Node-faithful: hashes must be `0x`-prefixed (the node rejects anything else as invalid params), an
+// outage THROWS, and a hash the node never saw is an explicit TxStatus.UNKNOWN (never null).
 class FakeChain : ChainPort {
     val cells = linkedMapOf<String, Utxo>()                       // key "txhash:index"
     val broadcasts = mutableListOf<Pair<String, JsonObject>>()
@@ -27,7 +29,9 @@ class FakeChain : ChainPort {
     fun add(u: Utxo) { cells[PrepaidTxPlanner.outpointKey(u)] = u }
     override suspend fun cellsByLock(lock: LockScript) = cells.values.filter { it.lock == lock }
     override suspend fun cellAt(outpoint: String) = cells[outpoint]
+    private fun requirePrefixed(h: String) { if (!h.startsWith("0x") || h != h.lowercase()) throw java.io.IOException("invalid params: tx hash '$h'") }
     override suspend fun broadcast(txJson: JsonObject, txHash: String): Boolean {
+        requirePrefixed(txHash)
         if (refuseBroadcast) return false
         val missing = txJson["inputs"]!!.jsonArray.any { i ->
             val po = i.jsonObject["previous_output"]!!.jsonObject
@@ -40,7 +44,8 @@ class FakeChain : ChainPort {
     override suspend fun status(txHash: String): TxStatus? {
         if (throwOnStatusAlways) throw java.io.IOException("rpc down")
         if (throwOnStatusOnce) { throwOnStatusOnce = false; throw java.io.IOException("rpc down") }
-        if (txHash !in statusQueue && broadcasts.none { it.first == txHash }) return null
+        requirePrefixed(txHash)
+        if (txHash !in statusQueue && broadcasts.none { it.first == txHash }) return TxStatus.UNKNOWN
         statusQueue[txHash]?.let { q ->
             val s = if (q.size > 1) q.removeFirst() else q.first()
             if (s == TxStatus.CONFIRMED) applyOnce(txHash)
