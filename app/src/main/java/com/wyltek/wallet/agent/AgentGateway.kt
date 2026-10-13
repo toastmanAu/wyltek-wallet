@@ -282,6 +282,9 @@ class AgentGateway(context: Context) : AgentDispatchPort {
 
     fun prepaidStore(): PrepaidStore = RoomPrepaidStore(db)
 
+    suspend fun prepaidLiveCell(outpoint: String): com.wyltek.wallet.core.model.Utxo? =
+        prepaid?.let { svc -> RpcChainPort(repository.getChainManager()).also { it.cachedLock = svc.lock } }?.cellAt(outpoint)
+
     fun prepaidBundleFields(): Pair<String, String>? = prepaid?.let { prepaidKeys.kDebitHex() to it.merchantIdHex }
 
     private suspend fun prepaidAuth(token: String, sourceIp: String, nowUnix: Long): Boolean {

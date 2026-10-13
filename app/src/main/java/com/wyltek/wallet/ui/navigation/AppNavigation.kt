@@ -299,6 +299,13 @@ fun AppNavigation(
                     onScanAddress = { navController.navigate(Screen.QrScanner.route) },
                     scannedAddress = scanned)
             }
+            composable(Screen.PrepaidCard.route) { backStackEntry ->
+                val reserveId = backStackEntry.arguments?.getString("reserveId")
+                if (reserveId != null) com.wyltek.wallet.prepaid.ui.PrepaidCardDetailScreen(reserveId = reserveId, onBack = { navController.popBackStack() })
+            }
+            composable(Screen.PrepaidAudit.route) {
+                com.wyltek.wallet.prepaid.ui.PrepaidAuditScreen(onBack = { navController.popBackStack() })
+            }
             composable(Screen.AgentApproval.route) {
                 AgentApprovalScreen(
                     onBack = { navController.popBackStack() }

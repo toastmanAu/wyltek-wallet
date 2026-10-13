@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wyltek.wallet.WyltekWalletApp
 import com.wyltek.wallet.prepaid.*
+import com.wyltek.wallet.core.model.Utxo
 import com.wyltek.wallet.prepaid.db.*
 import com.wyltek.wallet.prepaid.nfc.MifareTagPort
 import kotlinx.coroutines.flow.*
@@ -93,6 +94,13 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
     fun reinstate(card: PrepaidCardEntity) = viewModelScope.launch { svc?.let { s -> run("reinstate") { s.reinstate(card) } } }
     fun voidCard(card: PrepaidCardEntity) = viewModelScope.launch { svc?.let { s -> run("void") { s.void(card, tag?.takeIf { it.uidHex.equals(card.uid, true) }, ::phase) } } }
     suspend fun preview(card: PrepaidCardEntity): CashOutPreview? = svc?.inspectForRetire(tag, card)
+
+    fun eventsFlow(): Flow<List<PrepaidEventEntity>> = gateway.prepaidStore().eventsFlow()
+    suspend fun eventsFor(reserveId: String) = gateway.prepaidStore().eventsForCard(reserveId)
+    suspend fun card(reserveId: String) = gateway.prepaidStore().card(reserveId)
+    suspend fun liveCell(card: PrepaidCardEntity): Utxo? = gateway.prepaidLiveCell(card.currentOutpoint)
+    suspend fun allEventsCsv(): String = AuditCsv.render(gateway.prepaidStore().allEvents())
+    fun tagRecordFor(card: PrepaidCardEntity): TapClass.Known? = (ui.value.tap as? TapClass.Known)?.takeIf { it.card.reserveId == card.reserveId }
 
     fun tappedCard(): PrepaidCardEntity? = when (val t = ui.value.tap) { is TapClass.Known -> t.card; is TapClass.Damaged -> t.card; is TapClass.Resume -> t.card; else -> null }
 
