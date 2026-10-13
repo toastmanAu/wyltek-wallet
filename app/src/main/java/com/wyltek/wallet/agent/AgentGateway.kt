@@ -253,18 +253,33 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     /** Single instance: PrepaidKeys.kDebit() is unsynchronised, so every caller goes through this one. */
     private val prepaidKeys by lazy { PrepaidKeys(load = { secure.loadBlob(it) }, store = { k, v -> secure.storeBlob(k, v) }) }
     @Volatile var prepaidUnavailableReason: String? = null; private set
-    val prepaid: PrepaidService? by lazy {
+    @Volatile private var prepaidHolder: PrepaidService? = null
+    /** Built on demand; a null/failed build is never cached, so adding a testnet account later works without restart. */
+    val prepaid: PrepaidService?
+        get() = prepaidHolder ?: synchronized(this) { prepaidHolder ?: buildPrepaid().also { prepaidHolder = it } }
+
+    private fun buildPrepaid(): PrepaidService? = try {
         val account = repository.getAllAccounts().firstOrNull { acct ->
             acct.network == NetworkType.TESTNET && acct.addresses.any { a -> !NetworkConfig.isPqLock(a.lockScript.codeHash, acct.network) }
         }
-        if (account == null) { prepaidUnavailableReason = "Prepaid demo runs on testnet only; add or select a testnet classic account"; return@lazy null }
-        val address = account.addresses.first { !NetworkConfig.isPqLock(it.lockScript.codeHash, account.network) }
-        val seed = com.wyltek.wallet.core.keystore.SeedVault(app).loadSeed(account.id)
-        if (seed == null) { prepaidUnavailableReason = "Seed for ${account.name} is not available"; return@lazy null }
-        val chainPort = RpcChainPort(repository.getChainManager()).also { it.cachedLock = address.lockScript }
-        PrepaidService(RoomPrepaidStore(db), chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
+        if (account == null) {
+            prepaidUnavailableReason = "Prepaid demo runs on testnet only; add or select a testnet classic account"; null
+        } else {
+            val address = account.addresses.first { !NetworkConfig.isPqLock(it.lockScript.codeHash, account.network) }
+            val seed = com.wyltek.wallet.core.keystore.SeedVault(app).loadSeed(account.id)
+            if (seed == null) {
+                prepaidUnavailableReason = "Seed for the prepaid account is not available"; null
+            } else {
+                val chainPort = RpcChainPort(repository.getChainManager()).also { it.cachedLock = address.lockScript }
+                PrepaidService(RoomPrepaidStore(db), chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
+                    .also { prepaidUnavailableReason = null }
+            }
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "prepaid init failed", e)
+        prepaidUnavailableReason = "Prepaid service could not start"; null
     }
-    /** (k_debit hex, merchant_id hex) for the provisioning bundle; both are hex by construction. */
+
     fun prepaidStore(): PrepaidStore = RoomPrepaidStore(db)
 
     fun prepaidBundleFields(): Pair<String, String>? = prepaid?.let { prepaidKeys.kDebitHex() to it.merchantIdHex }

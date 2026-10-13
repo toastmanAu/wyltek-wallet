@@ -15,9 +15,18 @@ class RpcChainPort(private val chainManager: ChainManager) : ChainPort {
     }
     /** Set by the gateway once the merchant lock is known; cellAt needs a lock to query the indexer. */
     var cachedLock: LockScript? = null
-    override suspend fun broadcast(txJson: JsonObject, txHash: String): Boolean {
-        val sent = chainManager.sendTransactionJson(txJson) ?: return false
-        return sent.equals(txHash, ignoreCase = true)
-    }
+    /**
+     * True only when the node returned the built hash. A genuine node refusal cannot be distinguished
+     * from a lost response at this layer (ChainProvider swallows exceptions into null), so both throw
+     * IOException and surface as "still confirming" rather than deleting a possibly-funded reserve.
+     */
+    override suspend fun broadcast(txJson: JsonObject, txHash: String): Boolean =
+        broadcastOutcome(chainManager.sendTransactionJson(txJson), txHash)
     override suspend fun status(txHash: String): TxStatus? = chainManager.getActiveProvider()?.getTransactionStatus(txHash)
+}
+
+/** True on a case-insensitive hash match; throws [java.io.IOException] on null or mismatch (outcome unknown). */
+fun broadcastOutcome(returned: String?, expected: String): Boolean {
+    if (returned != null && returned.equals(expected, ignoreCase = true)) return true
+    throw java.io.IOException("broadcast outcome unknown")
 }

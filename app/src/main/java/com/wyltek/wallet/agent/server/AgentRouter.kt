@@ -130,7 +130,7 @@ suspend fun routeAgentRequest(
             val req = try { json.decodeFromString(PrepaidJournalRequest.serializer(), body) } catch (e: Exception) { return RouteResult(400) }
             when (val r = port.prepaidJournal(token, req.entriesHex, sourceIp, System.currentTimeMillis() / 1000)) {
                 PrepaidJournalResult.BadToken -> RouteResult(401)
-                is PrepaidJournalResult.BadRequest -> RouteResult(400, "application/json", """{"error":"${r.reason}"}""")
+                is PrepaidJournalResult.BadRequest -> RouteResult(400, "application/json", """{"error":${kotlinx.serialization.json.JsonPrimitive(r.reason)}}""")
                 is PrepaidJournalResult.Ok -> RouteResult(200, "application/json", json.encodeToString(PrepaidJournalResponse.serializer(), PrepaidJournalResponse(r.results)))
             }
         }
