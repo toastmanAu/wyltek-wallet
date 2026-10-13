@@ -22,6 +22,7 @@ fun SettingsScreen(
     onSecurity: () -> Unit = {},
     onRpcHealth: () -> Unit = {},
     onAgent: () -> Unit = {},
+    onPrepaid: () -> Unit = {},
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -126,6 +127,12 @@ fun SettingsScreen(
                     title = "Agent Gateway",
                     subtitle = "Tokens & server",
                     onClick = onAgent
+                )
+                SettingsItem(
+                    icon = Icons.Default.CreditCard,
+                    title = "Prepaid Cards (DEMO)",
+                    subtitle = "NFC cards backed by testnet reserves",
+                    onClick = onPrepaid
                 )
             }
         }

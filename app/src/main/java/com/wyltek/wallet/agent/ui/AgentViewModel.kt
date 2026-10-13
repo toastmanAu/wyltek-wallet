@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 data class TokenRow(
@@ -45,7 +47,9 @@ data class AgentUiState(
     val error: String? = null,
     val relayPaired: Boolean = false,
     val relayUrl: String? = null,
-    val deviceId: String? = null
+    val deviceId: String? = null,
+    val prepaidKDebit: String? = null,
+    val prepaidMerchantId: String? = null
 )
 
 class AgentViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,8 +75,12 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         // ensure (not just read) — a Tier-1 device needs a device_id without relay pairing,
         // and the provisioning QR can't build without it.
         val devId      = RelayPairing.ensureDeviceId(gateway.secure)
+        // prepaid is a lazy that does DB + seed + keystore I/O: keep it off the main thread.
+        val prepaidFields = withContext(Dispatchers.IO) { try { gateway.prepaidBundleFields() } catch (e: Exception) { null } }
         _uiState.update { st ->
             st.copy(
+                prepaidKDebit = prepaidFields?.first,
+                prepaidMerchantId = prepaidFields?.second,
                 tokens = tokenRows,
                 serverRunning = running,
                 bindAddress = bind,

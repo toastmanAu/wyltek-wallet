@@ -48,6 +48,11 @@ sealed class Screen(val route: String, val label: String) {
     data object Dao : Screen("dao", "DAO")
     data object Agent : Screen("agent", "Agent")
     data object AgentApproval : Screen("agent-approval", "Approvals")
+    data object Prepaid : Screen("prepaid", "Prepaid")
+    data object PrepaidCard : Screen("prepaid-card/{reserveId}", "Prepaid card") {
+        fun route(reserveId: String) = "prepaid-card/$reserveId"
+    }
+    data object PrepaidAudit : Screen("prepaid-audit", "Prepaid audit")
 }
 
 private val bottomBarScreens = listOf(
@@ -163,6 +168,7 @@ fun AppNavigation(
                     onSecurity = { navController.navigate(Screen.Security.route) },
                     onRpcHealth = { navController.navigate(Screen.RpcHealth.route) },
                     onAgent = { navController.navigate(Screen.Agent.route) },
+                    onPrepaid = { navController.navigate(Screen.Prepaid.route) },
                     viewModel = viewModel
                 )
             }
@@ -280,8 +286,13 @@ fun AppNavigation(
             composable(Screen.Agent.route) {
                 AgentScreen(
                     onBack = { navController.popBackStack() },
-                    onApprovals = { navController.navigate(Screen.AgentApproval.route) }
+                    onApprovals = { navController.navigate(Screen.AgentApproval.route) },
+                    onPrepaid = { navController.navigate(Screen.Prepaid.route) }
                 )
+            }
+            // TEMPORARY placeholder; Task 14 replaces this with PrepaidScreen.
+            composable(Screen.Prepaid.route) {
+                androidx.compose.material3.Text("Prepaid cards — Task 14")
             }
             composable(Screen.AgentApproval.route) {
                 AgentApprovalScreen(

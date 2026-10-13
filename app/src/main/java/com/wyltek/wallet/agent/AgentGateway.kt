@@ -25,6 +25,22 @@ import com.wyltek.wallet.core.model.WalletAccount
 import com.wyltek.wallet.core.native.Intent
 import com.wyltek.wallet.data.WalletRepository
 import com.wyltek.wallet.data.WalletResult
+import com.wyltek.wallet.agent.server.JournalVerdictDto
+import com.wyltek.wallet.agent.server.PrepaidCardDto
+import com.wyltek.wallet.agent.server.PrepaidCardsResult
+import com.wyltek.wallet.agent.server.PrepaidJournalResult
+import com.wyltek.wallet.core.chain.NetworkConfig
+import com.wyltek.wallet.core.model.NetworkType
+import com.wyltek.wallet.core.native.authorizeOp
+import com.wyltek.wallet.core.native.tokenIdOf
+import com.wyltek.wallet.prepaid.NativeProtocol
+import com.wyltek.wallet.prepaid.PrepaidKeys
+import com.wyltek.wallet.prepaid.PrepaidService
+import com.wyltek.wallet.prepaid.RoomPrepaidStore
+import com.wyltek.wallet.prepaid.RpcChainPort
+import com.wyltek.wallet.prepaid.SecpSigner
+import com.wyltek.wallet.prepaid.db.CARD_ACTIVE
+import com.wyltek.wallet.prepaid.db.CARD_REVOKED
 import java.math.BigInteger
 
 /**
@@ -230,6 +246,44 @@ class AgentGateway(context: Context) : AgentDispatchPort {
                 }
             } catch (e: Exception) { ChainProxyResult.Upstream(e.message ?: "node error") }
         }
+    }
+
+    // ---- Prepaid cards (D3) ----
+    /** Single instance: PrepaidKeys.kDebit() is unsynchronised, so every caller goes through this one. */
+    private val prepaidKeys by lazy { PrepaidKeys(load = { secure.loadBlob(it) }, store = { k, v -> secure.storeBlob(k, v) }) }
+    @Volatile var prepaidUnavailableReason: String? = null; private set
+    val prepaid: PrepaidService? by lazy {
+        val account = repository.getAllAccounts().firstOrNull { acct ->
+            acct.network == NetworkType.TESTNET && acct.addresses.any { a -> !NetworkConfig.isPqLock(a.lockScript.codeHash, acct.network) }
+        }
+        if (account == null) { prepaidUnavailableReason = "Prepaid demo runs on testnet only; add or select a testnet classic account"; return@lazy null }
+        val address = account.addresses.first { !NetworkConfig.isPqLock(it.lockScript.codeHash, account.network) }
+        val seed = com.wyltek.wallet.core.keystore.SeedVault(app).loadSeed(account.id)
+        if (seed == null) { prepaidUnavailableReason = "Seed for ${account.name} is not available"; return@lazy null }
+        val chainPort = RpcChainPort(repository.getChainManager()).also { it.cachedLock = address.lockScript }
+        PrepaidService(RoomPrepaidStore(db), chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
+    }
+    /** (k_debit hex, merchant_id hex) for the provisioning bundle; both are hex by construction. */
+    fun prepaidBundleFields(): Pair<String, String>? = prepaid?.let { prepaidKeys.kDebitHex() to it.merchantIdHex }
+
+    private suspend fun prepaidAuth(token: String, sourceIp: String, nowUnix: Long): Boolean {
+        val reg = db.agentDao().tokenByString(token) ?: return false
+        if (reg.revoked) return false
+        return try { authorizeOp(token, keyStore.rootPublicHex(), "prepaid_settle", reg.account, sourceIp, nowUnix); true } catch (e: Exception) { false }
+    }
+
+    override suspend fun prepaidJournal(token: String, entriesHex: String, sourceIp: String, nowUnix: Long): PrepaidJournalResult {
+        if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidJournalResult.BadToken
+        val svc = prepaid ?: return PrepaidJournalResult.BadRequest(prepaidUnavailableReason ?: "prepaid unavailable")
+        val tokenId = try { tokenIdOf(token, keyStore.rootPublicHex()).take(8) } catch (e: Exception) { "?" }
+        val r = svc.settle(entriesHex, "terminal token $tokenId") ?: return PrepaidJournalResult.BadRequest("entries must be hex and a multiple of 96 bytes")
+        return PrepaidJournalResult.Ok(r.verdicts.mapIndexed { i, v -> JournalVerdictDto(i, v, r.txHash.takeIf { v == "accepted" }) })
+    }
+
+    override suspend fun prepaidCards(token: String, sourceIp: String, nowUnix: Long): PrepaidCardsResult {
+        if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidCardsResult.BadToken
+        val cards = db.prepaidDao().allCards().filter { it.state == CARD_ACTIVE || it.state == CARD_REVOKED }.take(64)
+        return PrepaidCardsResult.Ok(cards.map { PrepaidCardDto(it.reserveId, it.balanceUnits, it.state == CARD_REVOKED) })
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────

@@ -33,6 +33,7 @@ import com.wyltek.wallet.ui.theme.*
 fun AgentScreen(
     onBack: () -> Unit = {},
     onApprovals: () -> Unit = {},
+    onPrepaid: () -> Unit = {},
     agentViewModel: AgentViewModel = viewModel(),
     walletViewModel: WalletViewModel = viewModel()
 ) {
@@ -150,6 +151,13 @@ fun AgentScreen(
                 )
             }
 
+            // ── Prepaid cards (DEMO) ─────────────────────────────────────────
+            AgentSettingsSection(title = "Prepaid cards (DEMO)") {
+                ListItem(headlineContent = { Text("Issue, load, void and audit NTAG prepaid cards") },
+                    supportingContent = { Text("Testnet only. Terminal-attested demo tier.", color = TextSecondary) },
+                    modifier = Modifier.clickable(onClick = onPrepaid), colors = ListItemDefaults.colors(containerColor = DarkSurfaceVariant))
+            }
+
             // ── Token list ───────────────────────────────────────────────────
             AgentSettingsSection(title = "Tokens (${uiState.tokens.size})") {
                 if (uiState.tokens.isEmpty()) {
@@ -251,7 +259,7 @@ fun AgentScreen(
                             // Tier-1 companion-direct provisioning needs NO relay — the bundle
                             // ({device_id, token, service_name}) is buildable without pairing,
                             // and the same QR serves node tier too. Render whenever it's buildable.
-                            val bundle = buildProvisioningBundle(uiState.deviceId, token)
+                            val bundle = buildProvisioningBundle(uiState.deviceId, token, uiState.prepaidKDebit, uiState.prepaidMerchantId)
                             if (bundle != null) {
                                 QrCodeImage(
                                     content = bundle,
@@ -331,6 +339,7 @@ private fun MintTokenForm(
     var scopeSendUdt by remember { mutableStateOf(false) }
     var scopeDao by remember { mutableStateOf(false) }
     var scopeMessaging by remember { mutableStateOf(false) }
+    var scopePrepaid by remember { mutableStateOf(false) }
 
     // Account dropdown
     var selectedAccount by remember(accounts) { mutableStateOf(accounts.firstOrNull() ?: "") }
@@ -420,6 +429,12 @@ private fun MintTokenForm(
                 ScopeCheckbox(label = "dao", checked = scopeDao, onCheckedChange = { scopeDao = it }, modifier = Modifier.weight(1f))
                 ScopeCheckbox(label = "messaging", checked = scopeMessaging, onCheckedChange = { scopeMessaging = it }, modifier = Modifier.weight(1f))
             }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ScopeCheckbox(label = "prepaid_settle", checked = scopePrepaid, onCheckedChange = { scopePrepaid = it }, modifier = Modifier.weight(1f))
+            }
 
             // CKB caps
             Text("CKB Caps", style = MaterialTheme.typography.labelMedium, color = NeonCyan)
@@ -485,6 +500,7 @@ private fun MintTokenForm(
                         if (scopeSendUdt) add(Scope.SEND_UDT)
                         if (scopeDao) add(Scope.DAO)
                         if (scopeMessaging) add(Scope.MESSAGING)
+                        if (scopePrepaid) add(Scope.PREPAID_SETTLE)
                     }
                     val cumulative = (cumulativeCkb.toLongOrNull() ?: 0L) * 100_000_000L
                     val autoLimit = (autoLimitCkb.toLongOrNull() ?: 0L) * 100_000_000L
@@ -516,7 +532,7 @@ private fun MintTokenForm(
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = selectedAccount.isNotBlank() && (scopeSendCkb || scopeSendUdt || scopeDao || scopeMessaging),
+                enabled = selectedAccount.isNotBlank() && (scopeSendCkb || scopeSendUdt || scopeDao || scopeMessaging || scopePrepaid),
                 colors = ButtonDefaults.buttonColors(containerColor = NeonCyan)
             ) {
                 Text("Mint Token", color = DarkBackground)
