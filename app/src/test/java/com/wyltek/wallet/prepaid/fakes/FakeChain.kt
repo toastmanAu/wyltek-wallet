@@ -27,10 +27,16 @@ class FakeChain : ChainPort {
     override suspend fun cellAt(outpoint: String) = cells[outpoint]
     override suspend fun broadcast(txJson: JsonObject, txHash: String): Boolean {
         if (refuseBroadcast) return false
+        val missing = txJson["inputs"]!!.jsonArray.any { i ->
+            val po = i.jsonObject["previous_output"]!!.jsonObject
+            (po["tx_hash"]!!.jsonPrimitive.content + ":" + po["index"]!!.jsonPrimitive.content.removePrefix("0x").toUInt(16)) !in cells
+        }
+        if (missing) return false
         broadcasts += txHash to txJson
         return true
     }
     override suspend fun status(txHash: String): TxStatus? {
+        if (txHash !in statusQueue && broadcasts.none { it.first == txHash }) return null
         statusQueue[txHash]?.let { q ->
             val s = if (q.size > 1) q.removeFirst() else q.first()
             if (s == TxStatus.CONFIRMED) applyOnce(txHash)

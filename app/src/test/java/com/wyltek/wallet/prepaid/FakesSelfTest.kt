@@ -51,4 +51,14 @@ class FakesSelfTest {
         c.confirm(h); assertEquals(TxStatus.CONFIRMED, c.status(h))
         assertEquals(listOf("$h:0"), c.cells.keys.toList()); assertEquals(9_000_000_000uL, c.cellAt("$h:0")!!.capacity)
     }
+
+    @Test fun `fake chain refuses unknown inputs and reports unknown hashes as null`() = runTest {
+        val lock = LockScript("0x" + "11".repeat(32), "type", "0xab")
+        val c = FakeChain()
+        assertEquals(null, c.status("0x" + "ee".repeat(32)))
+        val ghost = Utxo(OutPoint("0x" + "bb".repeat(32), 0u), 10_000_000_000uL, lock)
+        val tx = CkbTxJson.build(listOf(ghost), listOf(PrepaidTxPlanner.output(9_000_000_000uL, lock)), CellDepRef("0x" + "cc".repeat(32), 0u, "dep_group"), "0x")
+        assertFalse(c.broadcast(tx, "0x" + "dd".repeat(32)))
+        assertTrue(c.broadcasts.isEmpty())
+    }
 }
