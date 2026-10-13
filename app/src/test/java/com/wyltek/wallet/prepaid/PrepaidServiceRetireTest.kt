@@ -1,0 +1,129 @@
+package com.wyltek.wallet.prepaid
+
+import com.wyltek.wallet.core.model.LockScript
+import com.wyltek.wallet.core.native.CardRecordInfo
+import com.wyltek.wallet.core.native.SlotPickFfi
+import com.wyltek.wallet.prepaid.db.*
+import com.wyltek.wallet.prepaid.fakes.FakeTag
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.*
+import org.junit.Test
+
+class PrepaidServiceRetireTest {
+    private val ckb = 100_000_000uL; private val unit = 100_000uL; private val floor = 61uL * ckb
+    private val lock = LockScript("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8", "type", "0x" + "ab".repeat(20))
+    private val customerLock = LockScript("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8", "type", "0x" + "cd".repeat(20))
+    private val uid = "04958caa5c5e80"
+    private fun h() = PrepaidServiceIssueLoadTest.H(1000uL, lock).also { it.protocol.locks["ckt1customer"] = customerLock }
+    private suspend fun issued(h: PrepaidServiceIssueLoadTest.H, tag: FakeTag, units: Int = 250_000): PrepaidCardEntity {
+        assertEquals(ActionOutcome.Done, h.svc.issue(tag, units, null)); return h.store.cardByUid(tag.uidHex)!!
+    }
+
+    @Test fun revoke_and_reinstate_flip_state_and_log() = runTest {
+        val h = h(); val card = issued(h, FakeTag(uid))
+        assertEquals(ActionOutcome.Done, h.svc.revoke(card))
+        assertEquals(CARD_REVOKED, h.store.card(card.reserveId)!!.state)
+        assertTrue(h.svc.revoke(h.store.card(card.reserveId)!!) is ActionOutcome.Failed)
+        assertEquals(ActionOutcome.Done, h.svc.reinstate(h.store.card(card.reserveId)!!))
+        assertEquals(CARD_ACTIVE, h.store.card(card.reserveId)!!.state)
+        assertEquals(listOf(KIND_REVOKE, KIND_REVOKE, KIND_REINSTATE, KIND_REINSTATE), h.store.events.filter { it.kind != KIND_ISSUE }.map { it.kind })
+        assertEquals(listOf(PHASE_REQUESTED, PHASE_DONE), h.store.phases("a2"))
+        assertEquals(0, h.chain.broadcasts.size - 1)
+    }
+
+    @Test fun void_without_tag_sweeps_reserve_to_merchant_and_closes() = runTest {
+        val h = h(); val card = issued(h, FakeTag(uid))
+        val walletBefore = h.chain.cellsByLock(lock).fold(0uL) { a, u -> a + u.capacity }
+        assertEquals(ActionOutcome.Done, h.svc.void(card, tag = null))
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_CLOSED, c.state); assertEquals(0, c.balanceUnits); assertNull(h.chain.cellAt(card.currentOutpoint))
+        val walletAfter = h.chain.cellsByLock(lock).fold(0uL) { a, u -> a + u.capacity }
+        assertTrue(walletAfter > walletBefore - 1_000_000uL && walletAfter <= walletBefore)   // everything back minus the fee
+        val ev = h.store.events.filter { it.kind == KIND_VOID }
+        assertEquals(listOf(PHASE_REQUESTED, PHASE_BROADCAST, PHASE_COMMITTED, PHASE_DONE), ev.map { it.phase })
+        assertEquals(-250_000L, ev.first().amountUnits); assertTrue(ev.first().detail.contains("forfeit"))
+    }
+
+    @Test fun void_with_tag_zeroes_both_slots() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag)
+        assertEquals(ActionOutcome.Done, h.svc.void(card, tag))
+        assertTrue(tag.readSlots().all { it == 0.toByte() })
+    }
+
+    @Test fun void_is_refused_while_a_credit_is_pending() = runTest {
+        val h = h(); h.chain.confirmAfterPolls = null
+        h.svc.issue(FakeTag(uid), 1000, null)
+        assertTrue(h.svc.void(h.store.cardByUid(uid)!!, null) is ActionOutcome.Failed)
+    }
+
+    @Test fun cash_out_pays_customer_returns_floor_and_zeroes_tag() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)   // 100 CKB
+        val pv = h.svc.inspectForRetire(tag, card)
+        assertEquals(CashOutPreview(100_000, 0, false), pv)
+        assertEquals(ActionOutcome.Done, h.svc.cashOut(tag, card, "ckt1customer"))
+        val customerCells = h.chain.cellsByLock(customerLock)
+        assertEquals(1, customerCells.size); assertEquals(100_000uL * unit, customerCells[0].capacity)
+        assertEquals(CARD_CLOSED, h.store.card(card.reserveId)!!.state)
+        assertTrue(tag.readSlots().all { it == 0.toByte() })
+        val ev = h.store.events.filter { it.kind == KIND_CASH_OUT }
+        assertTrue(ev.first().detail.contains("ckt1customer")); assertEquals(-100_000L, ev.first().amountUnits)
+    }
+
+    @Test fun cash_out_refuses_unsettled_taps_below_minimum_and_unknown_address() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        tag.writeSlot(SlotPickFfi.B, h.protocol.seal("", uid, CardRecordInfo(3u, card.reserveId, 99_000, 1u, h.svc.merchantIdHex)))
+        assertEquals(1L, h.svc.inspectForRetire(tag, card).unsettledTaps)
+        val r1 = h.svc.cashOut(tag, card, "ckt1customer")
+        assertTrue(r1 is ActionOutcome.Failed && (r1 as ActionOutcome.Failed).reason.contains("sync the terminal"))
+        val tag2 = FakeTag("04ebbb02cd2a81"); val small = issued(h, tag2, 50_000)
+        assertTrue(h.svc.inspectForRetire(tag2, small).belowMinimum)
+        val r2 = h.svc.cashOut(tag2, small, "ckt1customer")
+        assertTrue(r2 is ActionOutcome.Failed && (r2 as ActionOutcome.Failed).reason.contains("minimum"))
+        val r3 = h.svc.cashOut(tag2, issued(h, FakeTag("04aaaaaaaaaaaa"), 100_000), "ckt1customer")
+        assertTrue(r3 is ActionOutcome.Failed && (r3 as ActionOutcome.Failed).reason.contains("different tag"))
+        val tag4 = FakeTag("04bbbbbbbbbbbb"); val c4 = issued(h, tag4, 100_000)
+        val r4 = h.svc.cashOut(tag4, c4, "ckt1nobody")
+        assertTrue(r4 is ActionOutcome.Failed && (r4 as ActionOutcome.Failed).reason.contains("address"))
+        assertEquals(CARD_ACTIVE, h.store.card(c4.reserveId)!!.state)
+    }
+
+    @Test fun repair_rewrites_a_damaged_tag_from_the_index() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 1000)
+        tag.pages.indices.forEach { tag.pages[it] = ByteArray(4) }           // wiped
+        h.store.updateCard(card.copy(counter = 3, settledCounter = 5))
+        assertTrue(h.svc.classify(tag) is TapClass.Damaged)
+        assertEquals(ActionOutcome.Done, h.svc.repair(tag, h.store.card(card.reserveId)!!))
+        val slot = h.protocol.selectSlot("", uid, tag.readSlots())
+        assertEquals(SlotPickFfi.A, slot.pick); assertEquals(6u, slot.record!!.counter); assertEquals(1000, slot.record!!.balanceUnits)
+        assertEquals(6L, h.store.card(card.reserveId)!!.counter)
+        assertEquals(KIND_REPAIR, h.store.events.last().kind); assertEquals(PHASE_DONE, h.store.events.last().phase)
+    }
+
+    @Test fun adopt_funds_a_reserve_under_the_records_own_id() = runTest {
+        val h = h(); val tag = FakeTag(uid)
+        val rid = "b1".repeat(32)
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid, CardRecordInfo(3u, rid, 500_000, 2u, h.svc.merchantIdHex)))
+        val cls = h.svc.classify(tag)
+        assertTrue(cls is TapClass.Bench)
+        assertEquals(ActionOutcome.Done, h.svc.adopt(tag, (cls as TapClass.Bench).record))
+        val c = h.store.card(rid)!!
+        assertEquals(CARD_ACTIVE, c.state); assertEquals(500_000, c.balanceUnits); assertEquals(2L, c.counter); assertEquals(0L, c.settledCounter)
+        assertEquals(floor + 500_000uL * unit, h.chain.cellAt(c.currentOutpoint)!!.capacity)
+        assertEquals(2u, h.protocol.selectSlot("", uid, tag.readSlots()).record!!.counter)   // tag untouched
+        assertEquals(listOf(PHASE_REQUESTED, PHASE_BROADCAST, PHASE_COMMITTED, PHASE_DONE), h.store.phases("a1"))
+        assertTrue(h.svc.classify(tag) is TapClass.Known)
+    }
+
+    @Test fun adopt_timeout_recovers_without_a_tag_write() = runTest {
+        val h = h(); h.chain.confirmAfterPolls = null; val tag = FakeTag(uid); val rid = "b1".repeat(32)
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid, CardRecordInfo(3u, rid, 500_000, 2u, h.svc.merchantIdHex)))
+        val rec = (h.svc.classify(tag) as TapClass.Bench).record
+        assertTrue(h.svc.adopt(tag, rec) is ActionOutcome.StillConfirming)
+        val c = h.store.card(rid)!!; assertEquals(CARD_ISSUING, c.state); assertNull(c.pendingUnits)
+        h.chain.confirm(c.pendingTxHash!!)
+        assertEquals(1, h.svc.recoverPending())
+        val d = h.store.card(rid)!!
+        assertEquals(CARD_ACTIVE, d.state); assertNull(d.pendingTxHash); assertEquals(500_000, d.balanceUnits)
+        assertEquals(PHASE_DONE, h.store.phases("a1").last())
+    }
+}
