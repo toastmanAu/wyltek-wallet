@@ -36,6 +36,7 @@ import com.wyltek.wallet.core.native.tokenIdOf
 import com.wyltek.wallet.prepaid.NativeProtocol
 import com.wyltek.wallet.prepaid.PrepaidKeys
 import com.wyltek.wallet.prepaid.PrepaidService
+import com.wyltek.wallet.prepaid.PrepaidStore
 import com.wyltek.wallet.prepaid.RoomPrepaidStore
 import com.wyltek.wallet.prepaid.RpcChainPort
 import com.wyltek.wallet.prepaid.SecpSigner
@@ -264,6 +265,8 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         PrepaidService(RoomPrepaidStore(db), chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
     }
     /** (k_debit hex, merchant_id hex) for the provisioning bundle; both are hex by construction. */
+    fun prepaidStore(): PrepaidStore = RoomPrepaidStore(db)
+
     fun prepaidBundleFields(): Pair<String, String>? = prepaid?.let { prepaidKeys.kDebitHex() to it.merchantIdHex }
 
     private suspend fun prepaidAuth(token: String, sourceIp: String, nowUnix: Long): Boolean {

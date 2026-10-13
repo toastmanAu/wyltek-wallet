@@ -290,9 +290,14 @@ fun AppNavigation(
                     onPrepaid = { navController.navigate(Screen.Prepaid.route) }
                 )
             }
-            // TEMPORARY placeholder; Task 14 replaces this with PrepaidScreen.
-            composable(Screen.Prepaid.route) {
-                androidx.compose.material3.Text("Prepaid cards — Task 14")
+            composable(Screen.Prepaid.route) { backStackEntry ->
+                val scanned = backStackEntry.savedStateHandle.get<String>("scannedAddress")
+                com.wyltek.wallet.prepaid.ui.PrepaidScreen(
+                    onBack = { navController.popBackStack() },
+                    onCard = { navController.navigate(Screen.PrepaidCard.route(it)) },
+                    onAudit = { navController.navigate(Screen.PrepaidAudit.route) },
+                    onScanAddress = { navController.navigate(Screen.QrScanner.route) },
+                    scannedAddress = scanned)
             }
             composable(Screen.AgentApproval.route) {
                 AgentApprovalScreen(
