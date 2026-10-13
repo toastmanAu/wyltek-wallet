@@ -26,11 +26,11 @@ fun PrepaidCardDetailScreen(reserveId: String, onBack: () -> Unit, viewModel: Pr
     val ui by viewModel.ui.collectAsState()
     val card = ui.cards.firstOrNull { it.reserveId == reserveId }
     var live by remember { mutableStateOf<Utxo?>(null) }; var liveErr by remember { mutableStateOf<String?>(null) }
-    var events by remember { mutableStateOf<List<PrepaidEventEntity>>(emptyList()) }
+    val allEvents by viewModel.eventsFlow().collectAsState(initial = emptyList())
+    val events = remember(allEvents, reserveId) { allEvents.filter { it.reserveId == reserveId }.sortedByDescending { it.id } }
     var confirmVoid by remember { mutableStateOf(false) }
     val biometric = rememberBiometricAuth()
     LaunchedEffect(card?.currentOutpoint) { card?.let { live = try { liveErr = null; viewModel.liveCell(it) } catch (e: Exception) { liveErr = e.message; null } } }
-    LaunchedEffect(reserveId, ui.cards) { events = viewModel.eventsFor(reserveId) }
     Scaffold(topBar = { TopAppBar(title = { Row { Text(card?.label ?: card?.uid ?: "Card"); Spacer(Modifier.width(8.dp)); DemoBadge() } },
         navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         if (card == null) { Text("Card not found", Modifier.padding(pad).padding(16.dp)); return@Scaffold }
@@ -62,7 +62,7 @@ fun PrepaidCardDetailScreen(reserveId: String, onBack: () -> Unit, viewModel: Pr
     }
     if (confirmVoid && card != null) AlertDialog(onDismissRequest = { confirmVoid = false }, title = { Text("Void ${card.label ?: card.uid}?") },
         text = { Text("Forfeits ${PrepaidAmount.formatUnits(card.balanceUnits.toLong())} to the merchant. The tag is not needed.", color = ErrorRed) },
-        confirmButton = { TextButton(onClick = { confirmVoid = false; biometric.authenticate("Void card", "Confirm") { r -> if (r is BiometricResult.Success || r is BiometricResult.Unavailable) viewModel.voidCard(card) } }) { Text("Void", color = ErrorRed) } },
+        confirmButton = { TextButton(onClick = { confirmVoid = false; val ctx = viewModel.currentContext(); biometric.authenticate("Void card", "Confirm") { r -> if (r is BiometricResult.Success || r is BiometricResult.Unavailable) viewModel.voidCard(card, ctx) } }) { Text("Void", color = ErrorRed) } },
         dismissButton = { TextButton(onClick = { confirmVoid = false }) { Text("Cancel") } })
 }
 

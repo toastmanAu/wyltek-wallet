@@ -19,4 +19,9 @@ class AuditCsvTest {
             balanceBefore = 0, balanceAfter = 0, counterBefore = 0, counterAfter = 0, txHash = null, detail = "")
         assertEquals("0,1,a,issue,failed,,u,0,0,0,0,0,,", AuditCsv.render(listOf(e)).lines()[1])
     }
+    @Test fun `carriage return in detail is quoted`() {
+        val e = PrepaidEventEntity(atMs = 1, actionId = "a", kind = KIND_ISSUE, phase = PHASE_DONE, reserveId = null, uid = "u", amountUnits = 0,
+            balanceBefore = 0, balanceAfter = 0, counterBefore = 0, counterAfter = 0, txHash = null, detail = "a\rb")
+        assertEquals(true, AuditCsv.render(listOf(e)).contains(",\"a\rb\""))
+    }
 }

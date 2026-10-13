@@ -6,7 +6,7 @@ object AuditCsv {
     const val HEADER = "id,at_ms,action_id,kind,phase,reserve_id,uid,amount_units,balance_before,balance_after,counter_before,counter_after,tx_hash,detail"
     private fun q(s: String?): String = when {
         s == null -> ""
-        s.any { it == ',' || it == '"' || it == '\n' } -> "\"" + s.replace("\"", "\"\"") + "\""
+        s.any { it == ',' || it == '"' || it == '\n' || it == '\r' } -> "\"" + s.replace("\"", "\"\"") + "\""
         else -> s
     }
     fun render(events: List<PrepaidEventEntity>): String = buildString {
