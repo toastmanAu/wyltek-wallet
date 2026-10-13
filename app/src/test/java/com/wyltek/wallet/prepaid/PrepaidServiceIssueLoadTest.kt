@@ -24,9 +24,9 @@ class PrepaidServiceIssueLoadTest {
 
     class H(walletCkb: ULong = 1000uL, val lock: LockScript) {
         val store = InMemoryPrepaidStore(); val chain = FakeChain(); val signer = FakeSigner(lock); val protocol = FakeProtocol()
-        var now = 1_000L; var ids = 0
+        var now = 1_000L; var ids = 0; var clockOffsetMs = 0L
         val keys = PrepaidKeys(load = { null }, store = { _, _ -> }, random = { ByteArray(16) { 1 } })
-        val svc = PrepaidService(store, chain, signer, protocol, keys, clock = { now++ }, newActionId = { "a${++ids}" }, pollDelayMs = 3_000, pollBudgetMs = 90_000)
+        val svc = PrepaidService(store, chain, signer, protocol, keys, clock = { now++ + clockOffsetMs }, newActionId = { "a${++ids}" }, pollDelayMs = 3_000, pollBudgetMs = 90_000)
         init { chain.add(Utxo(OutPoint("0x" + "aa".repeat(32), 0u), walletCkb * 100_000_000uL, lock)) }
         fun phases(actionId: String) = store.phases(actionId)
     }
@@ -185,5 +185,84 @@ class PrepaidServiceIssueLoadTest {
         h.svc.issue(tag, 1000, null)
         val out = h.svc.load(tag, h.store.cardByUid(uid1)!!, 10)
         assertTrue(out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("pending"))
+    }
+
+    private suspend fun pendAgain(h: H, uid: String, kind: String = KIND_ISSUE, units: Int = 1000) {
+        val c = h.store.cardByUid(uid)!!
+        h.store.updateCard(c.copy(pendingUnits = units, pendingTxHash = c.firstOutpoint.substringBefore(":"), pendingCommitted = true,
+            pendingActionId = "ax", pendingTagCounter = 0, pendingTagBalance = units, pendingKind = kind))
+    }
+
+    @Test fun resume_after_tear_during_zero_slot_does_not_double_credit() = runTest {
+        val h = h(); val tag = FakeTag(uid1); tag.tearOnWriteCall = 2   // first slot write completes, zeroSlot tears
+        assertTrue(h.svc.issue(tag, 1000, null) is ActionOutcome.AwaitingTag)
+        tag.present = true
+        assertEquals(ActionOutcome.Done, h.svc.resume(tag, h.store.cardByUid(uid1)!!))
+        val rec = h.protocol.selectSlot("", uid1, tag.readSlots()).record!!
+        assertEquals(1000, rec.balanceUnits); assertEquals(0u, rec.counter)
+        val c = h.store.cardByUid(uid1)!!
+        assertEquals(1000, c.balanceUnits); assertNull(c.pendingUnits); assertNull(c.pendingTagCounter)
+        assertEquals(listOf(PHASE_WRITTEN, PHASE_DONE), h.phases("a1").takeLast(2))
+    }
+
+    @Test fun resume_after_crash_following_the_write_does_not_double_credit() = runTest {
+        val h = h(); val tag = FakeTag(uid1)
+        assertEquals(ActionOutcome.Done, h.svc.issue(tag, 1000, null))
+        pendAgain(h, uid1)
+        val writes = tag.pageWrites; tag.failNextRead = true
+        assertTrue(h.svc.resume(tag, h.store.cardByUid(uid1)!!) is ActionOutcome.AwaitingTag)   // read glitch
+        assertEquals(ActionOutcome.Done, h.svc.resume(tag, h.store.cardByUid(uid1)!!))
+        assertEquals(writes + 16, tag.pageWrites)   // only the best-effort zero of the other slot
+        val rec = h.protocol.selectSlot("", uid1, tag.readSlots()).record!!
+        assertEquals(1000, rec.balanceUnits); assertEquals(0u, rec.counter)
+        assertNull(h.store.cardByUid(uid1)!!.pendingTxHash)
+    }
+
+    @Test fun load_timeout_then_resume_is_audited_as_load() = runTest {
+        val h = h(); val tag = FakeTag(uid1)
+        h.svc.issue(tag, 1000, null)
+        h.chain.confirmAfterPolls = null
+        assertTrue(h.svc.load(tag, h.store.cardByUid(uid1)!!, 50) is ActionOutcome.StillConfirming)
+        val card = h.store.cardByUid(uid1)!!; h.chain.confirm(card.pendingTxHash!!)
+        assertEquals(ActionOutcome.Done, h.svc.resume(tag, card))
+        assertTrue(h.store.events.filter { it.actionId == "a2" }.all { it.kind == KIND_LOAD })
+        val rec = h.protocol.selectSlot("", uid1, tag.readSlots()).record!!
+        assertEquals(1050, rec.balanceUnits); assertEquals(1u, rec.counter)
+    }
+
+    @Test fun resume_refuses_an_ambiguous_tag() = runTest {
+        val h = h(); val tag = FakeTag(uid1)
+        h.svc.issue(tag, 1000, null)
+        val card = h.store.cardByUid(uid1)!!
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid1, CardRecordInfo(0u, card.reserveId, 1, 7u, h.svc.merchantIdHex)))
+        tag.writeSlot(SlotPickFfi.B, h.protocol.seal("", uid1, CardRecordInfo(0u, card.reserveId, 2, 7u, h.svc.merchantIdHex)))
+        pendAgain(h, uid1)
+        val out = h.svc.resume(tag, h.store.cardByUid(uid1)!!)
+        assertTrue(out.toString(), out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("ambiguous"))
+        assertNotNull(h.store.cardByUid(uid1)!!.pendingTxHash)
+    }
+
+    @Test fun recover_gives_up_on_a_transaction_unknown_for_30_minutes() = runTest {
+        val h = h(); h.chain.confirmAfterPolls = null
+        h.svc.issue(FakeTag(uid1), 1000, null)
+        val hash = h.store.cardByUid(uid1)!!.pendingTxHash!!
+        h.chain.statusQueue[hash] = ArrayDeque(listOf(com.wyltek.wallet.core.chain.TxStatus.UNKNOWN))
+        assertEquals(0, h.svc.recoverPending())                 // not old enough
+        h.clockOffsetMs = 31L * 60 * 1000
+        assertEquals(1, h.svc.recoverPending())
+        assertNull(h.store.cardByUid(uid1)); assertEquals(PHASE_FAILED, h.phases("a1").last())
+    }
+
+    @Test fun status_rpc_errors_during_polling_do_not_abort() = runTest {
+        val h = h(); h.chain.throwOnStatusOnce = true
+        assertEquals(ActionOutcome.Done, h.svc.issue(FakeTag(uid1), 1000, null))
+    }
+
+    @Test fun load_on_revoked_card_is_refused() = runTest {
+        val h = h(); val tag = FakeTag(uid1)
+        h.svc.issue(tag, 1000, null)
+        h.svc.revoke(h.store.cardByUid(uid1)!!)
+        val out = h.svc.load(tag, h.store.cardByUid(uid1)!!, 10)
+        assertTrue(out.toString(), out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("revoked"))
     }
 }

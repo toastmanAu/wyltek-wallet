@@ -19,6 +19,7 @@ class FakeChain : ChainPort {
     /** Without an explicit queue: PENDING for this many polls, then CONFIRMED. Null = PENDING forever. */
     var confirmAfterPolls: Int? = 1
     var refuseBroadcast = false
+    var throwOnStatusOnce = false
     private val polls = mutableMapOf<String, Int>()
     private val applied = mutableSetOf<String>()
 
@@ -36,6 +37,7 @@ class FakeChain : ChainPort {
         return true
     }
     override suspend fun status(txHash: String): TxStatus? {
+        if (throwOnStatusOnce) { throwOnStatusOnce = false; throw java.io.IOException("rpc down") }
         if (txHash !in statusQueue && broadcasts.none { it.first == txHash }) return null
         statusQueue[txHash]?.let { q ->
             val s = if (q.size > 1) q.removeFirst() else q.first()

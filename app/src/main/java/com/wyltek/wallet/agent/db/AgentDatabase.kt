@@ -48,12 +48,22 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+/** v4 → v5: pending-action intent + idempotent tag-write bookkeeping on prepaid_cards. */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `prepaid_cards` ADD COLUMN `pendingKind` TEXT")
+        db.execSQL("ALTER TABLE `prepaid_cards` ADD COLUMN `pendingTagCounter` INTEGER")
+        db.execSQL("ALTER TABLE `prepaid_cards` ADD COLUMN `pendingTagBalance` INTEGER")
+        db.execSQL("ALTER TABLE `prepaid_cards` ADD COLUMN `pendingSince` INTEGER")
+    }
+}
+
 @Database(
     entities = [
         SpendRecordEntity::class, TokenRegistryEntity::class, PendingIntentEntity::class,
         PrepaidCardEntity::class, PrepaidEventEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AgentDatabase : RoomDatabase() {
@@ -67,7 +77,7 @@ object AgentDatabaseFactory {
         val factory = SupportFactory(passphrase.copyOf(), null, false)
         return Room.databaseBuilder(context.applicationContext, AgentDatabase::class.java, "agent_gateway.db")
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
     }
 }

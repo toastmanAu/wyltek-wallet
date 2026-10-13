@@ -35,6 +35,13 @@ data class PrepaidCardEntity(
     val pendingCommitted: Boolean = false,
     val issuedAt: Long,
     val updatedAt: Long,
+    /** Persisted intent of the pending action (KIND_ISSUE / KIND_LOAD / KIND_ADOPT). */
+    val pendingKind: String? = null,
+    /** The record (counter, balance) the pending tag write will produce; lets a resume recognise it already landed. */
+    val pendingTagCounter: Long? = null,
+    val pendingTagBalance: Int? = null,
+    /** Unix ms of the broadcast; used to give up on a transaction the node never heard of. */
+    val pendingSince: Long? = null,
 )
 
 /** Append-only audit log (D3 spec §3.2). One row per phase of one merchant action. */

@@ -5,6 +5,7 @@ import com.wyltek.wallet.core.model.LockScript
 import com.wyltek.wallet.core.model.Utxo
 import com.wyltek.wallet.core.native.*
 import com.wyltek.wallet.prepaid.db.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 
@@ -31,6 +32,7 @@ class PrepaidService(
     companion object {
         const val MAX_ACTIVE_CARDS = 64
         const val UNIT_SHANNONS = 100_000L
+        const val PENDING_UNKNOWN_GIVE_UP_MS = 30L * 60 * 1000
     }
 
     val lock: LockScript get() = signer.lock
@@ -57,7 +59,7 @@ class PrepaidService(
 
     // ---------------------------------------------------------------- classify
     suspend fun classify(tag: TagPort): TapClass {
-        val raw = try { tag.readSlots() } catch (e: TagLostException) { return TapClass.Refused("tag lost while reading") }
+        val raw = try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) { return TapClass.Refused("tag lost while reading") }
         val slot = protocol.selectSlot(kHex, tag.uidHex, raw)
         val byUid = store.cardByUid(tag.uidHex)
         val byReserve = slot.record?.let { store.card(it.reserveIdHex) }
@@ -75,10 +77,14 @@ class PrepaidService(
     /** Every reserve cell in the index; never a fee input for another card's transaction. */
     internal suspend fun excludedOutpoints(): Set<String> = store.allCards().map { it.currentOutpoint }.toSet()
 
+    /** A status query that threw is "no answer", never an abort. */
+    internal suspend fun statusOrNull(txHash: String): TxStatus? =
+        try { chain.status(txHash) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+
     internal suspend fun awaitCommit(txHash: String): TxStatus {
         var waited = 0L
         while (true) {
-            when (val s = chain.status(txHash)) { TxStatus.CONFIRMED, TxStatus.REJECTED -> return s; else -> {} }
+            when (val s = statusOrNull(txHash)) { TxStatus.CONFIRMED, TxStatus.REJECTED -> return s; else -> {} }
             if (waited >= pollBudgetMs) return TxStatus.PENDING
             delay(pollDelayMs); waited += pollDelayMs
         }
@@ -86,7 +92,11 @@ class PrepaidService(
 
     internal suspend fun broadcastAndAwait(a: Audit, planned: PlannedTx, built: BuiltTransaction, progress: (Phase) -> Unit): TxResult {
         val json = CkbTxJson.build(planned.inputs, planned.outputs, signer.cellDep, signer.witness0(built.txHashHex, planned.inputs.size))
-        if (!chain.broadcast(json, built.txHashHex)) {
+        val accepted = try { chain.broadcast(json, built.txHashHex) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            log(a, PHASE_FAILED, txHash = built.txHashHex, detail = "broadcast error: ${e.message}"); progress(Phase.FAILED)
+            return TxResult.Timeout(built.txHashHex)
+        }
+        if (!accepted) {
             log(a, PHASE_FAILED, detail = "broadcast refused"); progress(Phase.FAILED)
             return TxResult.Refused("the node refused the transaction")
         }
@@ -100,18 +110,14 @@ class PrepaidService(
 
     /** Which action a pending row belongs to. A committed issue awaiting its first tag write still sits on its
      *  first cell with counter 0; a load has moved the reserve to a new outpoint. */
-    internal fun kindOfPending(card: PrepaidCardEntity): String = when {
-        card.pendingUnits == null -> KIND_ADOPT
-        card.state == CARD_ISSUING -> KIND_ISSUE
-        card.firstOutpoint == card.currentOutpoint && card.counter == 0L && card.settledCounter == 0L -> KIND_ISSUE
-        else -> KIND_LOAD
-    }
+    internal fun kindOfPending(card: PrepaidCardEntity): String = card.pendingKind ?: KIND_LOAD
 
     internal fun auditForPending(card: PrepaidCardEntity) = Audit(card.pendingActionId ?: newActionId(), kindOfPending(card), card.uid,
         card.reserveId, (card.pendingUnits ?: 0).toLong(), card.balanceUnits, card.counter)
 
     internal suspend fun clearPending(card: PrepaidCardEntity, activate: Boolean) {
         store.updateCard(card.copy(pendingUnits = null, pendingTxHash = null, pendingActionId = null, pendingCommitted = false,
+            pendingKind = null, pendingTagCounter = null, pendingTagBalance = null, pendingSince = null,
             state = if (activate && card.state == CARD_ISSUING) CARD_ACTIVE else card.state, updatedAt = clock()))
     }
 
@@ -123,9 +129,22 @@ class PrepaidService(
         if (!tag.uidHex.equals(card.uid, ignoreCase = true))
             return ActionOutcome.Failed("this is a different tag; present the card ${card.label ?: card.uid}")
         if (!tag.isPresent()) return ActionOutcome.AwaitingTag(card.reserveId)
-        val raw = try { tag.readSlots() } catch (e: TagLostException) { return ActionOutcome.AwaitingTag(card.reserveId) }
+        val raw = try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) { return ActionOutcome.AwaitingTag(card.reserveId) }
         val slot = protocol.selectSlot(kHex, tag.uidHex, raw)
         val onTag = slot.record
+        if (slot.pick == SlotPickFfi.AMBIGUOUS) {
+            log(a, PHASE_FAILED, txHash = card.pendingTxHash, detail = "card state ambiguous"); progress(Phase.FAILED)
+            return ActionOutcome.Failed("card state ambiguous; repair the card")
+        }
+        // Idempotent resume: a previous attempt may have landed the record and then been interrupted.
+        if (onTag != null && onTag.writerId == 0.toUShort() && onTag.reserveIdHex.equals(card.reserveId, true) &&
+            card.pendingTagCounter != null && onTag.counter.toLong() == card.pendingTagCounter && onTag.balanceUnits == card.pendingTagBalance) {
+            if (a.kind == KIND_ISSUE) {
+                try { tag.zeroSlot(if (slot.pick == SlotPickFfi.A) SlotPickFfi.B else SlotPickFfi.A) }
+                catch (e: CancellationException) { throw e } catch (e: Exception) { /* best effort */ }
+            }
+            return finalise(card, onTag.counter.toLong(), a, progress, "already on tag")
+        }
         // Tag balance follows the tag (unsettled terminal taps live there); the index follows the chain.
         val tagBalance = (onTag?.balanceUnits ?: (card.balanceUnits - pending)) + pending
         val counter: Long = when {
@@ -135,14 +154,15 @@ class PrepaidService(
         }
         val raw64 = protocol.seal(kHex, tag.uidHex, CardRecordInfo(0u, card.reserveId, tagBalance, counter.toUInt(), merchantIdHex))
         val target = protocol.nextSlot(slot.pick)
+        store.updateCard(card.copy(pendingTagCounter = counter, pendingTagBalance = tagBalance))
         try {
             tag.writeSlot(target, raw64)
             if (onTag == null) tag.zeroSlot(if (target == SlotPickFfi.A) SlotPickFfi.B else SlotPickFfi.A)
-        } catch (e: TagLostException) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             log(a, PHASE_FAILED, txHash = card.pendingTxHash, detail = "write interrupted: ${e.message}"); progress(Phase.FAILED)
             return ActionOutcome.AwaitingTag(card.reserveId)
         }
-        val back = try { tag.readSlots() } catch (e: TagLostException) {
+        val back = try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) {
             log(a, PHASE_FAILED, txHash = card.pendingTxHash, detail = "readback interrupted"); progress(Phase.FAILED)
             return ActionOutcome.AwaitingTag(card.reserveId)
         }
@@ -152,11 +172,17 @@ class PrepaidService(
             log(a, PHASE_FAILED, txHash = card.pendingTxHash, detail = "readback mismatch A=${hex(back, 0, 64)} B=${hex(back, 64, 128)}"); progress(Phase.FAILED)
             return ActionOutcome.AwaitingTag(card.reserveId)
         }
+        return finalise(card, counter, a, progress, "")
+    }
+
+    /** The credit is on the tag: update the row, clear every pending field, log WRITTEN + DONE. */
+    private suspend fun finalise(card: PrepaidCardEntity, counter: Long, a: Audit, progress: (Phase) -> Unit, detail: String): ActionOutcome {
         val updated = card.copy(counter = counter, pendingUnits = null, pendingTxHash = null, pendingActionId = null, pendingCommitted = false,
+            pendingKind = null, pendingTagCounter = null, pendingTagBalance = null, pendingSince = null,
             state = if (card.state == CARD_ISSUING) CARD_ACTIVE else card.state, updatedAt = clock())
         store.updateCard(updated)
-        log(a, PHASE_WRITTEN, balanceAfter = updated.balanceUnits, counterAfter = counter, txHash = card.pendingTxHash); progress(Phase.WRITTEN)
-        log(a, PHASE_DONE, balanceAfter = updated.balanceUnits, counterAfter = counter, txHash = card.pendingTxHash); progress(Phase.DONE)
+        log(a, PHASE_WRITTEN, balanceAfter = updated.balanceUnits, counterAfter = counter, txHash = card.pendingTxHash, detail = detail); progress(Phase.WRITTEN)
+        log(a, PHASE_DONE, balanceAfter = updated.balanceUnits, counterAfter = counter, txHash = card.pendingTxHash, detail = detail); progress(Phase.DONE)
         return ActionOutcome.Done
     }
 
@@ -177,7 +203,7 @@ class PrepaidService(
         store.insertCard(PrepaidCardEntity(reserveId = reserveId, uid = tag.uidHex, label = label?.ifBlank { null },
             firstOutpoint = "${built.txHashHex}:0", currentOutpoint = "${built.txHashHex}:0", balanceUnits = 0, counter = 0, settledCounter = 0,
             state = CARD_ISSUING, pendingUnits = amountUnits, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false,
-            issuedAt = now, updatedAt = now))
+            pendingKind = KIND_ISSUE, pendingSince = now, issuedAt = now, updatedAt = now))
         log(a, PHASE_REQUESTED); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
             is TxResult.Refused -> { store.deleteIssuing(reserveId); ActionOutcome.Failed(r.reason) }
@@ -205,7 +231,8 @@ class PrepaidService(
         } catch (e: InsufficientFunds) { return@exclusive ActionOutcome.Failed(e.message!!) }
         val built = signer.build(planned.inputs, planned.outputs)
         val a = Audit(newActionId(), KIND_LOAD, fresh.uid, fresh.reserveId, amountUnits.toLong(), fresh.balanceUnits, fresh.counter)
-        store.updateCard(fresh.copy(pendingUnits = amountUnits, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false, updatedAt = clock()))
+        store.updateCard(fresh.copy(pendingUnits = amountUnits, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false,
+            pendingKind = KIND_LOAD, pendingSince = clock(), updatedAt = clock()))
         log(a, PHASE_REQUESTED); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
             is TxResult.Refused -> { clearPending(store.card(fresh.reserveId)!!, activate = false); ActionOutcome.Failed(r.reason) }
@@ -311,7 +338,7 @@ class PrepaidService(
     suspend fun repair(tag: TagPort, card: PrepaidCardEntity, progress: (Phase) -> Unit = {}): ActionOutcome = exclusive {
         val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
         if (fresh.state == CARD_CLOSED) return@exclusive ActionOutcome.Failed("card is closed")
-        if (fresh.pendingTxHash != null) return@exclusive ActionOutcome.Failed("finish the pending credit first (tap the card)")
+        if (fresh.pendingTxHash != null && !fresh.pendingCommitted) return@exclusive ActionOutcome.Failed("finish the pending credit first (tap the card)")
         if (!tag.uidHex.equals(fresh.uid, true)) return@exclusive ActionOutcome.Failed("this is a different tag")
         val counter = maxOf(fresh.counter, fresh.settledCounter) + 1
         val a = Audit(newActionId(), KIND_REPAIR, fresh.uid, fresh.reserveId, 0, fresh.balanceUnits, fresh.counter)
@@ -324,7 +351,11 @@ class PrepaidService(
             log(a, PHASE_FAILED, detail = "readback interrupted"); progress(Phase.FAILED); return@exclusive ActionOutcome.Failed("readback interrupted; tap again")
         }
         if (sel.record?.counter?.toLong() != counter) { log(a, PHASE_FAILED, detail = "readback mismatch"); progress(Phase.FAILED); return@exclusive ActionOutcome.Failed("readback mismatch; tap again") }
-        store.updateCard(fresh.copy(counter = counter, updatedAt = clock()))
+        if (fresh.pendingUnits != null) {
+            val pa = auditForPending(fresh)
+            clearPending(fresh.copy(counter = counter), activate = true)
+            log(pa, PHASE_DONE, balanceAfter = fresh.balanceUnits, counterAfter = counter, txHash = fresh.pendingTxHash, detail = "credit applied by repair")
+        } else store.updateCard(fresh.copy(counter = counter, updatedAt = clock()))
         log(a, PHASE_WRITTEN, counterAfter = counter); progress(Phase.WRITTEN)
         log(a, PHASE_DONE, counterAfter = counter); progress(Phase.DONE)
         ActionOutcome.Done
@@ -345,7 +376,7 @@ class PrepaidService(
         store.insertCard(PrepaidCardEntity(reserveId = record.reserveIdHex, uid = tag.uidHex, label = null,
             firstOutpoint = "${built.txHashHex}:0", currentOutpoint = "${built.txHashHex}:0", balanceUnits = 0, counter = record.counter.toLong(),
             settledCounter = 0, state = CARD_ISSUING, pendingUnits = null, pendingTxHash = built.txHashHex, pendingActionId = a.actionId,
-            pendingCommitted = false, issuedAt = now, updatedAt = now))
+            pendingCommitted = false, pendingKind = KIND_ADOPT, pendingSince = now, issuedAt = now, updatedAt = now))
         log(a, PHASE_REQUESTED, detail = "terminal ${record.writerId}"); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
             is TxResult.Refused -> { store.deleteIssuing(record.reserveIdHex); ActionOutcome.Failed(r.reason) }
@@ -353,7 +384,8 @@ class PrepaidService(
             is TxResult.Timeout -> ActionOutcome.StillConfirming(r.txHash)
             is TxResult.Committed -> {
                 store.updateCard(store.card(record.reserveIdHex)!!.copy(state = CARD_ACTIVE, balanceUnits = record.balanceUnits,
-                    pendingUnits = null, pendingTxHash = null, pendingActionId = null, pendingCommitted = false, updatedAt = clock()))
+                    pendingUnits = null, pendingTxHash = null, pendingActionId = null, pendingCommitted = false,
+                    pendingKind = null, pendingTagCounter = null, pendingTagBalance = null, pendingSince = null, updatedAt = clock()))
                 log(a, PHASE_DONE, balanceAfter = record.balanceUnits, txHash = r.txHash); progress(Phase.DONE)
                 ActionOutcome.Done
             }
@@ -366,7 +398,7 @@ class PrepaidService(
         val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
         val hash = fresh.pendingTxHash ?: return@exclusive ActionOutcome.Done
         val a = auditForPending(fresh)
-        val committed = fresh.pendingCommitted || when (chain.status(hash)) {
+        val committed = fresh.pendingCommitted || when (statusOrNull(hash)) {
             TxStatus.CONFIRMED -> { log(a, PHASE_COMMITTED, txHash = hash); progress(Phase.COMMITTED); true }
             TxStatus.REJECTED -> {
                 log(a, PHASE_FAILED, txHash = hash, detail = "rejected by the node"); progress(Phase.FAILED)
@@ -404,7 +436,14 @@ class PrepaidService(
                 if (card.pendingUnits == null) { clearPending(card, activate = true); log(a, PHASE_DONE, txHash = hash); changed++ }
                 continue
             }
-            when (chain.status(hash)) {
+            val st = statusOrNull(hash)
+            if ((st == null || st == TxStatus.UNKNOWN) && card.pendingSince != null && clock() - card.pendingSince >= PENDING_UNKNOWN_GIVE_UP_MS) {
+                log(a, PHASE_FAILED, txHash = hash, detail = "transaction unknown to the node for 30 min; given up")
+                if (card.state == CARD_ISSUING) store.deleteIssuing(card.reserveId) else clearPending(card, activate = false)
+                changed++
+                continue
+            }
+            when (st) {
                 TxStatus.CONFIRMED -> {
                     log(a, PHASE_COMMITTED, txHash = hash)
                     val c = onCommitted(card, hash)
