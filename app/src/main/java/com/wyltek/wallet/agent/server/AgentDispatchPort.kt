@@ -30,4 +30,8 @@ interface AgentDispatchPort {
     /** Token-gated, method-whitelisted proxy of a CKB read RPC to the phone's node.
      *  Reads only (get_cells_capacity / get_transactions); returns the node body verbatim. */
     suspend fun proxyChainRead(token: String, method: String, rawBody: String): ChainProxyResult
+
+    /** D3 spec §6: verify + settle a journal batch. Token in `x-device-token`, scope `prepaid_settle`. */
+    suspend fun prepaidJournal(token: String, entriesHex: String, sourceIp: String, nowUnix: Long): PrepaidJournalResult = PrepaidJournalResult.BadToken
+    suspend fun prepaidCards(token: String, sourceIp: String, nowUnix: Long): PrepaidCardsResult = PrepaidCardsResult.BadToken
 }

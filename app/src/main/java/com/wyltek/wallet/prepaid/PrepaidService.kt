@@ -521,4 +521,69 @@ class PrepaidService(
         }
         changed
     } ?: 0
+
+    // ---------------------------------------------------------------- settle
+    data class SettleResult(val verdicts: List<String>, val txHash: String?)
+
+    private fun verdictName(v: JournalVerdict) = when (v) {
+        JournalVerdict.ACCEPTED -> "accepted"; JournalVerdict.DUPLICATE -> "duplicate"; JournalVerdict.BAD_MAC -> "bad_mac"
+        JournalVerdict.UNKNOWN_CARD -> "unknown_card"; JournalVerdict.STALE_COUNTER -> "stale_counter"; JournalVerdict.OVER_BALANCE -> "over_balance"
+    }
+
+    /** reserve_id of entry i = bytes 20..52 of the 96-byte entry (main spec §8.1). */
+    private fun entryReserveId(entriesHex: String, i: Int): String = entriesHex.removePrefix("0x").substring(i * 192 + 40, i * 192 + 104).lowercase()
+
+    /** D3 spec §6. Null when the body is not valid hex or not a multiple of 96 bytes. Every accepted entry
+     *  becomes `retry` when the batch transaction does not commit, when another action holds the service,
+     *  and for entries of a card with a pending credit (settled next time). */
+    suspend fun settle(entriesHex: String, terminalLabel: String): SettleResult? {
+        val hexBody = entriesHex.removePrefix("0x").lowercase()
+        if (hexBody.length % 192 != 0 || !hexBody.all { it in '0'..'9' || it in 'a'..'f' }) return null
+        return exclusive { settleLocked(hexBody, terminalLabel) } ?: SettleResult(List(hexBody.length / 192) { "retry" }, null)
+    }
+
+    private suspend fun settleLocked(hexBody: String, terminalLabel: String): SettleResult {
+        val all = store.allCards()
+        val pendingIds = all.filter { it.pendingTxHash != null }.map { it.reserveId.lowercase() }.toSet()
+        val eligible = all.filter { (it.state == CARD_ACTIVE || it.state == CARD_REVOKED) && it.pendingTxHash == null }
+        val res = try {
+            protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) })
+        } catch (e: PrepaidException) { return SettleResult(List(hexBody.length / 192) { "retry" }, null) }
+        val names = res.verdicts.mapIndexed { i, v -> if (v == JournalVerdict.UNKNOWN_CARD && entryReserveId(hexBody, i) in pendingIds) "retry" else verdictName(v) }
+        fun retryAll() = SettleResult(names.map { if (it == "accepted") "retry" else it }, null)
+        if (res.nets.isEmpty()) return SettleResult(names, null)
+
+        val byId = eligible.associateBy { it.reserveId.lowercase() }
+        val moving = res.nets.filter { it.netUnits != 0L }
+        val actionId = newActionId()
+        suspend fun advance(card: PrepaidCardEntity, net: CardNetFfi, outpoint: String?, txHash: String?) {
+            val newBalance = (card.balanceUnits - net.netUnits).toInt()
+            store.updateCard(card.copy(balanceUnits = newBalance, settledCounter = net.maxTmc.toLong(), counter = maxOf(card.counter, net.maxTmc.toLong()),
+                currentOutpoint = outpoint ?: card.currentOutpoint, updatedAt = clock()))
+            log(Audit(actionId, KIND_SETTLE, card.uid, card.reserveId, -net.netUnits, card.balanceUnits, card.counter), PHASE_DONE,
+                balanceAfter = newBalance, counterAfter = net.maxTmc.toLong(), txHash = txHash, detail = "$terminalLabel; ${net.accepted} entries; tmc ≤ ${net.maxTmc}")
+        }
+        if (moving.isEmpty()) { res.nets.forEach { n -> byId[n.reserveIdHex.lowercase()]?.let { advance(it, n, null, null) } }; return SettleResult(names, null) }
+
+        val cards = moving.map { byId[it.reserveIdHex.lowercase()] ?: return retryAll() }
+        val reserves = cards.map { chain.cellAt(it.currentOutpoint) ?: return retryAll() }
+        val fixed = moving.mapIndexed { i, n -> PrepaidTxPlanner.output((reserves[i].capacity.toLong() - n.netUnits * UNIT_SHANNONS).toULong(), signer.lock) }
+        val planned = try {
+            PrepaidTxPlanner.plan(reserves, chain.cellsByLock(signer.lock), excludedOutpoints() - cards.map { it.currentOutpoint }.toSet(), fixed, signer.lock)
+        } catch (e: InsufficientFunds) {
+            log(Audit(actionId, KIND_SETTLE, "", null, 0, 0, 0), PHASE_FAILED, detail = "$terminalLabel; ${e.message}"); return retryAll()
+        }
+        val built = signer.build(planned.inputs, planned.outputs)
+        val batchAudit = Audit(actionId, KIND_SETTLE, "", null, moving.sumOf { -it.netUnits }, 0, 0)
+        log(batchAudit, PHASE_REQUESTED, detail = "$terminalLabel; ${moving.size} cards")
+        return when (val r = broadcastAndAwait(batchAudit, planned, built, {})) {
+            is TxResult.Committed -> {
+                moving.forEachIndexed { i, n -> advance(cards[i], n, "${r.txHash}:$i", r.txHash) }
+                res.nets.filter { it.netUnits == 0L }.forEach { n -> byId[n.reserveIdHex.lowercase()]?.let { advance(it, n, null, r.txHash) } }
+                SettleResult(names, r.txHash)
+            }
+            is TxResult.Timeout -> { log(batchAudit, PHASE_FAILED, txHash = r.txHash, detail = "$terminalLabel; not committed in time"); retryAll() }
+            else -> retryAll()
+        }
+    }
 }

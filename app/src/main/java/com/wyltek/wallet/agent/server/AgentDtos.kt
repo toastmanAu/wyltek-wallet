@@ -50,3 +50,19 @@ sealed class ChainProxyResult {
     object BadMethod : ChainProxyResult()
     data class Upstream(val message: String) : ChainProxyResult()
 }
+
+@Serializable data class PrepaidJournalRequest(@SerialName("entries_hex") val entriesHex: String)
+@Serializable data class JournalVerdictDto(val index: Int, val verdict: String, @SerialName("tx_hash") val txHash: String? = null)
+@Serializable data class PrepaidJournalResponse(val results: List<JournalVerdictDto>)
+@Serializable data class PrepaidCardDto(@SerialName("reserve_id") val reserveId: String, @SerialName("balance_units") val balanceUnits: Int, val revoked: Boolean)
+@Serializable data class PrepaidCardsResponse(val cards: List<PrepaidCardDto>)
+
+sealed class PrepaidJournalResult {
+    data object BadToken : PrepaidJournalResult()
+    data class BadRequest(val reason: String) : PrepaidJournalResult()
+    data class Ok(val results: List<JournalVerdictDto>) : PrepaidJournalResult()
+}
+sealed class PrepaidCardsResult {
+    data object BadToken : PrepaidCardsResult()
+    data class Ok(val cards: List<PrepaidCardDto>) : PrepaidCardsResult()
+}
