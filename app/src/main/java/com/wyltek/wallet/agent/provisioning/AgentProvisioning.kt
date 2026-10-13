@@ -9,15 +9,30 @@ fun serviceNameFor(deviceId: String): String =
  * yet paired to the relay (deviceId null/blank).
  *
  * Format (compact, no spaces — the POS matches the literal substrings
- * `"device_id":"`, `"token":"` and `"service_name":"` with strstr, NOT a JSON parser):
+ * `"device_id":"`, `"token":"`, `"service_name":"`, `"k_debit":"` and `"merchant_id":"`
+ * with strstr, NOT a JSON parser):
  *   {"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>"}
+ *   {"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>","k_debit":"<32 hex>","merchant_id":"<16 hex>"}
+ *
+ * The prepaid fields k_debit and merchant_id are appended only when BOTH are non-null;
+ * otherwise the output is byte-identical to the three-field bundle.
  *
  * Built as a manual string, not org.json.JSONObject: org.json is stubbed in JVM
  * unit tests. All values are quote-free by construction (UUID + URL-safe base64 + mDNS name),
  * so no escaping is required.
  */
-fun buildProvisioningBundle(deviceId: String?, token: String): String? {
+fun buildProvisioningBundle(
+    deviceId: String?,
+    token: String,
+    kDebitHex: String? = null,
+    merchantIdHex: String? = null,
+): String? {
     val id = deviceId?.ifBlank { null } ?: return null
     val svc = serviceNameFor(id)
-    return """{"device_id":"$id","token":"$token","service_name":"$svc"}"""
+    val prepaid = if (kDebitHex != null && merchantIdHex != null) {
+        ""","k_debit":"$kDebitHex","merchant_id":"$merchantIdHex""""
+    } else {
+        ""
+    }
+    return """{"device_id":"$id","token":"$token","service_name":"$svc"$prepaid}"""
 }

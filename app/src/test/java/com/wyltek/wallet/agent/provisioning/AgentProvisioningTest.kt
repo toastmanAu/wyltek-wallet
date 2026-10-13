@@ -39,4 +39,16 @@ class AgentProvisioningTest {
     fun `blank deviceId returns null (unpaired guard)`() {
         assertNull(buildProvisioningBundle("   ", "tok"))
     }
+
+    @Test
+    fun `bundle carries k_debit and merchant_id after the original three fields`() {
+        val out = buildProvisioningBundle("dev-123", "tok-abc", kDebitHex = "00112233445566778899aabbccddeeff", merchantIdHex = "1122334455667788")
+        assertEquals("""{"device_id":"dev-123","token":"tok-abc","service_name":"blackbox-dev123","k_debit":"00112233445566778899aabbccddeeff","merchant_id":"1122334455667788"}""", out)
+    }
+
+    @Test
+    fun `bundle without prepaid fields is byte-identical to before`() {
+        assertEquals("""{"device_id":"dev-123","token":"tok-abc","service_name":"blackbox-dev123"}""", buildProvisioningBundle("dev-123", "tok-abc"))
+        assertEquals(buildProvisioningBundle("dev-123", "tok-abc"), buildProvisioningBundle("dev-123", "tok-abc", kDebitHex = "aa", merchantIdHex = null))
+    }
 }
