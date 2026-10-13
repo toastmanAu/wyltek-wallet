@@ -265,4 +265,60 @@ class PrepaidServiceIssueLoadTest {
         val out = h.svc.load(tag, h.store.cardByUid(uid1)!!, 10)
         assertTrue(out.toString(), out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("revoked"))
     }
+
+    @Test fun repair_with_pending_torn_then_resume_does_not_double_credit() = runTest {
+        val h = h(); h.chain.confirmAfterPolls = null; val tag = FakeTag(uid1)
+        assertTrue(h.svc.issue(tag, 1000, null) is ActionOutcome.StillConfirming)
+        val hash = h.store.cardByUid(uid1)!!.pendingTxHash!!; h.chain.confirm(hash)
+        assertEquals(1, h.svc.recoverPending())
+        tag.pages.forEach { it.fill(0) }
+        tag.tearOnWriteCall = 2
+        assertTrue(h.svc.repair(tag, h.store.cardByUid(uid1)!!) is ActionOutcome.Failed)
+        tag.present = true
+        assertEquals(ActionOutcome.Done, h.svc.resume(tag, h.store.cardByUid(uid1)!!))
+        assertEquals(1000, h.protocol.selectSlot("", uid1, tag.readSlots()).record!!.balanceUnits)
+        val c = h.store.cardByUid(uid1)!!; assertNull(c.pendingTxHash); assertEquals(1000, c.balanceUnits)
+    }
+
+    @Test fun give_up_never_fires_on_rpc_errors() = runTest {
+        val h = h(); h.chain.confirmAfterPolls = null
+        h.svc.issue(FakeTag(uid1), 1000, null)
+        val hash = h.store.cardByUid(uid1)!!.pendingTxHash!!
+        h.clockOffsetMs = 31L * 60 * 1000
+        h.chain.throwOnStatusAlways = true
+        assertEquals(0, h.svc.recoverPending())
+        assertEquals(CARD_ISSUING, h.store.cardByUid(uid1)!!.state); assertNotNull(h.store.cardByUid(uid1)!!.pendingTxHash)
+        h.chain.throwOnStatusAlways = false
+        h.chain.statusQueue[hash] = ArrayDeque(listOf(com.wyltek.wallet.core.chain.TxStatus.UNKNOWN))
+        assertEquals(1, h.svc.recoverPending())
+        assertNull(h.store.cardByUid(uid1))
+    }
+
+    @Test fun issue_write_then_terminal_tap_then_resume_finalises_once() = runTest {
+        val h = h(); val tag = FakeTag(uid1); tag.tearOnWriteCall = 2
+        assertTrue(h.svc.issue(tag, 1000, null) is ActionOutcome.AwaitingTag)
+        val card = h.store.cardByUid(uid1)!!
+        tag.present = true
+        tag.writeSlot(SlotPickFfi.B, h.protocol.seal("", uid1, CardRecordInfo(3u, card.reserveId, 900, 1u, h.svc.merchantIdHex)))
+        assertEquals(ActionOutcome.Done, h.svc.resume(tag, h.store.cardByUid(uid1)!!))
+        val rec = h.protocol.selectSlot("", uid1, tag.readSlots()).record!!
+        assertEquals(900, rec.balanceUnits); assertEquals(1u, rec.counter)
+        val c = h.store.cardByUid(uid1)!!; assertEquals(1000, c.balanceUnits); assertNull(c.pendingTxHash)
+    }
+
+    @Test fun load_write_then_terminal_tap_then_resume_is_refused() = runTest {
+        val h = h(); val tag = FakeTag(uid1)
+        h.svc.issue(tag, 1000, null)
+        tag.failNextRead = false
+        // make the readback (second read inside writePending) throw: arm after the first read via a tear on a no-op is not possible,
+        // so simulate the interrupted readback by re-pending the load after its write landed.
+        assertEquals(ActionOutcome.Done, h.svc.load(tag, h.store.cardByUid(uid1)!!, 100))
+        val c0 = h.store.cardByUid(uid1)!!
+        h.store.updateCard(c0.copy(pendingUnits = 100, pendingTxHash = c0.currentOutpoint.substringBefore(":"), pendingCommitted = true,
+            pendingActionId = "ax", pendingKind = KIND_LOAD, pendingTagCounter = 1, pendingTagBalance = 1100))
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid1, CardRecordInfo(3u, c0.reserveId, 1000, 2u, h.svc.merchantIdHex)))
+        val out = h.svc.resume(tag, h.store.cardByUid(uid1)!!)
+        assertTrue(out.toString(), out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("terminal"))
+        assertNotNull(h.store.cardByUid(uid1)!!.pendingTxHash)
+    }
 }

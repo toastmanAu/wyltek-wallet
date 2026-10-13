@@ -147,6 +147,13 @@ class PrepaidService(
             }
             return finalise(card, onTag.counter.toLong(), a, progress, "already on tag")
         }
+        // A terminal tapped the card after our intended write.
+        if (onTag != null && onTag.writerId != 0.toUShort() && onTag.reserveIdHex.equals(card.reserveId, true) &&
+            card.pendingTagCounter != null && onTag.counter.toLong() > card.pendingTagCounter) {
+            if (a.kind == KIND_ISSUE) return finalise(card, onTag.counter.toLong(), a, progress, "written then used at a terminal")
+            log(a, PHASE_FAILED, txHash = card.pendingTxHash, detail = "terminal wrote after the pending credit was intended"); progress(Phase.FAILED)
+            return ActionOutcome.Failed("card was used at a terminal before the pending credit was confirmed; inspect the card")
+        }
         // Tag balance follows the tag (unsettled terminal taps live there); the index follows the chain.
         val tagBalance = (onTag?.balanceUnits ?: (card.balanceUnits - pending)) + pending
         val counter: Long = when {
@@ -326,7 +333,7 @@ class PrepaidService(
                 clearPending(card, activate = false)
                 ActionOutcome.Failed("rejected by the node")
             }
-            (st == null || st == TxStatus.UNKNOWN) && card.pendingSince != null && clock() - card.pendingSince >= PENDING_UNKNOWN_GIVE_UP_MS -> {
+            st == TxStatus.UNKNOWN && card.pendingSince != null && clock() - card.pendingSince >= PENDING_UNKNOWN_GIVE_UP_MS -> {
                 log(a, PHASE_FAILED, txHash = hash, detail = "transaction unknown to the node for 30 min; given up"); progress(Phase.FAILED)
                 clearPending(card, activate = false)
                 ActionOutcome.Failed("transaction unknown to the node; given up")
@@ -387,6 +394,7 @@ class PrepaidService(
         val a = Audit(newActionId(), KIND_REPAIR, fresh.uid, fresh.reserveId, 0, fresh.balanceUnits, fresh.counter)
         log(a, PHASE_REQUESTED); progress(Phase.REQUESTED)
         val raw64 = protocol.seal(kHex, tag.uidHex, CardRecordInfo(0u, fresh.reserveId, fresh.balanceUnits, counter.toUInt(), merchantIdHex))
+        if (fresh.pendingUnits != null) store.updateCard(fresh.copy(pendingTagCounter = counter, pendingTagBalance = fresh.balanceUnits))
         try { tag.writeSlot(SlotPickFfi.A, raw64); tag.zeroSlot(SlotPickFfi.B) } catch (e: TagLostException) {
             log(a, PHASE_FAILED, detail = "write interrupted: ${e.message}"); progress(Phase.FAILED); return@exclusive ActionOutcome.Failed("write interrupted; tap again")
         }
@@ -490,7 +498,7 @@ class PrepaidService(
                 continue
             }
             val st = statusOrNull(hash)
-            if ((st == null || st == TxStatus.UNKNOWN) && card.pendingSince != null && clock() - card.pendingSince >= PENDING_UNKNOWN_GIVE_UP_MS) {
+            if (st == TxStatus.UNKNOWN && card.pendingSince != null && clock() - card.pendingSince >= PENDING_UNKNOWN_GIVE_UP_MS) {
                 log(a, PHASE_FAILED, txHash = hash, detail = "transaction unknown to the node for 30 min; given up")
                 if (card.state == CARD_ISSUING) store.deleteIssuing(card.reserveId) else clearPending(card, activate = false)
                 changed++
