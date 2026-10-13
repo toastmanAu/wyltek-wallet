@@ -126,4 +126,70 @@ class PrepaidServiceRetireTest {
         assertEquals(CARD_ACTIVE, d.state); assertNull(d.pendingTxHash); assertEquals(500_000, d.balanceUnits)
         assertEquals(PHASE_DONE, h.store.phases("a1").last())
     }
+
+    @Test fun void_and_cash_out_are_refused_while_a_load_is_pending_on_an_active_card() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        h.chain.confirmAfterPolls = null
+        assertTrue(h.svc.load(tag, card, 1000) is ActionOutcome.StillConfirming)
+        h.chain.confirmAfterPolls = 1
+        val cur = h.store.card(card.reserveId)!!
+        val v = h.svc.void(cur, null); assertTrue(v is ActionOutcome.Failed && (v as ActionOutcome.Failed).reason.contains("pending"))
+        val c = h.svc.cashOut(tag, cur, "ckt1customer"); assertTrue(c is ActionOutcome.Failed && (c as ActionOutcome.Failed).reason.contains("pending"))
+    }
+
+    @Test fun void_timeout_is_recorded_and_closes_on_recovery() = runTest {
+        val h = h(); val card = issued(h, FakeTag(uid))
+        h.chain.confirmAfterPolls = null
+        val r = h.svc.void(card, null); assertTrue(r is ActionOutcome.StillConfirming)
+        val hash = (r as ActionOutcome.StillConfirming).txHash
+        val parked = h.store.card(card.reserveId)!!
+        assertEquals(KIND_VOID, parked.pendingKind); assertEquals(CARD_ACTIVE, parked.state); assertEquals(hash, parked.pendingTxHash)
+        h.chain.confirm(hash)
+        assertEquals(1, h.svc.recoverPending())
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_CLOSED, c.state); assertEquals(0, c.balanceUnits); assertNull(c.pendingTxHash); assertNull(c.pendingKind)
+        assertEquals(PHASE_DONE, h.store.phases("a2").last())
+    }
+
+    @Test fun cash_out_timeout_closes_on_resume_and_wipes_tag() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        h.chain.confirmAfterPolls = null
+        val r = h.svc.cashOut(tag, card, "ckt1customer"); assertTrue(r is ActionOutcome.StillConfirming)
+        assertEquals(KIND_CASH_OUT, h.store.card(card.reserveId)!!.pendingKind)
+        h.chain.confirm((r as ActionOutcome.StillConfirming).txHash)
+        assertEquals(ActionOutcome.Done, h.svc.resume(tag, h.store.card(card.reserveId)!!))
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_CLOSED, c.state); assertEquals(0, c.balanceUnits); assertNull(c.pendingTxHash)
+        assertTrue(tag.readSlots().all { it == 0.toByte() })
+    }
+
+    @Test fun cash_out_refuses_when_the_tag_cannot_be_read() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        tag.failNextRead = true
+        val r = h.svc.cashOut(tag, card, "ckt1customer")
+        assertTrue(r is ActionOutcome.Failed && (r as ActionOutcome.Failed).reason.contains("could not read"))
+        assertEquals(CARD_ACTIVE, h.store.card(card.reserveId)!!.state)
+    }
+
+    @Test fun adopt_recovery_waits_when_the_reserve_cell_is_not_visible() = runTest {
+        val h = h(); h.chain.confirmAfterPolls = null; val tag = FakeTag(uid); val rid = "b1".repeat(32)
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid, CardRecordInfo(3u, rid, 500_000, 2u, h.svc.merchantIdHex)))
+        val rec = (h.svc.classify(tag) as TapClass.Bench).record
+        assertTrue(h.svc.adopt(tag, rec) is ActionOutcome.StillConfirming)
+        val c = h.store.card(rid)!!
+        h.chain.confirm(c.pendingTxHash!!)
+        h.chain.status(c.pendingTxHash!!)                                   // applies the tx to the fake UTXO set
+        val cell = h.chain.cells.remove(c.currentOutpoint)!!
+        assertEquals(0, h.svc.recoverPending())
+        assertEquals(CARD_ISSUING, h.store.card(rid)!!.state); assertEquals(0, h.store.card(rid)!!.balanceUnits)
+        h.chain.cells[c.currentOutpoint] = cell
+        assertEquals(1, h.svc.recoverPending())
+        assertEquals(500_000, h.store.card(rid)!!.balanceUnits); assertEquals(CARD_ACTIVE, h.store.card(rid)!!.state)
+    }
+
+    @Test fun repair_refuses_a_readable_tag() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 1000)
+        val r = h.svc.repair(tag, card)
+        assertTrue(r is ActionOutcome.Failed && (r as ActionOutcome.Failed).reason.contains("readable"))
+    }
 }
