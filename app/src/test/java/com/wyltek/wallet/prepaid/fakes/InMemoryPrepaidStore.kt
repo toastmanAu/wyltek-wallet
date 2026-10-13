@@ -22,6 +22,10 @@ class InMemoryPrepaidStore : PrepaidStore {
         cards[c.reserveId] = c; emit()
     }
     override suspend fun updateCard(c: PrepaidCardEntity) { check(c.reserveId in cards); cards[c.reserveId] = c; emit() }
+    /** All or none, like the Room transaction. */
+    override suspend fun updateCards(cards: List<PrepaidCardEntity>) {
+        check(cards.all { it.reserveId in this.cards }); cards.forEach { this.cards[it.reserveId] = it }; emit()
+    }
     override suspend fun deleteIssuing(reserveId: String): Int = if (cards[reserveId]?.state == CARD_ISSUING) { cards.remove(reserveId); emit(); 1 } else 0
     override suspend fun allCards() = cards.values.toList()
     override suspend fun cardsWithPending() = cards.values.filter { it.pendingTxHash != null }

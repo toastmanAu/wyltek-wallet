@@ -63,6 +63,10 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                     TapAction.CASH_OUT -> OutlinedButton(enabled = !ui.busy, onClick = { previewCashOut = null; cashOutOpen = true }) { Text("Cash out") }
                 }
             }
+            if (PrepaidUiReducer.offersAcceptAsIs(ui.outcome, ui.tap)) {
+                Text("The pending credit stays on chain (in the index balance) but is not written to the card.", color = TextSecondary)
+                OutlinedButton(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); gated("Accept card as-is") { viewModel.acceptTagAsIs(c) } }) { Text("Accept card as-is") }
+            }
             if (!ui.tagPresent && ui.tap != null && ui.tap !is TapClass.Refused) Text("Tap the card again to continue.", color = WarningOrange)
             authError?.let { Text(it, color = ErrorRed) }
             if (ui.phases.isNotEmpty()) Column { for ((p, t) in ui.phases) Text("${fmt.format(Date(t))}  ${p.name.lowercase()}", color = if (p == Phase.FAILED) ErrorRed else NeonCyan, style = MaterialTheme.typography.bodySmall) }

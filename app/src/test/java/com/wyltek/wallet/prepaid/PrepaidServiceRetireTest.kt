@@ -8,6 +8,12 @@ import com.wyltek.wallet.prepaid.fakes.FakeTag
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 
 class PrepaidServiceRetireTest {
     private val ckb = 100_000_000uL; private val unit = 100_000uL; private val floor = 61uL * ckb
@@ -207,5 +213,98 @@ class PrepaidServiceRetireTest {
         val c = h.store.card(card.reserveId)!!
         assertNull(c.pendingTxHash); assertNull(c.pendingKind); assertEquals(CARD_ACTIVE, c.state)
         assertEquals(PHASE_FAILED, h.store.phases("a2").last())
+    }
+
+    private fun inputKeys(j: kotlinx.serialization.json.JsonObject) = j["inputs"]!!.jsonArray.map { i ->
+        val po = i.jsonObject["previous_output"]!!.jsonObject
+        po["tx_hash"]!!.jsonPrimitive.content + ":" + po["index"]!!.jsonPrimitive.content.removePrefix("0x").toUInt(16)
+    }
+
+    @Test fun void_marker_is_persisted_before_broadcast_and_survives_process_death() = runTest {
+        val h = h(); val card = issued(h, FakeTag(uid))
+        h.chain.confirmAfterPolls = null
+        val job = launch { h.svc.void(card, null) }
+        runCurrent(); job.cancelAndJoin()                        // the page went away mid-wait / the process died
+        val hash = h.chain.broadcasts.last().first
+        val row = h.store.card(card.reserveId)!!
+        assertEquals(KIND_VOID, row.pendingKind); assertEquals(hash, row.pendingTxHash); assertEquals("a2", row.pendingActionId)
+        assertNotNull(row.pendingSince); assertFalse(row.pendingCommitted)
+        h.chain.confirm(hash)
+        assertEquals(1, h.svc.recoverPending())
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_CLOSED, c.state); assertEquals(0, c.balanceUnits); assertNull(c.pendingTxHash); assertNull(c.pendingKind)
+    }
+
+    @Test fun cash_out_marker_is_persisted_before_broadcast_and_survives_process_death() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        h.chain.confirmAfterPolls = null
+        val job = launch { h.svc.cashOut(tag, card, "ckt1customer") }
+        runCurrent(); job.cancelAndJoin()
+        val hash = h.chain.broadcasts.last().first
+        val row = h.store.card(card.reserveId)!!
+        assertEquals(KIND_CASH_OUT, row.pendingKind); assertEquals(hash, row.pendingTxHash)
+        h.protocol.verifyResult = com.wyltek.wallet.core.native.BatchResultFfi(listOf(com.wyltek.wallet.core.native.JournalVerdict.UNKNOWN_CARD), emptyList())
+        val p = h.svc.settle("00".repeat(20) + card.reserveId + "00".repeat(44), "t")!!   // a pending retire is not settleable
+        assertTrue(h.protocol.lastCards.none { it.reserveIdHex == card.reserveId }); assertEquals(listOf("retry"), p.verdicts)
+        h.chain.confirm(hash)
+        assertEquals(1, h.svc.recoverPending())
+        assertEquals(CARD_CLOSED, h.store.card(card.reserveId)!!.state)
+        assertEquals(1, h.chain.cellsByLock(customerLock).size)
+    }
+
+    @Test fun refused_void_leaves_no_marker() = runTest {
+        val h = h(); val card = issued(h, FakeTag(uid))
+        h.chain.refuseBroadcast = true
+        assertTrue(h.svc.void(card, null) is ActionOutcome.Failed)
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_ACTIVE, c.state); assertNull(c.pendingTxHash); assertNull(c.pendingKind)
+    }
+
+    @Test fun void_is_allowed_over_a_committed_credit_and_clears_it() = runTest {
+        val h = h(); val tag = FakeTag(uid); tag.failAfterPages = 5
+        assertTrue(h.svc.issue(tag, 1000, null) is ActionOutcome.AwaitingTag)
+        val card = h.store.cardByUid(uid)!!
+        assertTrue(card.pendingCommitted); assertEquals(1000, card.pendingUnits)
+        assertEquals(ActionOutcome.Done, h.svc.void(card, null))
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_CLOSED, c.state); assertEquals(0, c.balanceUnits)
+        assertNull(c.pendingTxHash); assertNull(c.pendingUnits); assertNull(c.pendingKind); assertFalse(c.pendingCommitted); assertNull(c.pendingTagCounter)
+        assertNull(h.chain.cellAt(card.currentOutpoint))
+        assertTrue(card.currentOutpoint in inputKeys(h.chain.broadcasts.last().second))
+    }
+
+    private suspend fun terminalRefusal(h: PrepaidServiceIssueLoadTest.H, tag: FakeTag): PrepaidCardEntity {
+        assertEquals(ActionOutcome.Done, h.svc.load(tag, issued(h, tag, 1000), 100))
+        val c0 = h.store.cardByUid(uid)!!
+        h.store.updateCard(c0.copy(pendingUnits = 100, pendingTxHash = c0.currentOutpoint.substringBefore(":"), pendingCommitted = true,
+            pendingActionId = "ax", pendingKind = KIND_LOAD, pendingTagCounter = 1, pendingTagBalance = 1100))
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid, CardRecordInfo(3u, c0.reserveId, 1000, 2u, h.svc.merchantIdHex)))
+        val out = h.svc.resume(tag, h.store.cardByUid(uid)!!)
+        assertTrue(out.toString(), out is ActionOutcome.Failed && (out as ActionOutcome.Failed).reason.contains("used at a terminal"))
+        return h.store.cardByUid(uid)!!
+    }
+
+    @Test fun accept_tag_as_is_resolves_the_terminal_refusal() = runTest {
+        val h = h(); val tag = FakeTag(uid); val stuck = terminalRefusal(h, tag)
+        val before = h.store.events.size
+        assertEquals(ActionOutcome.Done, h.svc.acceptTagAsIs(tag, stuck))
+        val c = h.store.card(stuck.reserveId)!!
+        assertEquals(2L, c.counter); assertEquals(1100, c.balanceUnits); assertEquals(CARD_ACTIVE, c.state)
+        assertNull(c.pendingTxHash); assertNull(c.pendingUnits); assertNull(c.pendingKind); assertFalse(c.pendingCommitted); assertNull(c.pendingTagCounter)
+        val rows = h.store.events.drop(before)
+        assertEquals(listOf(PHASE_REQUESTED, PHASE_DONE), rows.map { it.phase })
+        assertTrue(rows.all { it.kind == KIND_REPAIR && it.actionId == "ax" })
+        assertEquals("accepted tag as-is after terminal use", rows.last().detail)
+        assertEquals(2u, h.protocol.selectSlot("", uid, tag.readSlots()).record!!.counter)   // tag untouched
+    }
+
+    @Test fun accept_tag_as_is_is_refused_without_a_committed_credit_or_with_a_foreign_record() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 1000)
+        assertTrue(h.svc.acceptTagAsIs(tag, card) is ActionOutcome.Failed)
+        h.store.updateCard(card.copy(pendingUnits = 5, pendingTxHash = "0x" + "11".repeat(32), pendingCommitted = true, pendingActionId = "ax", pendingKind = KIND_LOAD))
+        tag.writeSlot(SlotPickFfi.B, h.protocol.seal("", uid, CardRecordInfo(3u, "c1".repeat(32), 1000, 9u, h.svc.merchantIdHex)))
+        val r = h.svc.acceptTagAsIs(tag, h.store.card(card.reserveId)!!)
+        assertTrue(r.toString(), r is ActionOutcome.Failed && (r as ActionOutcome.Failed).reason.contains("another reserve"))
+        assertNotNull(h.store.card(card.reserveId)!!.pendingTxHash)
     }
 }

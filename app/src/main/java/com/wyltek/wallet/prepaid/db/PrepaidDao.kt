@@ -16,6 +16,11 @@ interface PrepaidDao {
     @Update
     suspend fun updateCard(c: PrepaidCardEntity)
 
+    /** Settlement applies every card of a batch together. Room runs a list @Update inside ONE transaction
+     *  (beginTransaction / handleMultiple / setTransactionSuccessful): all rows or none. */
+    @Update
+    suspend fun updateCards(cards: List<PrepaidCardEntity>)
+
     /** Only a card whose issue never left the wallet may be removed (broadcast refused / rejected). */
     @Query("DELETE FROM prepaid_cards WHERE reserveId = :reserveId AND state = 'issuing'")
     suspend fun deleteIssuing(reserveId: String): Int

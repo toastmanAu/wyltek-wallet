@@ -13,6 +13,9 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PrepaidServiceIssueLoadTest {
@@ -333,5 +336,26 @@ class PrepaidServiceIssueLoadTest {
         assertTrue(h.chain.broadcasts.all { it.first.startsWith("0x") })
         assertTrue(h.store.events.mapNotNull { it.txHash }.all { it.startsWith("0x") && it == it.lowercase() })
         assertTrue(h.svc.excludedOutpoints().contains(c.currentOutpoint))
+    }
+
+    private fun inputKeys(j: kotlinx.serialization.json.JsonObject) = j["inputs"]!!.jsonArray.map { i ->
+        val po = i.jsonObject["previous_output"]!!.jsonObject
+        po["tx_hash"]!!.jsonPrimitive.content + ":" + po["index"]!!.jsonPrimitive.content.removePrefix("0x").toUInt(16)
+    }
+
+    @Test fun an_unconfirmed_loads_successor_reserve_is_never_a_fee_input() = runTest {
+        val h = h(); val t1 = FakeTag(uid1)
+        assertEquals(ActionOutcome.Done, h.svc.issue(t1, 1000, null))
+        h.chain.confirmAfterPolls = null
+        assertTrue(h.svc.load(t1, h.store.cardByUid(uid1)!!, 1000) is ActionOutcome.StillConfirming)
+        val hashX = h.store.cardByUid(uid1)!!.pendingTxHash!!
+        h.chain.confirm(hashX); h.chain.status(hashX)              // commits while the page is open; nothing recovered yet
+        assertNotNull(h.chain.cellAt("$hashX:0"))                   // the smallest pure-CKB cell in the wallet now
+        h.chain.confirmAfterPolls = 1
+        h.svc.issue(FakeTag(uid2), 1000, null)
+        val y = h.chain.broadcasts.last()
+        assertNotEquals(hashX, y.first)
+        assertFalse(inputKeys(y.second).toString(), "$hashX:0" in inputKeys(y.second))
+        assertTrue("$hashX:0" in h.svc.excludedOutpoints())
     }
 }

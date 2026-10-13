@@ -10,6 +10,8 @@ interface PrepaidStore {
     suspend fun cardByUid(uid: String): PrepaidCardEntity?
     suspend fun insertCard(c: PrepaidCardEntity)
     suspend fun updateCard(c: PrepaidCardEntity)
+    /** All rows or none (one Room transaction). */
+    suspend fun updateCards(cards: List<PrepaidCardEntity>)
     suspend fun deleteIssuing(reserveId: String): Int
     suspend fun allCards(): List<PrepaidCardEntity>
     suspend fun cardsWithPending(): List<PrepaidCardEntity>
@@ -27,6 +29,7 @@ class RoomPrepaidStore(db: AgentDatabase) : PrepaidStore {
     override suspend fun cardByUid(uid: String) = dao.cardByUid(uid)
     override suspend fun insertCard(c: PrepaidCardEntity) = dao.insertCard(c)
     override suspend fun updateCard(c: PrepaidCardEntity) = dao.updateCard(c)
+    override suspend fun updateCards(cards: List<PrepaidCardEntity>) = dao.updateCards(cards)
     override suspend fun deleteIssuing(reserveId: String) = dao.deleteIssuing(reserveId)
     override suspend fun allCards() = dao.allCards()
     override suspend fun cardsWithPending() = dao.cardsWithPending()

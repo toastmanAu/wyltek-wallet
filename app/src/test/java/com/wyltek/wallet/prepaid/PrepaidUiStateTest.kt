@@ -6,6 +6,8 @@ import com.wyltek.wallet.prepaid.ui.PrepaidUiReducer
 import com.wyltek.wallet.prepaid.ui.PrepaidUiState
 import com.wyltek.wallet.prepaid.ui.TapAction
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PrepaidUiStateTest {
@@ -35,5 +37,14 @@ class PrepaidUiStateTest {
         val base = PrepaidUiState()
         assertEquals("ckt1abc", PrepaidUiReducer.consumeScannedAddress(base, "ckt1abc").scannedAddress)
         assertEquals(base, PrepaidUiReducer.consumeScannedAddress(base, null))
+    }
+
+    @Test fun accept_as_is_is_offered_only_after_the_terminal_refusal() {
+        val resume = TapClass.Resume(card(CARD_ACTIVE), slot)
+        val refusal = com.wyltek.wallet.prepaid.ActionOutcome.Failed("card was used at a terminal before the pending credit was confirmed; inspect the card")
+        assertTrue(PrepaidUiReducer.offersAcceptAsIs(refusal, resume))
+        assertFalse(PrepaidUiReducer.offersAcceptAsIs(com.wyltek.wallet.prepaid.ActionOutcome.Failed("busy"), resume))
+        assertFalse(PrepaidUiReducer.offersAcceptAsIs(refusal, TapClass.Known(card(CARD_ACTIVE), rec, slot)))
+        assertFalse(PrepaidUiReducer.offersAcceptAsIs(null, resume))
     }
 }

@@ -7,6 +7,9 @@ import com.wyltek.wallet.prepaid.fakes.FakeTag
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 
 class PrepaidServiceSettleTest {
     private val ckb = 100_000_000uL; private val unit = 100_000uL; private val floor = 61uL * ckb
@@ -140,5 +143,37 @@ class PrepaidServiceSettleTest {
         h.protocol.verifyResult = BatchResultFfi(emptyList(), emptyList())
         assertNull(h.svc.settle("00".repeat(95), "t"))
         assertNotNull(h.svc.settle("", "t"))
+    }
+
+    @Test fun settle_markers_are_persisted_before_broadcast_and_survive_process_death() = runTest {
+        val h = h()
+        h.svc.issue(FakeTag("04000000000001"), 300_000, null); h.svc.issue(FakeTag("04000000000002"), 300_000, null)
+        val (c1, c2) = h.store.allCards().sortedBy { it.uid }
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
+            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)))
+        h.chain.confirmAfterPolls = null
+        val job = launch { h.svc.settle(entries(c1.reserveId, c2.reserveId), "t") }
+        runCurrent(); job.cancelAndJoin()
+        val hash = h.chain.broadcasts.last().first
+        val p1 = h.store.card(c1.reserveId)!!; val p2 = h.store.card(c2.reserveId)!!
+        assertTrue(listOf(p1, p2).all { it.pendingKind == KIND_SETTLE && it.pendingTxHash == hash })
+        assertEquals(listOf(0, 1), listOf(p1.pendingUnits, p2.pendingUnits))
+        assertEquals(listOf(250_000, 310_000), listOf(p1.pendingTagBalance, p2.pendingTagBalance))
+        h.chain.confirm(hash)
+        assertEquals(2, h.svc.recoverPending())
+        val d1 = h.store.card(c1.reserveId)!!; val d2 = h.store.card(c2.reserveId)!!
+        assertEquals(listOf(250_000, 310_000), listOf(d1.balanceUnits, d2.balanceUnits))
+        assertEquals(listOf("$hash:0", "$hash:1"), listOf(d1.currentOutpoint, d2.currentOutpoint))
+        assertTrue(listOf(d1, d2).all { it.pendingTxHash == null })
+    }
+
+    @Test fun refused_settlement_leaves_no_markers() = runTest {
+        val h = h(); h.svc.issue(FakeTag("04000000000001"), 300_000, null)
+        val c1 = h.store.allCards().single()
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 1000, 1u, 1u)))
+        h.chain.refuseBroadcast = true
+        h.svc.settle(entries(c1.reserveId), "t")
+        val d = h.store.card(c1.reserveId)!!
+        assertNull(d.pendingTxHash); assertNull(d.pendingKind); assertNull(d.pendingUnits); assertEquals(300_000, d.balanceUnits)
     }
 }

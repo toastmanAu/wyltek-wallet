@@ -74,8 +74,20 @@ class PrepaidService(
         data class Rejected(val txHash: String) : TxResult()
     }
 
-    /** Every reserve cell in the index; never a fee input for another card's transaction. */
-    internal suspend fun excludedOutpoints(): Set<String> = store.allCards().map { normalizeOutpoint(it.currentOutpoint) }.toSet()
+    /** Every reserve cell in the index, plus the successor reserve of every unconfirmed issue/load/adopt/settle
+     *  (it may commit while the page is open); never a fee input for another card's transaction (C5). */
+    internal suspend fun excludedOutpoints(): Set<String> =
+        store.allCards().flatMap { listOfNotNull(it.currentOutpoint, pendingSuccessor(it)) }.map { normalizeOutpoint(it) }.toSet()
+
+    /** The reserve output a pending transaction creates: index 0 for issue/load/adopt, the planned index for settle. */
+    private fun pendingSuccessor(c: PrepaidCardEntity): String? {
+        val hash = c.pendingTxHash ?: return null
+        return when (kindOfPending(c)) {
+            KIND_ISSUE, KIND_LOAD, KIND_ADOPT -> "$hash:0"
+            KIND_SETTLE -> c.pendingUnits?.let { "$hash:$it" }
+            else -> null
+        }
+    }
 
     /** Every hash the service stores is `0x` + lower-case, whatever shape the signer returned (C1). */
     private fun build(planned: PlannedTx): BuiltTransaction =
@@ -284,11 +296,13 @@ class PrepaidService(
     suspend fun revoke(card: PrepaidCardEntity) = flip(card, KIND_REVOKE, CARD_ACTIVE, CARD_REVOKED)
     suspend fun reinstate(card: PrepaidCardEntity) = flip(card, KIND_REINSTATE, CARD_REVOKED, CARD_ACTIVE)
 
-    /** Retire a card and sweep its whole reserve to the merchant. The tag may be absent (lost card). */
+    /** Retire a card and sweep its whole reserve to the merchant. The tag may be absent (lost card). A credit that is
+     *  committed on chain but not yet on the tag does not block it (spec §2.1: Void needs no tag); `currentOutpoint`
+     *  already points at that credit's reserve. */
     suspend fun void(card: PrepaidCardEntity, tag: TagPort?, progress: (Phase) -> Unit = {}): ActionOutcome = exclusive {
         val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
         if (fresh.state != CARD_ACTIVE && fresh.state != CARD_REVOKED) return@exclusive ActionOutcome.Failed("card is ${fresh.state}")
-        if (fresh.pendingTxHash != null) return@exclusive ActionOutcome.Failed("finish the pending credit first (tap the card)")
+        if (fresh.pendingTxHash != null && !fresh.pendingCommitted) return@exclusive ActionOutcome.Failed("finish the pending credit first (tap the card)")
         val reserve = chain.cellAt(fresh.currentOutpoint) ?: return@exclusive ActionOutcome.Failed("reserve cell not found on chain; use Inspect")
         try { protocol.plan(PrepaidAction.VOID, fresh.balanceUnits, reserve.capacity, 0) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed(e.message ?: "refused") }
         val preview = inspectForRetire(tag, fresh)
@@ -298,12 +312,13 @@ class PrepaidService(
         val built = build(planned)
         val a = Audit(newActionId(), KIND_VOID, fresh.uid, fresh.reserveId, -fresh.balanceUnits.toLong(), fresh.balanceUnits, fresh.counter)
         log(a, PHASE_REQUESTED, detail = "forfeit ${fresh.balanceUnits} units; unsettled taps ${preview.unsettledTaps ?: "unknown"}"); progress(Phase.REQUESTED)
+        markRetire(fresh, a, built.txHashHex)                 // before broadcast: a process death must not lose it (C3)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
-            is TxResult.Refused -> ActionOutcome.Failed(r.reason)
-            is TxResult.Rejected -> ActionOutcome.Failed("rejected by the node")
-            is TxResult.Timeout -> { parkRetire(fresh, a, r.txHash); ActionOutcome.StillConfirming(r.txHash) }
+            is TxResult.Refused -> { unmarkRetire(fresh); ActionOutcome.Failed(r.reason) }
+            is TxResult.Rejected -> { unmarkRetire(fresh); ActionOutcome.Failed("rejected by the node") }
+            is TxResult.Timeout -> ActionOutcome.StillConfirming(r.txHash)
             is TxResult.Committed -> {
-                store.updateCard(fresh.copy(state = CARD_CLOSED, balanceUnits = 0, updatedAt = clock()))
+                store.updateCard(closedRow(fresh))
                 val wiped = wipeTag(tag, fresh)
                 log(a, PHASE_DONE, balanceAfter = 0, txHash = r.txHash, detail = wiped); progress(Phase.DONE)
                 ActionOutcome.Done
@@ -311,12 +326,18 @@ class PrepaidService(
         }
     } ?: busy()
 
-    /** A retire whose confirmation we stopped waiting for: remember it so resume/recover can close the card later. */
-    private suspend fun parkRetire(fresh: PrepaidCardEntity, a: Audit, hash: String) {
-        val cur = store.card(fresh.reserveId) ?: fresh
-        store.updateCard(cur.copy(pendingTxHash = hash, pendingKind = a.kind, pendingUnits = null, pendingActionId = a.actionId,
-            pendingCommitted = false, pendingSince = clock(), updatedAt = clock()))
+    /** Persisted BEFORE the broadcast (C3): if the wait is abandoned or the process dies, resume/recover closes the card. */
+    private suspend fun markRetire(fresh: PrepaidCardEntity, a: Audit, hash: String) {
+        store.updateCard(fresh.copy(pendingTxHash = hash, pendingKind = a.kind, pendingUnits = null, pendingActionId = a.actionId,
+            pendingCommitted = false, pendingTagCounter = null, pendingTagBalance = null, pendingSince = clock(), updatedAt = clock()))
     }
+
+    /** The retire never left the wallet: put the row back exactly as it was (a committed credit's pending fields included). */
+    private suspend fun unmarkRetire(fresh: PrepaidCardEntity) { store.updateCard(fresh.copy(updatedAt = clock())) }
+
+    private fun closedRow(card: PrepaidCardEntity) = card.copy(state = CARD_CLOSED, balanceUnits = 0, pendingUnits = null, pendingTxHash = null,
+        pendingActionId = null, pendingCommitted = false, pendingKind = null, pendingTagCounter = null, pendingTagBalance = null,
+        pendingSince = null, updatedAt = clock())
 
     /** One status check for a parked void/cash-out. Null = still waiting. */
     private suspend fun settleRetire(card: PrepaidCardEntity, tag: TagPort?, progress: (Phase) -> Unit): ActionOutcome? {
@@ -326,8 +347,7 @@ class PrepaidService(
         return when {
             st == TxStatus.CONFIRMED -> {
                 log(a, PHASE_COMMITTED, balanceAfter = 0, txHash = hash); progress(Phase.COMMITTED)
-                store.updateCard(card.copy(state = CARD_CLOSED, balanceUnits = 0, pendingUnits = null, pendingTxHash = null, pendingActionId = null,
-                    pendingCommitted = false, pendingKind = null, pendingTagCounter = null, pendingTagBalance = null, pendingSince = null, updatedAt = clock()))
+                store.updateCard(closedRow(card))
                 val wiped = if (tag != null) "; ${wipeTag(tag, card)}" else ""
                 log(a, PHASE_DONE, balanceAfter = 0, txHash = hash, detail = "closed on recovery$wiped"); progress(Phase.DONE)
                 ActionOutcome.Done
@@ -371,12 +391,13 @@ class PrepaidService(
         val built = build(planned)
         val a = Audit(newActionId(), KIND_CASH_OUT, fresh.uid, fresh.reserveId, -fresh.balanceUnits.toLong(), fresh.balanceUnits, fresh.counter)
         log(a, PHASE_REQUESTED, detail = "to $customerAddress"); progress(Phase.REQUESTED)
+        markRetire(fresh, a, built.txHashHex)                 // before broadcast (C3)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
-            is TxResult.Refused -> ActionOutcome.Failed(r.reason)
-            is TxResult.Rejected -> ActionOutcome.Failed("rejected by the node")
-            is TxResult.Timeout -> { parkRetire(fresh, a, r.txHash); ActionOutcome.StillConfirming(r.txHash) }
+            is TxResult.Refused -> { unmarkRetire(fresh); ActionOutcome.Failed(r.reason) }
+            is TxResult.Rejected -> { unmarkRetire(fresh); ActionOutcome.Failed("rejected by the node") }
+            is TxResult.Timeout -> ActionOutcome.StillConfirming(r.txHash)
             is TxResult.Committed -> {
-                store.updateCard(fresh.copy(state = CARD_CLOSED, balanceUnits = 0, updatedAt = clock()))
+                store.updateCard(closedRow(fresh))
                 val wiped = wipeTag(tag, fresh)
                 log(a, PHASE_DONE, balanceAfter = 0, txHash = r.txHash, detail = "to $customerAddress; $wiped"); progress(Phase.DONE)
                 ActionOutcome.Done
@@ -413,6 +434,29 @@ class PrepaidService(
         } else store.updateCard(fresh.copy(counter = counter, updatedAt = clock()))
         log(a, PHASE_WRITTEN, counterAfter = counter); progress(Phase.WRITTEN)
         log(a, PHASE_DONE, counterAfter = counter); progress(Phase.DONE)
+        ActionOutcome.Done
+    } ?: busy()
+
+    /**
+     * Manual way out of the Ruling-20 refusal (C4b): a credit is committed on chain, but a terminal wrote the tag after
+     * the credit was intended, so writing it now would clobber terminal taps. The merchant accepts the tag as it is:
+     * the index keeps the chain balance, takes the tag's counter, and the pending credit is closed without a tag write.
+     */
+    suspend fun acceptTagAsIs(tag: TagPort, card: PrepaidCardEntity, progress: (Phase) -> Unit = {}): ActionOutcome = exclusive {
+        val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
+        if (fresh.pendingTxHash == null || !fresh.pendingCommitted) return@exclusive ActionOutcome.Failed("no committed credit is waiting for this card")
+        if (!tag.uidHex.equals(fresh.uid, true)) return@exclusive ActionOutcome.Failed("this is a different tag")
+        val slot = try { protocol.selectSlot(kHex, tag.uidHex, tag.readSlots()) }
+            catch (e: CancellationException) { throw e } catch (e: Exception) { return@exclusive ActionOutcome.Failed("could not read the card; tap again") }
+        val rec = slot.record
+        if ((slot.pick != SlotPickFfi.A && slot.pick != SlotPickFfi.B) || rec == null)
+            return@exclusive ActionOutcome.Failed("card has no valid record; repair it instead")
+        if (!rec.reserveIdHex.equals(fresh.reserveId, true)) return@exclusive ActionOutcome.Failed("card carries another reserve")
+        val a = Audit(fresh.pendingActionId ?: newActionId(), KIND_REPAIR, fresh.uid, fresh.reserveId, 0, fresh.balanceUnits, fresh.counter)
+        log(a, PHASE_REQUESTED, txHash = fresh.pendingTxHash, detail = "accept tag as-is; ${fresh.pendingUnits ?: 0} units committed on chain stay off the tag")
+        progress(Phase.REQUESTED)
+        clearPending(fresh.copy(counter = rec.counter.toLong()), activate = true)
+        log(a, PHASE_DONE, counterAfter = rec.counter.toLong(), txHash = fresh.pendingTxHash, detail = "accepted tag as-is after terminal use"); progress(Phase.DONE)
         ActionOutcome.Done
     } ?: busy()
 
@@ -591,14 +635,23 @@ class PrepaidService(
         val byId = eligible.associateBy { it.reserveId.lowercase() }
         val moving = res.nets.filter { it.netUnits != 0L }
         val actionId = newActionId()
-        suspend fun advance(card: PrepaidCardEntity, net: CardNetFfi, outpoint: String?, txHash: String?) {
-            val newBalance = (card.balanceUnits - net.netUnits).toInt()
-            store.updateCard(card.copy(balanceUnits = newBalance, settledCounter = net.maxTmc.toLong(), counter = maxOf(card.counter, net.maxTmc.toLong()),
-                currentOutpoint = outpoint ?: card.currentOutpoint, updatedAt = clock()))
-            log(Audit(actionId, KIND_SETTLE, card.uid, card.reserveId, -net.netUnits, card.balanceUnits, card.counter), PHASE_DONE,
-                balanceAfter = newBalance, counterAfter = net.maxTmc.toLong(), txHash = txHash, detail = "$terminalLabel; ${net.accepted} entries; tmc ≤ ${net.maxTmc}")
+        /** The row after the batch: new balance/counters, every pending field cleared. */
+        fun advanced(card: PrepaidCardEntity, net: CardNetFfi, outpoint: String?) = card.copy(
+            balanceUnits = (card.balanceUnits - net.netUnits).toInt(), settledCounter = net.maxTmc.toLong(),
+            counter = maxOf(card.counter, net.maxTmc.toLong()), currentOutpoint = outpoint ?: card.currentOutpoint,
+            pendingUnits = null, pendingTxHash = null, pendingActionId = null, pendingCommitted = false, pendingKind = null,
+            pendingTagCounter = null, pendingTagBalance = null, pendingSince = null, updatedAt = clock())
+        /** Applies every per-card advance in ONE store transaction, then logs a DONE row per card. */
+        suspend fun apply(rows: List<Pair<PrepaidCardEntity, CardNetFfi>>, outpoints: List<String?>, txHash: String?) {
+            val after = rows.mapIndexed { i, (c, n) -> advanced(c, n, outpoints[i]) }
+            store.updateCards(after)
+            rows.forEachIndexed { i, (c, n) ->
+                log(Audit(actionId, KIND_SETTLE, c.uid, c.reserveId, -n.netUnits, c.balanceUnits, c.counter), PHASE_DONE,
+                    balanceAfter = after[i].balanceUnits, counterAfter = n.maxTmc.toLong(), txHash = txHash, detail = "$terminalLabel; ${n.accepted} entries; tmc ≤ ${n.maxTmc}")
+            }
         }
-        if (moving.isEmpty()) { res.nets.forEach { n -> byId[n.reserveIdHex.lowercase()]?.let { advance(it, n, null, null) } }; return SettleResult(names, null) }
+        val zeroNet = res.nets.filter { it.netUnits == 0L }.mapNotNull { n -> byId[n.reserveIdHex.lowercase()]?.let { it to n } }
+        if (moving.isEmpty()) { apply(zeroNet, zeroNet.map { null }, null); return SettleResult(names, null) }
 
         val cards = moving.map { byId[it.reserveIdHex.lowercase()] ?: return retryAll() }
         val reserves = cards.map { chain.cellAt(it.currentOutpoint) ?: return retryAll() }
@@ -611,23 +664,24 @@ class PrepaidService(
         val built = build(planned)
         val batchAudit = Audit(actionId, KIND_SETTLE, "", null, moving.sumOf { -it.netUnits }, 0, 0)
         log(batchAudit, PHASE_REQUESTED, detail = "$terminalLabel; ${moving.size} cards")
+        // Markers BEFORE the broadcast, all in one transaction (C3): a process death after the broadcast leaves every
+        // moving card pending, so its entries are retried and recovery applies the batch if it commits.
+        store.updateCards(moving.mapIndexed { i, n ->
+            cards[i].copy(pendingKind = KIND_SETTLE, pendingTxHash = built.txHashHex, pendingSince = clock(), pendingActionId = actionId,
+                pendingCommitted = false, pendingUnits = i, pendingTagBalance = (cards[i].balanceUnits - n.netUnits).toInt(),
+                pendingTagCounter = n.maxTmc.toLong(), updatedAt = clock())
+        })
         return when (val r = broadcastAndAwait(batchAudit, planned, built, {})) {
             is TxResult.Committed -> {
-                moving.forEachIndexed { i, n -> advance(cards[i], n, "${r.txHash}:$i", r.txHash) }
-                res.nets.filter { it.netUnits == 0L }.forEach { n -> byId[n.reserveIdHex.lowercase()]?.let { advance(it, n, null, r.txHash) } }
+                apply(cards.zip(moving) + zeroNet, moving.indices.map { "${r.txHash}:$it" } + zeroNet.map { null }, r.txHash)
                 SettleResult(names, r.txHash)
             }
             is TxResult.Timeout -> {
                 log(batchAudit, PHASE_FAILED, txHash = r.txHash, detail = "$terminalLabel; not committed in time")
-                // Leave a marker so recovery can apply the batch if it commits later (Refused/Rejected are audited by broadcastAndAwait).
-                moving.forEachIndexed { i, n ->
-                    store.updateCard(cards[i].copy(pendingKind = KIND_SETTLE, pendingTxHash = r.txHash, pendingSince = clock(), pendingActionId = actionId,
-                        pendingCommitted = false, pendingUnits = i, pendingTagBalance = (cards[i].balanceUnits - n.netUnits).toInt(),
-                        pendingTagCounter = n.maxTmc.toLong(), updatedAt = clock()))
-                }
                 retryAll()
             }
-            else -> retryAll()
+            // Refused / Rejected are audited by broadcastAndAwait; the batch never landed, so the rows go back as they were.
+            else -> { store.updateCards(cards.map { it.copy(updatedAt = clock()) }); retryAll() }
         }
     }
 }

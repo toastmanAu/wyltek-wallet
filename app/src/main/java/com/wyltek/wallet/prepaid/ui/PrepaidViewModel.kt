@@ -18,6 +18,10 @@ import android.util.Log
 enum class TapAction { ISSUE, LOAD, RESUME, ADOPT, REPAIR, REVOKE, REINSTATE, VOID, CASH_OUT }
 
 object PrepaidUiReducer {
+    /** C4b: the "Accept card as-is" way out shows only after the Ruling-20 terminal refusal. */
+    fun offersAcceptAsIs(outcome: ActionOutcome?, tap: TapClass?): Boolean =
+        tap is TapClass.Resume && outcome is ActionOutcome.Failed && "used at a terminal" in outcome.reason
+
     /** Tag-requiring actions are hidden once the tag is gone; only Resume stays (the sheet then says "tap the card again"). */
     fun tapActions(tap: TapClass?, tagPresent: Boolean): List<TapAction> =
         if (tagPresent) tapActionsWithTag(tap) else if (tap is TapClass.Resume) listOf(TapAction.RESUME) else emptyList()
@@ -134,6 +138,8 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
     fun resume(c: TapContext?) = act(c) { s, t -> val card = (t.tap as? TapClass.Resume)?.card ?: return@act ActionOutcome.Failed("no card"); s.resume(t.tag, card, ::phase) }
     fun adopt(c: TapContext?) = act(c) { s, t -> val r = (t.tap as? TapClass.Bench)?.record ?: return@act ActionOutcome.Failed("no record"); s.adopt(t.tag, r, ::phase) }
     fun repair(c: TapContext?) = act(c) { s, t -> val card = (t.tap as? TapClass.Damaged)?.card ?: return@act ActionOutcome.Failed("no card"); s.repair(t.tag, card, ::phase) }
+    /** C4b: close a committed credit the tag can no longer take (a terminal wrote after it was intended). */
+    fun acceptTagAsIs(c: TapContext?) = act(c) { s, t -> val card = (t.tap as? TapClass.Resume)?.card ?: return@act ActionOutcome.Failed("no card"); s.acceptTagAsIs(t.tag, card, ::phase) }
     fun cashOut(c: TapContext?, address: String) = act(c) { s, t -> val card = cardOf(t.tap) ?: return@act ActionOutcome.Failed("no card"); s.cashOut(t.tag, card, address, ::phase) }
     fun revoke(card: PrepaidCardEntity) = viewModelScope.launch { svc?.let { s -> run("revoke") { s.revoke(card) } } }
     fun reinstate(card: PrepaidCardEntity) = viewModelScope.launch { svc?.let { s -> run("reinstate") { s.reinstate(card) } } }
