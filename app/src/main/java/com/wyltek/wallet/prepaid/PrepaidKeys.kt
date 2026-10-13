@@ -19,6 +19,9 @@ class PrepaidKeys(
         return k
     }
 
+    /** Makes sure K_debit exists; true when this call generated it (the caller must announce it, I6). */
+    fun ensureKDebit(): Boolean { val had = hasKDebit(); kDebit(); return !had }
+
     fun kDebitHex(): String = kDebit().joinToString("") { "%02x".format(it) }
 
     companion object { const val KEY_K_DEBIT = "prepaid.k_debit" }

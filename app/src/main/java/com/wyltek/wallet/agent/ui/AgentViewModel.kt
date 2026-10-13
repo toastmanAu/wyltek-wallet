@@ -49,7 +49,9 @@ data class AgentUiState(
     val relayUrl: String? = null,
     val deviceId: String? = null,
     val prepaidKDebit: String? = null,
-    val prepaidMerchantId: String? = null
+    val prepaidMerchantId: String? = null,
+    /** True only when [lastMintedToken] carries Scope.PREPAID_SETTLE: K_debit goes into that token's QR only (I5). */
+    val mintedWithPrepaid: Boolean = false
 )
 
 class AgentViewModel(application: Application) : AndroidViewModel(application) {
@@ -128,7 +130,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     fun mint(spec: TokenSpec) = viewModelScope.launch {
         try {
             val m = gateway.tokenService.mint(spec)
-            _uiState.update { it.copy(lastMintedToken = m.token) }
+            val prepaid = com.wyltek.wallet.core.native.Scope.PREPAID_SETTLE in spec.scopes
+            _uiState.update { it.copy(lastMintedToken = m.token, mintedWithPrepaid = prepaid) }
             refresh()
         } catch (e: Throwable) {
             _uiState.update { it.copy(error = e.message) }

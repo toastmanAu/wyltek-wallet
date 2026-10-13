@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wyltek.wallet.agent.provisioning.buildProvisioningBundle
+import com.wyltek.wallet.agent.provisioning.prepaidBundleFields
 import com.wyltek.wallet.agent.ui.AgentViewModel
 import com.wyltek.wallet.core.native.CapInfo
 import com.wyltek.wallet.core.native.Scope
@@ -259,7 +260,8 @@ fun AgentScreen(
                             // Tier-1 companion-direct provisioning needs NO relay — the bundle
                             // ({device_id, token, service_name}) is buildable without pairing,
                             // and the same QR serves node tier too. Render whenever it's buildable.
-                            val bundle = buildProvisioningBundle(uiState.deviceId, token, uiState.prepaidKDebit, uiState.prepaidMerchantId)
+                            val (kDebit, merchantId) = prepaidBundleFields(uiState.mintedWithPrepaid, uiState.prepaidKDebit, uiState.prepaidMerchantId)
+                            val bundle = buildProvisioningBundle(uiState.deviceId, token, kDebit, merchantId)
                             if (bundle != null) {
                                 QrCodeImage(
                                     content = bundle,

@@ -60,6 +60,8 @@ data class PrepaidUiState(
     val scannedAddress: String? = null,
     /** Bumped on every tap result so previews re-run when the same card is tapped again. */
     val tapEpoch: Long = 0,
+    /** One-off gateway warning (K_debit regenerated); cleared by [PrepaidViewModel.dismissWarning]. */
+    val warning: String? = null,
 )
 
 /** The tag and classification the user was looking at when they clicked; actions use this, never later state. */
@@ -72,7 +74,8 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
     private val _ui = MutableStateFlow(PrepaidUiState(
         nfcAvailable = NfcAdapter.getDefaultAdapter(application) != null,
         unavailableReason = if (svc == null) gateway.prepaidUnavailableReason else null,
-        merchantIdHex = svc?.merchantIdHex ?: ""))
+        merchantIdHex = svc?.merchantIdHex ?: "",
+        warning = gateway.prepaidWarning))
     val ui: StateFlow<PrepaidUiState> = _ui.asStateFlow()
 
     init {
@@ -86,6 +89,8 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun currentContext(): TapContext? = ctx
+
+    fun dismissWarning() { gateway.dismissPrepaidWarning(); _ui.update { it.copy(warning = null) } }
 
     fun consumeScannedAddress(address: String?) { _ui.update { PrepaidUiReducer.consumeScannedAddress(it, address) } }
     fun clearScannedAddress() { _ui.update { it.copy(scannedAddress = null) } }

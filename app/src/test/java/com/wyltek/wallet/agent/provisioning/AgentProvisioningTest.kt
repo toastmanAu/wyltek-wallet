@@ -51,4 +51,15 @@ class AgentProvisioningTest {
         assertEquals("""{"device_id":"dev-123","token":"tok-abc","service_name":"blackbox-dev123"}""", buildProvisioningBundle("dev-123", "tok-abc"))
         assertEquals(buildProvisioningBundle("dev-123", "tok-abc"), buildProvisioningBundle("dev-123", "tok-abc", kDebitHex = "aa", merchantIdHex = null))
     }
+
+    @Test
+    fun `k_debit travels only with a token minted with prepaid_settle`() {
+        val k = "11".repeat(16); val m = "22".repeat(8)
+        val (k1, m1) = prepaidBundleFields(mintedWithPrepaid = false, kDebitHex = k, merchantIdHex = m)
+        assertNull(k1); assertNull(m1)
+        val plain = buildProvisioningBundle("dev-1", "tok", k1, m1)!!
+        assertFalse(plain.contains("k_debit")); assertFalse(plain.contains(k))
+        val (k2, m2) = prepaidBundleFields(mintedWithPrepaid = true, kDebitHex = k, merchantIdHex = m)
+        assertTrue(buildProvisioningBundle("dev-1", "tok", k2, m2)!!.contains("\"k_debit\":\"$k\""))
+    }
 }

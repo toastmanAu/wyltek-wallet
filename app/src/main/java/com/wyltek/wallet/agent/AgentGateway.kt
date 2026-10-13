@@ -26,10 +26,8 @@ import com.wyltek.wallet.core.native.Intent
 import com.wyltek.wallet.data.WalletRepository
 import com.wyltek.wallet.data.WalletResult
 import com.wyltek.wallet.agent.server.JournalVerdictDto
-import com.wyltek.wallet.agent.server.PrepaidCardDto
 import com.wyltek.wallet.agent.server.PrepaidCardsResult
 import com.wyltek.wallet.agent.server.PrepaidJournalResult
-import com.wyltek.wallet.core.chain.NetworkConfig
 import com.wyltek.wallet.core.model.NetworkType
 import com.wyltek.wallet.core.native.authorizeOp
 import com.wyltek.wallet.core.native.tokenIdOf
@@ -40,8 +38,6 @@ import com.wyltek.wallet.prepaid.PrepaidStore
 import com.wyltek.wallet.prepaid.RoomPrepaidStore
 import com.wyltek.wallet.prepaid.RpcChainPort
 import com.wyltek.wallet.prepaid.SecpSigner
-import com.wyltek.wallet.prepaid.db.CARD_ACTIVE
-import com.wyltek.wallet.prepaid.db.CARD_REVOKED
 import java.math.BigInteger
 
 /**
@@ -253,31 +249,55 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     /** Single instance: PrepaidKeys.kDebit() is unsynchronised, so every caller goes through this one. */
     private val prepaidKeys by lazy { PrepaidKeys(load = { secure.loadBlob(it) }, store = { k, v -> secure.storeBlob(k, v) }) }
     @Volatile var prepaidUnavailableReason: String? = null; private set
+    /** Shown once on the Cards page (dismissable): K_debit was generated, so every terminal needs re-provisioning (I6). */
+    @Volatile var prepaidWarning: String? = null; private set
+    fun dismissPrepaidWarning() { prepaidWarning = null }
     @Volatile private var prepaidHolder: PrepaidService? = null
     /** Built on demand; a null/failed build is never cached, so adding a testnet account later works without restart. */
     val prepaid: PrepaidService?
         get() = prepaidHolder ?: synchronized(this) { prepaidHolder ?: buildPrepaid().also { prepaidHolder = it } }
 
     private fun buildPrepaid(): PrepaidService? = try {
-        val account = repository.getAllAccounts().firstOrNull { acct ->
-            acct.network == NetworkType.TESTNET && acct.addresses.any { a -> !NetworkConfig.isPqLock(a.lockScript.codeHash, acct.network) }
-        }
-        if (account == null) {
-            prepaidUnavailableReason = "Prepaid demo runs on testnet only; add or select a testnet classic account"; null
-        } else {
-            val address = account.addresses.first { !NetworkConfig.isPqLock(it.lockScript.codeHash, account.network) }
-            val seed = com.wyltek.wallet.core.keystore.SeedVault(app).loadSeed(account.id)
-            if (seed == null) {
-                prepaidUnavailableReason = "Seed for the prepaid account is not available"; null
-            } else {
-                val chainPort = RpcChainPort(repository.getChainManager()).also { it.cachedLock = address.lockScript }
-                PrepaidService(RoomPrepaidStore(db), chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
-                    .also { prepaidUnavailableReason = null }
+        val accounts = repository.getAllAccounts()
+        val seeds = com.wyltek.wallet.core.keystore.SeedVault(app)
+        val stored = secure.loadBlob(PrepaidGatewayMapping.KEY_FUNDING_ACCOUNT)?.let { String(it, Charsets.UTF_8) }
+        val candidates = accounts.map { PrepaidGatewayMapping.Candidate(it.id, it.network == NetworkType.TESTNET, it.addresses.firstOrNull()?.lockScript?.codeHash) }
+        when (val choice = PrepaidGatewayMapping.chooseFundingAccount(stored, candidates) { id -> seeds.loadSeed(id) != null }) {
+            is PrepaidGatewayMapping.FundingChoice.Unavailable -> { prepaidUnavailableReason = choice.reason; null }
+            is PrepaidGatewayMapping.FundingChoice.Use -> {
+                val account = accounts.first { it.id == choice.accountId }
+                val address = account.addresses.firstOrNull()
+                val seed = seeds.loadSeed(account.id)
+                when {
+                    account.network != NetworkType.TESTNET || address == null ||
+                        !address.lockScript.codeHash.equals(PrepaidGatewayMapping.SECP256K1_BLAKE160_CODE_HASH, ignoreCase = true) -> {
+                        prepaidUnavailableReason = "The prepaid funding account is not a testnet secp256k1 account"; null
+                    }
+                    seed == null -> { prepaidUnavailableReason = "Seed for the prepaid account is not available"; null }
+                    else -> {
+                        if (choice.persist) secure.storeBlob(PrepaidGatewayMapping.KEY_FUNDING_ACCOUNT, account.id.toByteArray(Charsets.UTF_8))
+                        val store = RoomPrepaidStore(db)
+                        noteKDebitGeneration(store)
+                        val chainPort = RpcChainPort(repository.getChainManager()).also { it.cachedLock = address.lockScript }
+                        PrepaidService(store, chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
+                            .also { prepaidUnavailableReason = null }
+                    }
+                }
             }
         }
     } catch (e: Exception) {
         Log.w(TAG, "prepaid init failed", e)
         prepaidUnavailableReason = "Prepaid service could not start"; null
+    }
+
+    /** I6: K_debit (re)generation is never silent. Generated here, before anything else can read it. */
+    private fun noteKDebitGeneration(store: PrepaidStore) {
+        if (!prepaidKeys.ensureKDebit()) return
+        prepaidWarning = PrepaidGatewayMapping.WARNING_KEY_GENERATED
+        val event = PrepaidGatewayMapping.keyGeneratedEvent(System.currentTimeMillis(), java.util.UUID.randomUUID().toString())
+        gatewayScope.launch {
+            try { store.event(event) } catch (e: Exception) { Log.w(TAG, "could not log K_debit generation", e) }
+        }
     }
 
     fun prepaidStore(): PrepaidStore = RoomPrepaidStore(db)
@@ -303,8 +323,7 @@ class AgentGateway(context: Context) : AgentDispatchPort {
 
     override suspend fun prepaidCards(token: String, sourceIp: String, nowUnix: Long): PrepaidCardsResult {
         if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidCardsResult.BadToken
-        val cards = db.prepaidDao().allCards().filter { it.state == CARD_ACTIVE || it.state == CARD_REVOKED }.take(64)
-        return PrepaidCardsResult.Ok(cards.map { PrepaidCardDto(it.reserveId, it.balanceUnits, it.state == CARD_REVOKED) })
+        return PrepaidCardsResult.Ok(db.prepaidDao().allCards().mapNotNull(PrepaidGatewayMapping::cardDtoOf).take(64))
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────

@@ -5,6 +5,14 @@ fun serviceNameFor(deviceId: String): String =
     "blackbox-" + deviceId.filter { it.isLetterOrDigit() }.take(8).lowercase()
 
 /**
+ * The prepaid fields for one token's QR (I5): K_debit is a secret that lets a terminal write card records,
+ * so it travels only with a token that was minted with Scope.PREPAID_SETTLE. Otherwise both are null and
+ * [buildProvisioningBundle] emits the three-field bundle.
+ */
+fun prepaidBundleFields(mintedWithPrepaid: Boolean, kDebitHex: String?, merchantIdHex: String?): Pair<String?, String?> =
+    if (mintedWithPrepaid) kDebitHex to merchantIdHex else null to null
+
+/**
  * Compact provisioning bundle for the BlackBox POS, or null if the device is not
  * yet paired to the relay (deviceId null/blank).
  *

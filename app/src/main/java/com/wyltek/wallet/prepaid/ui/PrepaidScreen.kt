@@ -49,6 +49,14 @@ fun PrepaidScreen(
                 !ui.nfcAvailable -> Card(colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)) { Text("This phone has no NFC. Cards can be viewed and audited but not issued.", Modifier.padding(12.dp), color = WarningOrange) }
                 else -> Card(colors = CardDefaults.cardColors(containerColor = DarkSurface)) { Text("Hold a card to the back of the phone", Modifier.padding(12.dp), color = NeonCyan) }
             }
+            ui.warning?.let { w ->
+                Card(colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text(w, Modifier.weight(1f), color = ErrorRed)
+                        TextButton(onClick = viewModel::dismissWarning) { Text("Dismiss") }
+                    }
+                }
+            }
             if (ui.cards.isEmpty()) Text("No cards yet.", color = TextSecondary)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(ui.cards, key = { it.reserveId }) { c ->
