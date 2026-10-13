@@ -636,91 +636,107 @@ internal object IntegrityCheckingUniffiLib {
         uniffiCheckApiChecksums(this)
     }
     external fun uniffi_wyltekwalletcore_checksum_func_wallet_version(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_decode_address(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_encode_address(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_validate_address(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_decide(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_agent_root_keypair(
-    ): Short
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_authorize_op(
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mint_token(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_token_caps(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_token_id_of(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_cemp_decrypt(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_cemp_encrypt(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_cemp_mlkem_from_seed(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_parse_message_pointer(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_parse_profile_dsa(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_parse_profile_kem(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_serialize_message_pointer(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_serialize_profile(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_compute_type_id(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_blake2b_256(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_ckb_hash(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_generate_secp256k1_keypair(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_public_key_to_ckb_address(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_public_key_to_pq_address(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_generate_mnemonic(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_get_bip39_wordlist(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mnemonic_to_seed(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_suggest_bip39_words(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_validate_mnemonic(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_generate_mldsa65_keypair(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_sign(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_verify(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_pq_lock_args(
-    ): Short
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_merchant_id(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_next_slot(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_plan(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_reserve_id(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_seal_record(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_select_slot(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch(
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_dao_witness(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_sign_message(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_sign_transaction(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_verify_signature(
-    ): Short
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_build_transaction(
-    ): Short
+    ): Int
     external fun ffi_wyltekwalletcore_uniffi_contract_version(
     ): Int
 
@@ -745,6 +761,8 @@ external fun uniffi_wyltekwalletcore_fn_func_validate_address(`address`: RustBuf
 external fun uniffi_wyltekwalletcore_fn_func_decide(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,`intent`: RustBuffer.ByValue,`view`: RustBuffer.ByValue,`ctx`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_agent_root_keypair(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_authorize_op(`token`: RustBuffer.ByValue,`rootPubHex`: RustBuffer.ByValue,`op`: RustBuffer.ByValue,`account`: RustBuffer.ByValue,`sourceIp`: RustBuffer.ByValue,`nowUnix`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mint_token(`spec`: RustBuffer.ByValue,`rootSecretHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -802,6 +820,20 @@ external fun uniffi_wyltekwalletcore_fn_func_mldsa65_verify(`messageHex`: RustBu
 ): Byte
 external fun uniffi_wyltekwalletcore_fn_func_pq_lock_args(`publicKeyHex`: RustBuffer.ByValue,`algorithmId`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_merchant_id(`codeHashHex`: RustBuffer.ByValue,`hashType`: RustBuffer.ByValue,`argsHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_next_slot(`pick`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_plan(`action`: RustBuffer.ByValue,`balanceUnits`: Int,`capacityShannons`: Long,`amountUnits`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_reserve_id(`txHashHex`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_seal_record(`kDebitHex`: RustBuffer.ByValue,`uidHex`: RustBuffer.ByValue,`record`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_select_slot(`kDebitHex`: RustBuffer.ByValue,`uidHex`: RustBuffer.ByValue,`raw128Hex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(`kDebitHex`: RustBuffer.ByValue,`entriesHex`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_sign_ckb_mldsa65(`txHashHex`: RustBuffer.ByValue,`inputs`: RustBuffer.ByValue,`privateKeyHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -835,7 +867,7 @@ external fun ffi_wyltekwalletcore_rust_future_cancel_u8(`handle`: Long,
 external fun ffi_wyltekwalletcore_rust_future_free_u8(`handle`: Long,
 ): Unit
 external fun ffi_wyltekwalletcore_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Byte
+): Int
 external fun ffi_wyltekwalletcore_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
 external fun ffi_wyltekwalletcore_rust_future_cancel_i8(`handle`: Long,
@@ -851,7 +883,7 @@ external fun ffi_wyltekwalletcore_rust_future_cancel_u16(`handle`: Long,
 external fun ffi_wyltekwalletcore_rust_future_free_u16(`handle`: Long,
 ): Unit
 external fun ffi_wyltekwalletcore_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-): Short
+): Int
 external fun ffi_wyltekwalletcore_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
 external fun ffi_wyltekwalletcore_rust_future_cancel_i16(`handle`: Long,
@@ -939,133 +971,157 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if (lib.uniffi_wyltekwalletcore_checksum_func_wallet_version() != 39156.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_wallet_version() != 39156) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_decode_address() != 62949.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_decode_address() != 62949) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_encode_address() != 26272.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_encode_address() != 26272) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_validate_address() != 52759.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_validate_address() != 52759) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_decide() != 63810.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_decide() != 63810) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_agent_root_keypair() != 44592.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_agent_root_keypair() != 44592) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mint_token() != 43946.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_authorize_op() != 61610) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_token_caps() != 64740.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mint_token() != 43946) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_token_id_of() != 2818.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_token_caps() != 64740) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_decrypt() != 49989.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_token_id_of() != 2818) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_encrypt() != 776.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_decrypt() != 49989) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_mlkem_from_seed() != 42402.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_encrypt() != 776) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_message_pointer() != 38879.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_cemp_mlkem_from_seed() != 42402) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_profile_dsa() != 7208.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_message_pointer() != 38879) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_profile_kem() != 7537.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_profile_dsa() != 7208) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_serialize_message_pointer() != 5063.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_parse_profile_kem() != 7537) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_serialize_profile() != 19162.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_serialize_message_pointer() != 5063) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_compute_type_id() != 34447.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_serialize_profile() != 19162) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_blake2b_256() != 26658.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_compute_type_id() != 34447) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_ckb_hash() != 27088.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_blake2b_256() != 26658) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_generate_secp256k1_keypair() != 40314.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_ckb_hash() != 27088) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_public_key_to_ckb_address() != 38397.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_generate_secp256k1_keypair() != 40314) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_public_key_to_pq_address() != 37766.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_public_key_to_ckb_address() != 38397) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_generate_mnemonic() != 43756.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_public_key_to_pq_address() != 37766) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_get_bip39_wordlist() != 798.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_generate_mnemonic() != 43756) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mnemonic_to_seed() != 18613.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_get_bip39_wordlist() != 798) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_suggest_bip39_words() != 59106.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mnemonic_to_seed() != 18613) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_validate_mnemonic() != 360.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_suggest_bip39_words() != 59106) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_generate_mldsa65_keypair() != 43443.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_validate_mnemonic() != 360) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 65027.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_generate_mldsa65_keypair() != 43443) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2() != 3289.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 65027) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_sign() != 9642.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2() != 3289) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_verify() != 50642.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_sign() != 9642) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_pq_lock_args() != 10651.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_verify() != 50642) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex() != 59935.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_pq_lock_args() != 10651) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65() != 3907.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_merchant_id() != 37423) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_next_slot() != 39758) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_dao_witness() != 29228.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_plan() != 39232) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness() != 18497.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_reserve_id() != 20402) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_message() != 35259.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_seal_record() != 45263) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_transaction() != 41836.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_select_slot() != 56662) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_verify_signature() != 44663.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 24586) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_build_transaction() != 20828.toShort()) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex() != 59935) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_mldsa65() != 3907) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1() != 35672) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_dao_witness() != 29228) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_ckb_secp256k1_witness() != 18497) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_message() != 35259) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_sign_transaction() != 41836) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_verify_signature() != 44663) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_build_transaction() != 20828) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1169,6 +1225,10 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
         return value.toUByte()
     }
 
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
     override fun read(buf: ByteBuffer): UByte {
         return lift(buf.get())
     }
@@ -1181,6 +1241,33 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
 
     override fun write(value: UByte, buf: ByteBuffer) {
         buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUShort: FfiConverter<UShort, Short> {
+    override fun lift(value: Short): UShort {
+        return value.toUShort()
+    }
+
+    fun lift(value: Int): UShort {
+        return value.toUShort()
+    }
+
+    override fun read(buf: ByteBuffer): UShort {
+        return lift(buf.getShort())
+    }
+
+    override fun lower(value: UShort): Short {
+        return value.toShort()
+    }
+
+    override fun allocationSize(value: UShort) = 2UL
+
+    override fun write(value: UShort, buf: ByteBuffer) {
+        buf.putShort(value.toShort())
     }
 }
 
@@ -1204,6 +1291,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
     }
 }
 
@@ -1431,6 +1541,44 @@ public object FfiConverterTypeAgentKeyPair: FfiConverterRustBuffer<AgentKeyPair>
 
 
 
+data class BatchResultFfi (
+    var `verdicts`: List<JournalVerdict>
+    , 
+    var `nets`: List<CardNetFfi>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeBatchResultFfi: FfiConverterRustBuffer<BatchResultFfi> {
+    override fun read(buf: ByteBuffer): BatchResultFfi {
+        return BatchResultFfi(
+            FfiConverterSequenceTypeJournalVerdict.read(buf),
+            FfiConverterSequenceTypeCardNetFfi.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: BatchResultFfi) = (
+            FfiConverterSequenceTypeJournalVerdict.allocationSize(value.`verdicts`) +
+            FfiConverterSequenceTypeCardNetFfi.allocationSize(value.`nets`)
+    )
+
+    override fun write(value: BatchResultFfi, buf: ByteBuffer) {
+            FfiConverterSequenceTypeJournalVerdict.write(value.`verdicts`, buf)
+            FfiConverterSequenceTypeCardNetFfi.write(value.`nets`, buf)
+    }
+}
+
+
+
 data class BuiltTransaction (
     var `rawTransactionHex`: kotlin.String
     , 
@@ -1536,6 +1684,155 @@ public object FfiConverterTypeCapInfo: FfiConverterRustBuffer<CapInfo> {
             FfiConverterLong.write(value.`windowSeconds`, buf)
             FfiConverterLong.write(value.`windowLimit`, buf)
             FfiConverterLong.write(value.`autoLimit`, buf)
+    }
+}
+
+
+
+data class CardNetFfi (
+    var `reserveIdHex`: kotlin.String
+    , 
+    var `netUnits`: kotlin.Long
+    , 
+    var `maxTmc`: kotlin.UInt
+    , 
+    var `accepted`: kotlin.UInt
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCardNetFfi: FfiConverterRustBuffer<CardNetFfi> {
+    override fun read(buf: ByteBuffer): CardNetFfi {
+        return CardNetFfi(
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CardNetFfi) = (
+            FfiConverterString.allocationSize(value.`reserveIdHex`) +
+            FfiConverterLong.allocationSize(value.`netUnits`) +
+            FfiConverterUInt.allocationSize(value.`maxTmc`) +
+            FfiConverterUInt.allocationSize(value.`accepted`)
+    )
+
+    override fun write(value: CardNetFfi, buf: ByteBuffer) {
+            FfiConverterString.write(value.`reserveIdHex`, buf)
+            FfiConverterLong.write(value.`netUnits`, buf)
+            FfiConverterUInt.write(value.`maxTmc`, buf)
+            FfiConverterUInt.write(value.`accepted`, buf)
+    }
+}
+
+
+
+data class CardRecordInfo (
+    var `writerId`: kotlin.UShort
+    , 
+    var `reserveIdHex`: kotlin.String
+    , 
+    var `balanceUnits`: kotlin.Int
+    , 
+    var `counter`: kotlin.UInt
+    , 
+    var `merchantIdHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCardRecordInfo: FfiConverterRustBuffer<CardRecordInfo> {
+    override fun read(buf: ByteBuffer): CardRecordInfo {
+        return CardRecordInfo(
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CardRecordInfo) = (
+            FfiConverterUShort.allocationSize(value.`writerId`) +
+            FfiConverterString.allocationSize(value.`reserveIdHex`) +
+            FfiConverterInt.allocationSize(value.`balanceUnits`) +
+            FfiConverterUInt.allocationSize(value.`counter`) +
+            FfiConverterString.allocationSize(value.`merchantIdHex`)
+    )
+
+    override fun write(value: CardRecordInfo, buf: ByteBuffer) {
+            FfiConverterUShort.write(value.`writerId`, buf)
+            FfiConverterString.write(value.`reserveIdHex`, buf)
+            FfiConverterInt.write(value.`balanceUnits`, buf)
+            FfiConverterUInt.write(value.`counter`, buf)
+            FfiConverterString.write(value.`merchantIdHex`, buf)
+    }
+}
+
+
+
+data class CardStateFfi (
+    var `reserveIdHex`: kotlin.String
+    , 
+    var `balanceUnits`: kotlin.Int
+    , 
+    var `settledCounter`: kotlin.UInt
+    , 
+    var `revoked`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCardStateFfi: FfiConverterRustBuffer<CardStateFfi> {
+    override fun read(buf: ByteBuffer): CardStateFfi {
+        return CardStateFfi(
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CardStateFfi) = (
+            FfiConverterString.allocationSize(value.`reserveIdHex`) +
+            FfiConverterInt.allocationSize(value.`balanceUnits`) +
+            FfiConverterUInt.allocationSize(value.`settledCounter`) +
+            FfiConverterBoolean.allocationSize(value.`revoked`)
+    )
+
+    override fun write(value: CardStateFfi, buf: ByteBuffer) {
+            FfiConverterString.write(value.`reserveIdHex`, buf)
+            FfiConverterInt.write(value.`balanceUnits`, buf)
+            FfiConverterUInt.write(value.`settledCounter`, buf)
+            FfiConverterBoolean.write(value.`revoked`, buf)
     }
 }
 
@@ -1990,6 +2287,97 @@ public object FfiConverterTypeRequestCtx: FfiConverterRustBuffer<RequestCtx> {
             FfiConverterString.write(value.`account`, buf)
             FfiConverterString.write(value.`sourceIp`, buf)
             FfiConverterLong.write(value.`nowUnix`, buf)
+    }
+}
+
+
+
+data class ReservePlan (
+    var `successorCapacity`: kotlin.ULong
+    , 
+    var `customerShannons`: kotlin.ULong
+    , 
+    var `balanceAfter`: kotlin.Int
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeReservePlan: FfiConverterRustBuffer<ReservePlan> {
+    override fun read(buf: ByteBuffer): ReservePlan {
+        return ReservePlan(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ReservePlan) = (
+            FfiConverterULong.allocationSize(value.`successorCapacity`) +
+            FfiConverterULong.allocationSize(value.`customerShannons`) +
+            FfiConverterInt.allocationSize(value.`balanceAfter`)
+    )
+
+    override fun write(value: ReservePlan, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`successorCapacity`, buf)
+            FfiConverterULong.write(value.`customerShannons`, buf)
+            FfiConverterInt.write(value.`balanceAfter`, buf)
+    }
+}
+
+
+
+data class SlotResult (
+    var `pick`: SlotPickFfi
+    , 
+    var `record`: CardRecordInfo?
+    , 
+    var `reason`: SlotReason
+    , 
+    var `merchantHintHex`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSlotResult: FfiConverterRustBuffer<SlotResult> {
+    override fun read(buf: ByteBuffer): SlotResult {
+        return SlotResult(
+            FfiConverterTypeSlotPickFfi.read(buf),
+            FfiConverterOptionalTypeCardRecordInfo.read(buf),
+            FfiConverterTypeSlotReason.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SlotResult) = (
+            FfiConverterTypeSlotPickFfi.allocationSize(value.`pick`) +
+            FfiConverterOptionalTypeCardRecordInfo.allocationSize(value.`record`) +
+            FfiConverterTypeSlotReason.allocationSize(value.`reason`) +
+            FfiConverterOptionalString.allocationSize(value.`merchantHintHex`)
+    )
+
+    override fun write(value: SlotResult, buf: ByteBuffer) {
+            FfiConverterTypeSlotPickFfi.write(value.`pick`, buf)
+            FfiConverterOptionalTypeCardRecordInfo.write(value.`record`, buf)
+            FfiConverterTypeSlotReason.write(value.`reason`, buf)
+            FfiConverterOptionalString.write(value.`merchantHintHex`, buf)
     }
 }
 
@@ -2519,6 +2907,129 @@ public object FfiConverterTypeDecision : FfiConverterRustBuffer<Decision>{
 
 
 
+
+enum class JournalVerdict {
+    
+    ACCEPTED,
+    DUPLICATE,
+    BAD_MAC,
+    UNKNOWN_CARD,
+    STALE_COUNTER,
+    OVER_BALANCE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeJournalVerdict: FfiConverterRustBuffer<JournalVerdict> {
+    override fun read(buf: ByteBuffer) = try {
+        JournalVerdict.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: JournalVerdict) = 4UL
+
+    override fun write(value: JournalVerdict, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class PrepaidAction {
+    
+    ISSUE,
+    LOAD,
+    VOID,
+    CASH_OUT;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePrepaidAction: FfiConverterRustBuffer<PrepaidAction> {
+    override fun read(buf: ByteBuffer) = try {
+        PrepaidAction.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PrepaidAction) = 4UL
+
+    override fun write(value: PrepaidAction, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+
+sealed class PrepaidException(message: String): kotlin.Exception(message) {
+        
+        class InvalidInput(message: String) : PrepaidException(message)
+        
+        class Plan(message: String) : PrepaidException(message)
+        
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<PrepaidException> {
+        override fun lift(error_buf: RustBuffer.ByValue): PrepaidException = FfiConverterTypePrepaidError.lift(error_buf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePrepaidError : FfiConverterRustBuffer<PrepaidException> {
+    override fun read(buf: ByteBuffer): PrepaidException {
+        
+            return when(buf.getInt()) {
+            1 -> PrepaidException.InvalidInput(FfiConverterString.read(buf))
+            2 -> PrepaidException.Plan(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+        
+    }
+
+    override fun allocationSize(value: PrepaidException): ULong {
+        return 4UL
+    }
+
+    override fun write(value: PrepaidException, buf: ByteBuffer) {
+        when(value) {
+            is PrepaidException.InvalidInput -> {
+                buf.putInt(1)
+                Unit
+            }
+            is PrepaidException.Plan -> {
+                buf.putInt(2)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
 /**
  * The operations a token may authorize. `Fiber` is reserved (schema only).
  */
@@ -2529,7 +3040,8 @@ enum class Scope {
     SEND_UDT,
     DAO,
     MESSAGING,
-    FIBER;
+    FIBER,
+    PREPAID_SETTLE;
 
     
 
@@ -2551,6 +3063,77 @@ public object FfiConverterTypeScope: FfiConverterRustBuffer<Scope> {
     override fun allocationSize(value: Scope) = 4UL
 
     override fun write(value: Scope, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class SlotPickFfi {
+    
+    NONE,
+    A,
+    B,
+    AMBIGUOUS;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSlotPickFfi: FfiConverterRustBuffer<SlotPickFfi> {
+    override fun read(buf: ByteBuffer) = try {
+        SlotPickFfi.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SlotPickFfi) = 4UL
+
+    override fun write(value: SlotPickFfi, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class SlotReason {
+    
+    NO_VALID_SLOT,
+    BAD_VERSION,
+    MAC_FAIL;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSlotReason: FfiConverterRustBuffer<SlotReason> {
+    override fun read(buf: ByteBuffer) = try {
+        SlotReason.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SlotReason) = 4UL
+
+    override fun write(value: SlotReason, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -2683,6 +3266,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeCardRecordInfo: FfiConverterRustBuffer<CardRecordInfo?> {
+    override fun read(buf: ByteBuffer): CardRecordInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeCardRecordInfo.read(buf)
+    }
+
+    override fun allocationSize(value: CardRecordInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeCardRecordInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: CardRecordInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeCardRecordInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -2729,6 +3344,62 @@ public object FfiConverterSequenceTypeCapInfo: FfiConverterRustBuffer<List<CapIn
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeCapInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCardNetFfi: FfiConverterRustBuffer<List<CardNetFfi>> {
+    override fun read(buf: ByteBuffer): List<CardNetFfi> {
+        val len = buf.getInt()
+        return List<CardNetFfi>(len) {
+            FfiConverterTypeCardNetFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CardNetFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCardNetFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CardNetFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCardNetFfi.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCardStateFfi: FfiConverterRustBuffer<List<CardStateFfi>> {
+    override fun read(buf: ByteBuffer): List<CardStateFfi> {
+        val len = buf.getInt()
+        return List<CardStateFfi>(len) {
+            FfiConverterTypeCardStateFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CardStateFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCardStateFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CardStateFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCardStateFfi.write(it, buf)
         }
     }
 }
@@ -2851,6 +3522,34 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeJournalVerdict: FfiConverterRustBuffer<List<JournalVerdict>> {
+    override fun read(buf: ByteBuffer): List<JournalVerdict> {
+        val len = buf.getInt()
+        return List<JournalVerdict>(len) {
+            FfiConverterTypeJournalVerdict.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<JournalVerdict>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeJournalVerdict.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<JournalVerdict>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeJournalVerdict.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>> {
     override fun read(buf: ByteBuffer): List<Scope> {
         val len = buf.getInt()
@@ -2929,6 +3628,22 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     UniffiLib.uniffi_wyltekwalletcore_fn_func_agent_root_keypair(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * UniFFI export: authorize a non-spending operation (e.g. "prepaid_settle") for a token.
+         * Runs every caveat the token carries (scope, account, ttl, allow_ip; `allow_to` is satisfied
+         * with the account itself since these ops have no recipient). Returns the token_id.
+         */
+    @Throws(AgentException::class) fun `authorizeOp`(`token`: kotlin.String, `rootPubHex`: kotlin.String, `op`: kotlin.String, `account`: kotlin.String, `sourceIp`: kotlin.String, `nowUnix`: kotlin.Long): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(AgentException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_authorize_op(
+    
+        FfiConverterString.lower(`token`),FfiConverterString.lower(`rootPubHex`),FfiConverterString.lower(`op`),FfiConverterString.lower(`account`),FfiConverterString.lower(`sourceIp`),FfiConverterLong.lower(`nowUnix`),_status)
 }
     )
     }
@@ -3288,6 +4003,82 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     UniffiLib.uniffi_wyltekwalletcore_fn_func_pq_lock_args(
     
         FfiConverterString.lower(`publicKeyHex`),FfiConverterUByte.lower(`algorithmId`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidMerchantId`(`codeHashHex`: kotlin.String, `hashType`: kotlin.String, `argsHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_merchant_id(
+    
+        FfiConverterString.lower(`codeHashHex`),FfiConverterString.lower(`hashType`),FfiConverterString.lower(`argsHex`),_status)
+}
+    )
+    }
+    
+ fun `prepaidNextSlot`(`pick`: SlotPickFfi): SlotPickFfi {
+            return FfiConverterTypeSlotPickFfi.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_next_slot(
+    
+        FfiConverterTypeSlotPickFfi.lower(`pick`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidPlan`(`action`: PrepaidAction, `balanceUnits`: kotlin.Int, `capacityShannons`: kotlin.ULong, `amountUnits`: kotlin.Int): ReservePlan {
+            return FfiConverterTypeReservePlan.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_plan(
+    
+        FfiConverterTypePrepaidAction.lower(`action`),FfiConverterInt.lower(`balanceUnits`),FfiConverterULong.lower(`capacityShannons`),FfiConverterInt.lower(`amountUnits`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidReserveId`(`txHashHex`: kotlin.String, `index`: kotlin.UInt): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_reserve_id(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterUInt.lower(`index`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidSealRecord`(`kDebitHex`: kotlin.String, `uidHex`: kotlin.String, `record`: CardRecordInfo): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_seal_record(
+    
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`uidHex`),FfiConverterTypeCardRecordInfo.lower(`record`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidSelectSlot`(`kDebitHex`: kotlin.String, `uidHex`: kotlin.String, `raw128Hex`: kotlin.String): SlotResult {
+            return FfiConverterTypeSlotResult.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_select_slot(
+    
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`uidHex`),FfiConverterString.lower(`raw128Hex`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidVerifyBatch`(`kDebitHex`: kotlin.String, `entriesHex`: kotlin.String, `cards`: List<CardStateFfi>): BatchResultFfi {
+            return FfiConverterTypeBatchResultFfi.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(
+    
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`entriesHex`),FfiConverterSequenceTypeCardStateFfi.lower(`cards`),_status)
 }
     )
     }

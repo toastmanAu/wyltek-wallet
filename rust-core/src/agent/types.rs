@@ -8,6 +8,7 @@ pub enum Scope {
     Dao,
     Messaging,
     Fiber,
+    PrepaidSettle,
 }
 
 impl Scope {
@@ -19,6 +20,7 @@ impl Scope {
             Scope::Dao => "dao",
             Scope::Messaging => "messaging",
             Scope::Fiber => "fiber",
+            Scope::PrepaidSettle => "prepaid_settle",
         }
     }
 }
@@ -104,6 +106,7 @@ mod tests {
     #[test]
     fn scope_tags_are_stable() {
         assert_eq!(Scope::SendCkb.as_tag(), "send_ckb");
+        assert_eq!(Scope::PrepaidSettle.as_tag(), "prepaid_settle");
         assert_eq!(Scope::SendUdt.as_tag(), "send_udt");
         assert_eq!(Scope::Dao.as_tag(), "dao");
         assert_eq!(Scope::Messaging.as_tag(), "messaging");

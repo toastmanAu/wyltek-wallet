@@ -238,6 +238,16 @@ pub fn token_id_of(token: String, root_pub_hex: String) -> Result<String, AgentE
     super::token::token_id_of_internal(&mut authorizer).map_err(AgentError::TokenError)
 }
 
+/// UniFFI export: authorize a non-spending operation (e.g. "prepaid_settle") for a token.
+/// Runs every caveat the token carries (scope, account, ttl, allow_ip; `allow_to` is satisfied
+/// with the account itself since these ops have no recipient). Returns the token_id.
+#[uniffi::export]
+pub fn authorize_op(token: String, root_pub_hex: String, op: String, account: String, source_ip: String, now_unix: i64) -> Result<String, AgentError> {
+    parse_and_authorize(&token, &root_pub_hex, &op, &account, &account, &source_ip, now_unix)
+        .map(|a| a.token_id)
+        .map_err(AgentError::TokenError)
+}
+
 /// Deterministic 16-byte hex id from the spec (account + scopes + caps + ttl).
 fn blake_id(spec: &TokenSpec) -> Result<String, AgentError> {
     let mut seed = spec.account.clone();
@@ -323,6 +333,16 @@ mod tests {
         assert_eq!(a.caps[0].asset, "CKB");
         assert_eq!(a.caps[0].cumulative, 100_000_000_000);
         assert_eq!(a.caps[0].auto_limit, 20_000_000_000);
+    }
+
+    #[test]
+    fn authorize_op_requires_the_scope() {
+        let kp = agent_root_keypair();
+        let mut spec = sample_spec(); spec.scopes = vec![Scope::PrepaidSettle];
+        let token = mint_token(spec.clone(), kp.secret_hex.clone()).unwrap();
+        assert!(authorize_op(token.clone(), kp.public_hex.clone(), "prepaid_settle".into(), spec.account.clone(), "10.0.0.2".into(), 1_700_000_000).is_ok());
+        assert!(authorize_op(token.clone(), kp.public_hex.clone(), "send_ckb".into(), spec.account.clone(), "10.0.0.2".into(), 1_700_000_000).is_err());
+        assert!(authorize_op(token, kp.public_hex, "prepaid_settle".into(), "ckb1other".into(), "10.0.0.2".into(), 1_700_000_000).is_err());
     }
 
     #[test]

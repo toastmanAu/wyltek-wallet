@@ -8,3 +8,4 @@ pub mod journal;
 pub mod vectors;
 pub mod reserve;
 pub mod verifier;
+pub mod ffi;
