@@ -84,6 +84,57 @@ class PrepaidServiceSettleTest {
         assertEquals(listOf("retry"), r.verdicts)
     }
 
+    private suspend fun twoCardTimeout(h: PrepaidServiceIssueLoadTest.H): Triple<PrepaidCardEntity, PrepaidCardEntity, String> {
+        h.svc.issue(FakeTag("04000000000001"), 300_000, null); h.svc.issue(FakeTag("04000000000002"), 300_000, null)
+        val (c1, c2) = h.store.allCards().sortedBy { it.uid }
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
+            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)))
+        h.chain.confirmAfterPolls = null
+        val r = h.svc.settle(entries(c1.reserveId, c2.reserveId), "t")!!
+        assertEquals(listOf("retry", "retry"), r.verdicts); assertNull(r.txHash)
+        val hash = h.chain.broadcasts.last().first
+        val p1 = h.store.card(c1.reserveId)!!; val p2 = h.store.card(c2.reserveId)!!
+        assertTrue(listOf(p1, p2).all { it.pendingKind == KIND_SETTLE && it.pendingTxHash == hash && !it.pendingCommitted })
+        assertEquals(listOf(0, 1), listOf(p1.pendingUnits, p2.pendingUnits))
+        assertEquals(listOf(250_000, 310_000), listOf(p1.pendingTagBalance, p2.pendingTagBalance))
+        assertEquals(listOf(7L, 3L), listOf(p1.pendingTagCounter, p2.pendingTagCounter))
+        assertEquals(300_000, p1.balanceUnits)
+        return Triple(c1, c2, hash)
+    }
+
+    @Test fun settle_timeout_marks_moving_cards_and_recovery_applies_it() = runTest {
+        val h = h(); val (c1, c2, hash) = twoCardTimeout(h)
+        h.chain.confirm(hash)
+        assertEquals(2, h.svc.recoverPending())
+        val d1 = h.store.card(c1.reserveId)!!; val d2 = h.store.card(c2.reserveId)!!
+        assertEquals(listOf(250_000, 310_000), listOf(d1.balanceUnits, d2.balanceUnits))
+        assertEquals(listOf(7L, 3L), listOf(d1.settledCounter, d2.settledCounter))
+        assertEquals(listOf("$hash:0", "$hash:1"), listOf(d1.currentOutpoint, d2.currentOutpoint))
+        assertTrue(listOf(d1, d2).all { it.pendingTxHash == null && it.pendingKind == null && it.pendingUnits == null && it.pendingTagBalance == null })
+        for (c in listOf(c1, c2)) assertEquals(PHASE_DONE, h.store.events.last { it.kind == KIND_SETTLE && it.reserveId == c.reserveId }.phase)
+    }
+
+    @Test fun settle_timeout_then_rejected_clears_marker_and_keeps_cards() = runTest {
+        val h = h(); val (c1, c2, hash) = twoCardTimeout(h)
+        h.chain.reject(hash)
+        assertEquals(2, h.svc.recoverPending())
+        for (c in listOf(c1, c2)) {
+            val d = h.store.card(c.reserveId)!!
+            assertEquals(300_000, d.balanceUnits); assertNull(d.pendingTxHash); assertNull(d.pendingKind); assertEquals(0L, d.settledCounter)
+            assertEquals(PHASE_FAILED, h.store.events.last { it.kind == KIND_SETTLE && it.reserveId == c.reserveId }.phase)
+        }
+    }
+
+    @Test fun settle_broadcast_refusal_is_audited() = runTest {
+        val h = h(); h.svc.issue(FakeTag("04000000000001"), 300_000, null)
+        val c1 = h.store.allCards().single()
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 1000, 1u, 1u)))
+        h.chain.refuseBroadcast = true
+        h.svc.settle(entries(c1.reserveId), "t")
+        val last = h.store.events.last { it.kind == KIND_SETTLE }
+        assertEquals(PHASE_FAILED, last.phase); assertTrue(last.detail.isNotEmpty())
+    }
+
     @Test fun bad_length_is_null() = runTest {
         val h = h()
         h.protocol.verifyResult = BatchResultFfi(emptyList(), emptyList())

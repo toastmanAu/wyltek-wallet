@@ -17,7 +17,9 @@ const val PHASE_REQUESTED = "requested"; const val PHASE_BROADCAST = "broadcast"
 const val PHASE_WRITTEN = "written"; const val PHASE_DONE = "done"; const val PHASE_FAILED = "failed"
 
 /** The card index (D3 spec §3.1). `pendingTxHash` non-null = a transaction of ours is unconfirmed, or
- *  confirmed with `pendingUnits` still unwritten to the tag; `pendingActionId` groups its audit rows. */
+ *  confirmed with `pendingUnits` still unwritten to the tag; `pendingActionId` groups its audit rows.
+ *  For `pendingKind == KIND_SETTLE`, `pendingUnits` / `pendingTagBalance` / `pendingTagCounter` mean the successor
+ *  output index / post-settle balance / settled counter of an unconfirmed settlement batch. */
 @Entity(tableName = "prepaid_cards", indices = [Index(value = ["uid"], unique = true)])
 data class PrepaidCardEntity(
     @PrimaryKey val reserveId: String,

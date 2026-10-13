@@ -443,11 +443,41 @@ class PrepaidService(
         }
     } ?: busy()
 
+    // ---------------------------------------------------------------- settle recovery
+    /** One status check for a parked settlement batch card. True = applied, false = failed/cleared, null = still waiting. */
+    private suspend fun recoverSettle(card: PrepaidCardEntity): Boolean? {
+        val hash = card.pendingTxHash!!
+        val a = Audit(card.pendingActionId ?: newActionId(), KIND_SETTLE, card.uid, card.reserveId,
+            -(card.balanceUnits - (card.pendingTagBalance ?: card.balanceUnits)).toLong(), card.balanceUnits, card.counter)
+        val st = statusOrNull(hash)
+        return when {
+            st == TxStatus.CONFIRMED -> {
+                val newBalance = card.pendingTagBalance ?: card.balanceUnits
+                val settled = card.pendingTagCounter ?: card.settledCounter
+                store.updateCard(card.copy(balanceUnits = newBalance, settledCounter = settled, counter = maxOf(card.counter, settled),
+                    currentOutpoint = "$hash:${card.pendingUnits ?: 0}", pendingUnits = null, pendingTxHash = null, pendingActionId = null,
+                    pendingCommitted = false, pendingKind = null, pendingTagCounter = null, pendingTagBalance = null, pendingSince = null, updatedAt = clock()))
+                log(a, PHASE_COMMITTED, balanceAfter = newBalance, counterAfter = settled, txHash = hash, detail = "settled on recovery")
+                log(a, PHASE_DONE, balanceAfter = newBalance, counterAfter = settled, txHash = hash, detail = "settled on recovery")
+                true
+            }
+            st == TxStatus.REJECTED -> {
+                log(a, PHASE_FAILED, txHash = hash, detail = "settlement rejected by the node"); clearPending(card, activate = false); false
+            }
+            st == TxStatus.UNKNOWN && card.pendingSince != null && clock() - card.pendingSince >= PENDING_UNKNOWN_GIVE_UP_MS -> {
+                log(a, PHASE_FAILED, txHash = hash, detail = "settlement unknown to the node for 30 min; given up"); clearPending(card, activate = false); false
+            }
+            else -> null
+        }
+    }
+
     // ---------------------------------------------------------------- resume / recover
     /** Finish a pending credit on the tag of [card]. Checks the transaction once (no 90 s wait). */
     suspend fun resume(tag: TagPort, card: PrepaidCardEntity, progress: (Phase) -> Unit = {}): ActionOutcome = exclusive {
         val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
         val hash = fresh.pendingTxHash ?: return@exclusive ActionOutcome.Done
+        if (kindOfPending(fresh) == KIND_SETTLE)
+            return@exclusive when (recoverSettle(fresh)) { true -> ActionOutcome.Done; false -> ActionOutcome.Failed("settlement did not commit"); null -> ActionOutcome.StillConfirming(hash) }
         if (isRetireKind(kindOfPending(fresh)))
             return@exclusive settleRetire(fresh, tag.takeIf { it.uidHex.equals(fresh.uid, true) }, progress) ?: ActionOutcome.StillConfirming(hash)
         val a = auditForPending(fresh)
@@ -491,6 +521,7 @@ class PrepaidService(
         var changed = 0
         for (card in store.cardsWithPending()) {
             val hash = card.pendingTxHash!!
+            if (kindOfPending(card) == KIND_SETTLE) { if (recoverSettle(card) != null) changed++; continue }
             val a = auditForPending(card)
             if (isRetireKind(kindOfPending(card))) { if (settleRetire(card, null, {}) != null) changed++; continue }
             if (card.pendingCommitted) {
@@ -582,7 +613,16 @@ class PrepaidService(
                 res.nets.filter { it.netUnits == 0L }.forEach { n -> byId[n.reserveIdHex.lowercase()]?.let { advance(it, n, null, r.txHash) } }
                 SettleResult(names, r.txHash)
             }
-            is TxResult.Timeout -> { log(batchAudit, PHASE_FAILED, txHash = r.txHash, detail = "$terminalLabel; not committed in time"); retryAll() }
+            is TxResult.Timeout -> {
+                log(batchAudit, PHASE_FAILED, txHash = r.txHash, detail = "$terminalLabel; not committed in time")
+                // Leave a marker so recovery can apply the batch if it commits later (Refused/Rejected are audited by broadcastAndAwait).
+                moving.forEachIndexed { i, n ->
+                    store.updateCard(cards[i].copy(pendingKind = KIND_SETTLE, pendingTxHash = r.txHash, pendingSince = clock(), pendingActionId = actionId,
+                        pendingCommitted = false, pendingUnits = i, pendingTagBalance = (cards[i].balanceUnits - n.netUnits).toInt(),
+                        pendingTagCounter = n.maxTmc.toLong(), updatedAt = clock()))
+                }
+                retryAll()
+            }
             else -> retryAll()
         }
     }
