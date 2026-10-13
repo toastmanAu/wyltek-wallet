@@ -54,4 +54,15 @@ class TapClassifierTest {
     @Test fun `merchant id comparison is case-insensitive`() {
         assertTrue(go(slot(SlotPickFfi.A, rec(merchant = ours.uppercase())), byReserve = card()) is TapClass.Known)
     }
+
+    private fun closed(uid: String = this.uid) = card(uid = uid).copy(state = com.wyltek.wallet.prepaid.db.CARD_CLOSED)
+    @Test fun `closed card with no valid slot is Blank again`() {
+        assertEquals(TapClass.Blank(uid), go(slot(SlotPickFfi.NONE), byUid = closed()))
+        assertEquals(TapClass.Blank(uid), go(slot(SlotPickFfi.NONE, reason = SlotReason.MAC_FAIL, hint = ours), byUid = closed()))
+    }
+    @Test fun `closed card with a valid record is refused`() {
+        assertEquals(TapClass.Refused(TapClassifier.REASON_CLOSED), go(slot(SlotPickFfi.A, rec()), byUid = closed(), byReserve = closed()))
+        assertEquals(TapClass.Refused(TapClassifier.REASON_CLOSED), go(slot(SlotPickFfi.B, rec()), byReserve = closed()))
+        assertEquals(TapClass.Refused(TapClassifier.REASON_CLOSED), go(slot(SlotPickFfi.AMBIGUOUS), byUid = closed()))
+    }
 }

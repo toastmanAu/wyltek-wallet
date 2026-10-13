@@ -5,6 +5,10 @@ import com.wyltek.wallet.core.model.Utxo
 import com.wyltek.wallet.core.native.TxOutput
 import com.wyltek.wallet.data.CellSelection
 
+/** The lock hash types rust-core's `build_transaction` serialises correctly: "type" → 1, everything else → 0,
+ *  so only "type" and "data" round-trip; data1/data2 would sign a different transaction than the node sees. */
+fun isSupportedHashType(hashType: String): Boolean = hashType == "type" || hashType == "data"
+
 data class CellDepRef(val txHash: String, val index: UInt, val depType: String)
 
 data class PlannedTx(val inputs: List<Utxo>, val outputs: List<TxOutput>, val feeShannons: ULong, val changeIndex: Int)

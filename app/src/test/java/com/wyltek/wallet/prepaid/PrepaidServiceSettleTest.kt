@@ -176,4 +176,20 @@ class PrepaidServiceSettleTest {
         val d = h.store.card(c1.reserveId)!!
         assertNull(d.pendingTxHash); assertNull(d.pendingKind); assertNull(d.pendingUnits); assertEquals(300_000, d.balanceUnits)
     }
+
+    @Test fun a_missing_reserve_retries_only_that_cards_entries() = runTest {
+        val h = h()
+        h.svc.issue(FakeTag("04000000000001"), 300_000, null); h.svc.issue(FakeTag("04000000000002"), 300_000, null)
+        val (c1, c2) = h.store.allCards().sortedBy { it.uid }
+        h.chain.cells.remove(c2.currentOutpoint)                                   // the indexer cannot see c2's reserve
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED, JournalVerdict.BAD_MAC),
+            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, 10_000, 3u, 1u)))
+        val r = h.svc.settle(entries(c1.reserveId, c2.reserveId, c2.reserveId), "t")!!
+        assertEquals(listOf("accepted", "retry", "bad_mac"), r.verdicts)
+        assertNotNull(r.txHash)
+        val d1 = h.store.card(c1.reserveId)!!; val d2 = h.store.card(c2.reserveId)!!
+        assertEquals(250_000, d1.balanceUnits); assertEquals("${r.txHash}:0", d1.currentOutpoint)
+        assertEquals(300_000, d2.balanceUnits); assertEquals(0L, d2.settledCounter); assertEquals(c2.currentOutpoint, d2.currentOutpoint); assertNull(d2.pendingTxHash)
+        assertTrue(h.store.events.any { it.kind == KIND_SETTLE && it.reserveId == c2.reserveId && it.phase == PHASE_FAILED })
+    }
 }

@@ -13,7 +13,9 @@ class NativeProtocol : Protocol {
     override fun merchantId(lock: LockScript) = prepaidMerchantId(lock.codeHash, lock.hashType, lock.args)
     override fun plan(action: PrepaidAction, balanceUnits: Int, capacityShannons: ULong, amountUnits: Int) = prepaidPlan(action, balanceUnits, capacityShannons, amountUnits)
     override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>) = prepaidVerifyBatch(kHex, entriesHex, cards)
+    /** Null for hash types rust-core's build_transaction cannot serialise (it writes every non-"type" as 0) (I8). */
     override fun lockOf(address: String): LockScript? = try {
-        val i = decodeAddress(address); LockScript(i.lockCodeHash, i.lockHashType, i.lockArgs)
+        val i = decodeAddress(address)
+        if (isSupportedHashType(i.lockHashType)) LockScript(i.lockCodeHash, i.lockHashType, i.lockArgs) else null
     } catch (e: Exception) { null }
 }

@@ -2,6 +2,7 @@ package com.wyltek.wallet.prepaid.fakes
 
 import com.wyltek.wallet.prepaid.PrepaidStore
 import com.wyltek.wallet.prepaid.db.CARD_ACTIVE
+import com.wyltek.wallet.prepaid.db.CARD_CLOSED
 import com.wyltek.wallet.prepaid.db.CARD_ISSUING
 import com.wyltek.wallet.prepaid.db.CARD_REVOKED
 import com.wyltek.wallet.prepaid.db.PrepaidCardEntity
@@ -27,6 +28,7 @@ class InMemoryPrepaidStore : PrepaidStore {
         check(cards.all { it.reserveId in this.cards }); cards.forEach { this.cards[it.reserveId] = it }; emit()
     }
     override suspend fun deleteIssuing(reserveId: String): Int = if (cards[reserveId]?.state == CARD_ISSUING) { cards.remove(reserveId); emit(); 1 } else 0
+    override suspend fun deleteClosed(reserveId: String): Int = if (cards[reserveId]?.state == CARD_CLOSED) { cards.remove(reserveId); emit(); 1 } else 0
     override suspend fun allCards() = cards.values.toList()
     override suspend fun cardsWithPending() = cards.values.filter { it.pendingTxHash != null }
     override suspend fun activeCount() = cards.values.count { it.state in setOf(CARD_ISSUING, CARD_ACTIVE, CARD_REVOKED) }

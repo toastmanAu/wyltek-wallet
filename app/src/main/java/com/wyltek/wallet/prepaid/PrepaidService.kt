@@ -215,7 +215,9 @@ class PrepaidService(
 
     // ---------------------------------------------------------------- issue
     suspend fun issue(tag: TagPort, amountUnits: Int, label: String?, progress: (Phase) -> Unit = {}): ActionOutcome = exclusive {
-        if (store.cardByUid(tag.uidHex) != null) return@exclusive ActionOutcome.Failed("this tag is already indexed")
+        // A retired (closed) tag may be reissued: its index row goes, its audit rows keep the old reserveId (I7).
+        val previous = store.cardByUid(tag.uidHex)
+        if (previous != null && previous.state != CARD_CLOSED) return@exclusive ActionOutcome.Failed("this tag is already indexed")
         if (store.activeCount() >= MAX_ACTIVE_CARDS) return@exclusive ActionOutcome.Failed("card limit of $MAX_ACTIVE_CARDS reached")
         val plan = try { protocol.plan(PrepaidAction.ISSUE, 0, 0uL, amountUnits) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed(e.message ?: "refused") }
         val planned = try {
@@ -225,11 +227,12 @@ class PrepaidService(
         val reserveId = protocol.reserveId(built.txHashHex, 0u)
         val a = Audit(newActionId(), KIND_ISSUE, tag.uidHex, reserveId, amountUnits.toLong(), 0, 0)
         val now = clock()
+        if (previous != null) store.deleteClosed(previous.reserveId)
         store.insertCard(PrepaidCardEntity(reserveId = reserveId, uid = tag.uidHex, label = label?.ifBlank { null },
             firstOutpoint = "${built.txHashHex}:0", currentOutpoint = "${built.txHashHex}:0", balanceUnits = 0, counter = 0, settledCounter = 0,
             state = CARD_ISSUING, pendingUnits = amountUnits, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false,
             pendingKind = KIND_ISSUE, pendingSince = now, issuedAt = now, updatedAt = now))
-        log(a, PHASE_REQUESTED); progress(Phase.REQUESTED)
+        log(a, PHASE_REQUESTED, detail = previous?.let { "reissue of a closed tag (was reserve ${it.reserveId})" } ?: ""); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
             is TxResult.Refused -> { store.deleteIssuing(reserveId); ActionOutcome.Failed(r.reason) }
             is TxResult.Rejected -> { store.deleteIssuing(reserveId); ActionOutcome.Failed("rejected by the node") }
@@ -474,7 +477,8 @@ class PrepaidService(
         val now = clock()
         store.insertCard(PrepaidCardEntity(reserveId = record.reserveIdHex, uid = tag.uidHex, label = null,
             firstOutpoint = "${built.txHashHex}:0", currentOutpoint = "${built.txHashHex}:0", balanceUnits = 0, counter = record.counter.toLong(),
-            settledCounter = 0, state = CARD_ISSUING, pendingUnits = null, pendingTxHash = built.txHashHex, pendingActionId = a.actionId,
+            // The record's balance already nets the terminal's taps so far: they must never settle again (I4).
+            settledCounter = record.counter.toLong(), state = CARD_ISSUING, pendingUnits = null, pendingTxHash = built.txHashHex, pendingActionId = a.actionId,
             pendingCommitted = false, pendingKind = KIND_ADOPT, pendingSince = now, issuedAt = now, updatedAt = now))
         log(a, PHASE_REQUESTED, detail = "terminal ${record.writerId}"); progress(Phase.REQUESTED)
         when (val r = broadcastAndAwait(a, planned, built, progress)) {
@@ -628,12 +632,12 @@ class PrepaidService(
         val res = try {
             protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) })
         } catch (e: PrepaidException) { return SettleResult(List(hexBody.length / 192) { "retry" }, null) }
-        val names = res.verdicts.mapIndexed { i, v -> if (v == JournalVerdict.UNKNOWN_CARD && entryReserveId(hexBody, i) in pendingIds) "retry" else verdictName(v) }
+        var names = res.verdicts.mapIndexed { i, v -> if (v == JournalVerdict.UNKNOWN_CARD && entryReserveId(hexBody, i) in pendingIds) "retry" else verdictName(v) }
         fun retryAll() = SettleResult(names.map { if (it == "accepted") "retry" else it }, null)
         if (res.nets.isEmpty()) return SettleResult(names, null)
 
         val byId = eligible.associateBy { it.reserveId.lowercase() }
-        val moving = res.nets.filter { it.netUnits != 0L }
+        val movingNets = res.nets.filter { it.netUnits != 0L }
         val actionId = newActionId()
         /** The row after the batch: new balance/counters, every pending field cleared. */
         fun advanced(card: PrepaidCardEntity, net: CardNetFfi, outpoint: String?) = card.copy(
@@ -651,10 +655,23 @@ class PrepaidService(
             }
         }
         val zeroNet = res.nets.filter { it.netUnits == 0L }.mapNotNull { n -> byId[n.reserveIdHex.lowercase()]?.let { it to n } }
-        if (moving.isEmpty()) { apply(zeroNet, zeroNet.map { null }, null); return SettleResult(names, null) }
+        if (movingNets.isEmpty()) { apply(zeroNet, zeroNet.map { null }, null); return SettleResult(names, null) }
 
-        val cards = moving.map { byId[it.reserveIdHex.lowercase()] ?: return retryAll() }
-        val reserves = cards.map { chain.cellAt(it.currentOutpoint) ?: return retryAll() }
+        // A moving card whose reserve cell is not visible is dropped from the batch and its entries retried;
+        // the other cards still settle (I3).
+        val located = movingNets.map { n -> val c = byId[n.reserveIdHex.lowercase()]; Triple(n, c, c?.let { chain.cellAt(it.currentOutpoint) }) }
+        val missing = located.filter { it.third == null }
+        for ((n, c, _) in missing) log(Audit(actionId, KIND_SETTLE, c?.uid ?: "", c?.reserveId ?: n.reserveIdHex, 0, c?.balanceUnits ?: 0, c?.counter ?: 0),
+            PHASE_FAILED, detail = "$terminalLabel; reserve cell not found; entries retried")
+        if (missing.isNotEmpty()) {
+            val gone = missing.map { it.first.reserveIdHex.lowercase() }.toSet()
+            names = names.mapIndexed { i, v -> if (v == "accepted" && entryReserveId(hexBody, i) in gone) "retry" else v }
+        }
+        val live = located.filter { it.third != null }
+        if (live.isEmpty()) { apply(zeroNet, zeroNet.map { null }, null); return SettleResult(names, null) }
+        val moving = live.map { it.first }
+        val cards = live.map { it.second!! }
+        val reserves = live.map { it.third!! }
         val fixed = moving.mapIndexed { i, n -> PrepaidTxPlanner.output((reserves[i].capacity.toLong() - n.netUnits * UNIT_SHANNONS).toULong(), signer.lock) }
         val planned = try {
             PrepaidTxPlanner.plan(reserves, chain.cellsByLock(signer.lock), excludedOutpoints() - cards.map { normalizeOutpoint(it.currentOutpoint) }.toSet(), fixed, signer.lock)

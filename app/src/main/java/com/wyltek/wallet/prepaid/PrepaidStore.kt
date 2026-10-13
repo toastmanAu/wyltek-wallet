@@ -13,6 +13,8 @@ interface PrepaidStore {
     /** All rows or none (one Room transaction). */
     suspend fun updateCards(cards: List<PrepaidCardEntity>)
     suspend fun deleteIssuing(reserveId: String): Int
+    /** Frees a retired tag's UID for reissue; its audit rows keep the old reserveId. */
+    suspend fun deleteClosed(reserveId: String): Int
     suspend fun allCards(): List<PrepaidCardEntity>
     suspend fun cardsWithPending(): List<PrepaidCardEntity>
     suspend fun activeCount(): Int
@@ -31,6 +33,7 @@ class RoomPrepaidStore(db: AgentDatabase) : PrepaidStore {
     override suspend fun updateCard(c: PrepaidCardEntity) = dao.updateCard(c)
     override suspend fun updateCards(cards: List<PrepaidCardEntity>) = dao.updateCards(cards)
     override suspend fun deleteIssuing(reserveId: String) = dao.deleteIssuing(reserveId)
+    override suspend fun deleteClosed(reserveId: String) = dao.deleteClosed(reserveId)
     override suspend fun allCards() = dao.allCards()
     override suspend fun cardsWithPending() = dao.cardsWithPending()
     override suspend fun activeCount() = dao.activeCount()

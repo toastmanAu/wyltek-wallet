@@ -25,6 +25,10 @@ interface PrepaidDao {
     @Query("DELETE FROM prepaid_cards WHERE reserveId = :reserveId AND state = 'issuing'")
     suspend fun deleteIssuing(reserveId: String): Int
 
+    /** A closed card's row may go when its tag is reissued (its audit rows stay). */
+    @Query("DELETE FROM prepaid_cards WHERE reserveId = :reserveId AND state = 'closed'")
+    suspend fun deleteClosed(reserveId: String): Int
+
     @Query("SELECT * FROM prepaid_cards WHERE reserveId = :reserveId LIMIT 1")
     suspend fun card(reserveId: String): PrepaidCardEntity?
 

@@ -113,7 +113,7 @@ class PrepaidServiceRetireTest {
         assertTrue(cls is TapClass.Bench)
         assertEquals(ActionOutcome.Done, h.svc.adopt(tag, (cls as TapClass.Bench).record))
         val c = h.store.card(rid)!!
-        assertEquals(CARD_ACTIVE, c.state); assertEquals(500_000, c.balanceUnits); assertEquals(2L, c.counter); assertEquals(0L, c.settledCounter)
+        assertEquals(CARD_ACTIVE, c.state); assertEquals(500_000, c.balanceUnits); assertEquals(2L, c.counter); assertEquals(2L, c.settledCounter)   // the record already nets the terminal's taps (I4)
         assertEquals(floor + 500_000uL * unit, h.chain.cellAt(c.currentOutpoint)!!.capacity)
         assertEquals(2u, h.protocol.selectSlot("", uid, tag.readSlots()).record!!.counter)   // tag untouched
         assertEquals(listOf(PHASE_REQUESTED, PHASE_BROADCAST, PHASE_COMMITTED, PHASE_DONE), h.store.phases("a1"))
@@ -306,5 +306,24 @@ class PrepaidServiceRetireTest {
         val r = h.svc.acceptTagAsIs(tag, h.store.card(card.reserveId)!!)
         assertTrue(r.toString(), r is ActionOutcome.Failed && (r as ActionOutcome.Failed).reason.contains("another reserve"))
         assertNotNull(h.store.card(card.reserveId)!!.pendingTxHash)
+    }
+
+    @Test fun a_voided_tag_can_be_reissued() = runTest {
+        val h = h(); val tag = FakeTag(uid); val old = issued(h, tag, 1000)
+        assertEquals(ActionOutcome.Done, h.svc.void(old, tag))
+        assertEquals(CARD_CLOSED, h.store.card(old.reserveId)!!.state)
+        assertEquals(TapClass.Blank(uid), h.svc.classify(tag))
+        assertEquals(ActionOutcome.Done, h.svc.issue(tag, 2000, null))
+        val now = h.store.cardByUid(uid)!!
+        assertNotEquals(old.reserveId, now.reserveId); assertEquals(CARD_ACTIVE, now.state); assertEquals(2000, now.balanceUnits)
+        assertNull(h.store.card(old.reserveId))
+        assertTrue(h.store.events.any { it.reserveId == old.reserveId && it.kind == KIND_VOID })   // audit keeps the old reserve
+        assertTrue(h.store.events.first { it.reserveId == now.reserveId && it.phase == PHASE_REQUESTED }.detail.contains(old.reserveId))
+    }
+
+    @Test fun a_closed_tag_that_still_carries_a_record_is_refused_not_reissued() = runTest {
+        val h = h(); val tag = FakeTag(uid); val old = issued(h, tag, 1000)
+        assertEquals(ActionOutcome.Done, h.svc.void(old, null))               // tag absent: its record survives
+        assertEquals(TapClass.Refused(TapClassifier.REASON_CLOSED), h.svc.classify(tag))
     }
 }
