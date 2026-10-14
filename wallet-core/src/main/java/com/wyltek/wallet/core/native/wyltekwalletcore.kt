@@ -695,6 +695,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_generate_mldsa65_keypair(
     ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_from_bip39_seed(
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed(
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2(
@@ -809,6 +811,8 @@ external fun uniffi_wyltekwalletcore_fn_func_suggest_bip39_words(`prefix`: RustB
 external fun uniffi_wyltekwalletcore_fn_func_validate_mnemonic(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_wyltekwalletcore_fn_func_generate_mldsa65_keypair(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_mldsa65_from_bip39_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_from_seed(`seedHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1061,7 +1065,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_generate_mldsa65_keypair() != 43443) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 65027) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_bip39_seed() != 403) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_from_seed() != 4261) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_lock_args_v2() != 3289) {
@@ -3945,6 +3952,40 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     }
     
 
+        /**
+         * Derive an ML-DSA-65 keypair from the 64-byte BIP39 seed of the wallet
+         * mnemonic (`mnemonic_to_seed`, hex, `0x` prefix tolerated).
+         *
+         * This is the PERMANENT post-quantum derivation for app wallets; changing it
+         * moves every app PQ address:
+         *
+         * ```text
+         * ξ  = HKDF-SHA256(salt = "wyltek-wallet/mldsa65",
+         * ikm  = seed64,
+         * info = "ckb/mldsa65/v1/0", L = 32)
+         * (pk, sk) = ML-DSA-65.KeyGen_internal(ξ)      // FIPS 204 Algorithm 6
+         * ```
+         *
+         * The trailing `/0` in `info` is the account index, reserved for future
+         * multi-account derivation. The input must be exactly 64 bytes; a raw 32-byte
+         * ξ belongs in [`mldsa65_from_seed`].
+         */
+    @Throws(WalletException::class) fun `mldsa65FromBip39Seed`(`seedHex`: kotlin.String): PqKeyPair {
+            return FfiConverterTypePQKeyPair.lift(
+    uniffiRustCallWithError(WalletException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_mldsa65_from_bip39_seed(
+    
+        FfiConverterString.lower(`seedHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Derive an ML-DSA-65 keypair from a raw 32-byte FIPS 204 seed ξ (hex, no
+         * `0x`). Used by the testnet harness and tests. App wallets derive from the
+         * BIP39 mnemonic and must use [`mldsa65_from_bip39_seed`] instead.
+         */
     @Throws(WalletException::class) fun `mldsa65FromSeed`(`seedHex`: kotlin.String): PqKeyPair {
             return FfiConverterTypePQKeyPair.lift(
     uniffiRustCallWithError(WalletException) { _status ->
