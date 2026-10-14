@@ -48,7 +48,20 @@ fun SendScreen(
         accountType == AccountType.POST_QUANTUM ||
         (accountType == AccountType.HYBRID && subAddresses.size <= 1)
 
+    // A hash from an earlier send must not turn this fresh screen into a stale receipt.
+    LaunchedEffect(Unit) { viewModel.clearLastTxHash() }
+    var sentSummary by remember { mutableStateOf<SentSummary?>(null) }
+
     val performSend: (ULong) -> Unit = { amountShannons ->
+        sentSummary = SentSummary(
+            amountCkb = amount.trim(),
+            to = recipientAddress.trim(),
+            fromLabel = when {
+                isPqSelection -> "Post-quantum address (ML-DSA-65)"
+                subAddresses.size > 1 -> "Classic address (secp256k1)"
+                else -> account?.name ?: "This wallet"
+            },
+        )
         if (requiresAuth) {
             authError = null
             biometric.authenticate(
@@ -68,6 +81,22 @@ fun SendScreen(
         } else {
             viewModel.sendCkb(recipientAddress, amountShannons, selectedAddress)
         }
+    }
+
+    val sentHash = uiState.lastTxHash
+    val summary = sentSummary
+    if (sentHash != null && summary != null) {
+        SendReceiptView(
+            summary = summary,
+            txHash = sentHash,
+            explorerBase = NetworkConfig.forNetwork(account?.network ?: uiState.currentNetwork).explorerBaseUrl,
+            pollStatus = { viewModel.getTransactionStatus(it) },
+            onClose = {
+                viewModel.clearLastTxHash()
+                onBack()
+            },
+        )
+        return
     }
 
     Column(
@@ -165,19 +194,6 @@ fun SendScreen(
                     text = error,
                     modifier = Modifier.padding(12.dp),
                     color = ErrorRed,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-
-        uiState.lastTxHash?.let { txHash ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.1f))
-            ) {
-                Text(
-                    text = "Transaction sent: $txHash",
-                    modifier = Modifier.padding(12.dp),
-                    color = SuccessGreen,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
