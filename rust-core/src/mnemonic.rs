@@ -1,4 +1,6 @@
 use crate::WalletError;
+use rand::rngs::OsRng;
+use rand::RngCore;
 
 #[derive(uniffi::Record)]
 pub struct MnemonicResult {
@@ -15,7 +17,8 @@ pub fn generate_mnemonic(word_count: u32) -> Result<MnemonicResult, WalletError>
     };
 
     let mut entropy = vec![0u8; entropy_len];
-    rand::Rng::fill(&mut rand::thread_rng(), &mut entropy[..]);
+    // Wallet entropy comes straight from the OS CSPRNG (getrandom).
+    OsRng.fill_bytes(&mut entropy);
 
     let mn = bip39::Mnemonic::from_entropy(&entropy)
         .map_err(|e| WalletError::CryptoError(format!("Mnemonic generation failed: {}", e)))?;
@@ -62,4 +65,23 @@ pub fn suggest_bip39_words(prefix: String, limit: u32) -> Vec<String> {
         .take(limit as usize)
         .map(|s| s.to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_mnemonic_24_has_32_bytes_entropy_and_does_not_repeat() {
+        let a = generate_mnemonic(24).unwrap();
+        let b = generate_mnemonic(24).unwrap();
+        assert_ne!(a.mnemonic, b.mnemonic);
+        for m in [&a, &b] {
+            assert_eq!(m.mnemonic.split_whitespace().count(), 24);
+            assert!(validate_mnemonic(m.mnemonic.clone()));
+            let parsed = bip39::Mnemonic::parse_normalized(&m.mnemonic).unwrap();
+            assert_eq!(parsed.to_entropy().len(), 32);
+            assert_eq!(m.seed_hex.len(), 128);
+        }
+    }
 }
