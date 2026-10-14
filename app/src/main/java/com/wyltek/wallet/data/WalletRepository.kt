@@ -881,6 +881,7 @@ class WalletRepository(context: Context) {
             if (!validateMnemonic(mnemonic)) {
                 return WalletResult.Error("Invalid mnemonic phrase")
             }
+            PqEntropyRule.check(type, mnemonic)?.let { return WalletResult.Error(it) }
 
             val seedHex = mnemonicToSeed(mnemonic, "")
             val addresses = buildAddressesForType(seedHex, type, network)
@@ -916,6 +917,7 @@ class WalletRepository(context: Context) {
         network: NetworkType = NetworkType.TESTNET
     ): WalletResult<WalletAccount> {
         return try {
+            PqEntropyRule.check(type, mnemonic)?.let { return WalletResult.Error(it) }
             val seedHex = mnemonicToSeed(mnemonic, "")
             val addresses = buildAddressesForType(seedHex, type, network)
 
@@ -1158,7 +1160,7 @@ class WalletRepository(context: Context) {
                 )
 
             // Derive PQ keys.
-            val dsa = mldsa65FromSeed(seed)
+            val dsa = mldsa65FromBip39Seed(seed)
             val kem = cempMlkemFromSeed(seed)
 
             // Build the CEMP profile payload.
@@ -2010,7 +2012,7 @@ class WalletRepository(context: Context) {
     private fun buildPqAddress(seedHex: String, network: NetworkType): CkbAddress? {
         val mldsa = NetworkConfig.forNetwork(network).mldsa65 ?: return null
         if (mldsa.isPlaceholder()) return null
-        val pqKey = mldsa65FromSeed(seedHex)
+        val pqKey = mldsa65FromBip39Seed(seedHex)
         // mldsa65LockArgsV2 produces the 36-byte args layout the deployed
         // ckb-mldsa-lock contract verifies against.
         val args = "0x" + mldsa65LockArgsV2(pqKey.publicKeyHex)
@@ -2065,7 +2067,7 @@ class WalletRepository(context: Context) {
             // mldsa65-lock-v2-rust contract verifies. Signing digest is
             // blake2b("ckb-mldsa-msg", generate_ckb_tx_message_all) — the
             // CighashAll stream over every input cell (lock + type + data).
-            val pqKey = mldsa65FromSeed(seedHex)
+            val pqKey = mldsa65FromBip39Seed(seedHex)
             val mldsaCfg = mldsa!! // non-null when isPq is true
             // PQ witness is ~5337 bytes vs secp's ~85, so the per-tx fee at
             // the default 1 shannon/byte feeRate is at least ~5337 shannons.
