@@ -21,3 +21,22 @@ class QrFrameTest {
         assertEquals(6, QrFrame.luminance(plane, 3, 2, 4).size)
     }
 }
+
+class QrFrameDownscaleTest {
+    @Test fun `small frames are untouched`() {
+        val f = QrFrame.downscale(ByteArray(640 * 480) { 7 }, 640, 480, maxDim = 1280)
+        assertEquals(640, f.width); assertEquals(480, f.height)
+    }
+    @Test fun `a 12 MP frame is reduced to at most maxDim on its longest side`() {
+        val f = QrFrame.downscale(ByteArray(3456 * 3456), 3456, 3456, maxDim = 1280)
+        assertEquals(1152, f.width); assertEquals(1152, f.height)   // step 3
+        assertEquals(1152 * 1152, f.bytes.size)
+    }
+    @Test fun `downscale samples every step-th pixel`() {
+        // 4x2 frame, maxDim 2 -> step 2 -> keeps columns 0,2 of rows 0
+        val src = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
+        val f = QrFrame.downscale(src, 4, 2, maxDim = 2)
+        assertEquals(2, f.width); assertEquals(1, f.height)
+        assertArrayEquals(byteArrayOf(1, 3), f.bytes)
+    }
+}

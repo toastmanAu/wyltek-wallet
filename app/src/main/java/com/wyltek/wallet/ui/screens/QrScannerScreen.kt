@@ -154,7 +154,16 @@ fun QrScannerScreen(
                         .also { it.setSurfaceProvider(previewView.getSurfaceProvider()) }
 
                     val imageAnalysis = ImageAnalysis.Builder()
-                        .setTargetResolution(Size(1280, 720))
+                        .setResolutionSelector(
+                            androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                                .setResolutionStrategy(
+                                    androidx.camera.core.resolutionselector.ResolutionStrategy(
+                                        Size(1280, 720),
+                                        androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                                    )
+                                )
+                                .build()
+                        )
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
 
@@ -168,15 +177,17 @@ fun QrScannerScreen(
                         )
                     }
 
+                    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
                     imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
                         val yPlane = imageProxy.planes[0]
                         val buffer = yPlane.buffer
                         val raw = ByteArray(buffer.remaining())
                         buffer.get(raw)
-                        val bytes = QrFrame.luminance(raw, imageProxy.width, imageProxy.height, yPlane.rowStride)
+                        val packed = QrFrame.luminance(raw, imageProxy.width, imageProxy.height, yPlane.rowStride)
+                        val frame = QrFrame.downscale(packed, imageProxy.width, imageProxy.height)
                         val source = PlanarYUVLuminanceSource(
-                            bytes, imageProxy.width, imageProxy.height,
-                            0, 0, imageProxy.width, imageProxy.height, false
+                            frame.bytes, frame.width, frame.height,
+                            0, 0, frame.width, frame.height, false
                         )
                         // Dark-themed wallets (JoyID) show light-on-dark codes: try the inverted image too.
                         val text = listOf(source, source.invert()).firstNotNullOfOrNull { lum ->
@@ -196,7 +207,9 @@ fun QrScannerScreen(
                             val address = QrAddress.extract(text)
                             if (address != null) {
                                 imageProxy.close()
-                                onScanned(address)
+                                imageAnalysis.clearAnalyzer()
+                                // Navigation must happen on the main thread.
+                                mainHandler.post { onScanned(address) }
                                 return@setAnalyzer
                             }
                             android.util.Log.d("QrScanner", "decoded QR without a CKB address: ${text.take(80)}")
