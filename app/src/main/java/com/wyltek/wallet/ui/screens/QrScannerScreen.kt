@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.mutableStateOf
+import com.wyltek.wallet.ui.theme.ErrorRed
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.wyltek.wallet.ui.theme.*
@@ -83,6 +85,19 @@ fun QrScannerScreen(
 
         Box(modifier = Modifier.fillMaxSize()) {
             val previewView = remember { PreviewView(context) }
+            val noAddressNotice = remember { mutableStateOf<String?>(null) }
+            noAddressNotice.value?.let { notice ->
+                Text(
+                    text = notice,
+                    color = ErrorRed,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 48.dp)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
 
             AndroidView(
                 factory = { previewView },
@@ -174,12 +189,14 @@ fun QrScannerScreen(
                             val result = scanner.decode(binaryBitmap)
                             val text = result.text
                             if (text.isNotBlank()) {
-                                // Validate it's a CKB address
-                                if (text.startsWith("ckt") || text.startsWith("ckb")) {
+                                // Accept a bare address, a ckb: URI, or a link carrying the address
+                                val address = QrAddress.extract(text)
+                                if (address != null) {
                                     imageProxy.close()
-                                    onScanned(text)
+                                    onScanned(address)
                                     return@setAnalyzer
                                 }
+                                noAddressNotice.value = "No CKB address in that QR code"
                             }
                         } catch (_: NotFoundException) {
                             // No QR found in this frame

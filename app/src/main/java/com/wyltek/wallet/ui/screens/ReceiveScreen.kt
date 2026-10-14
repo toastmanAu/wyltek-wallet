@@ -5,6 +5,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.wyltek.wallet.core.chain.NetworkConfig
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -22,7 +24,11 @@ fun ReceiveScreen(
     viewModel: WalletViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val address = viewModel.getCurrentAddress()
+    val account = uiState.currentAccount
+    val subAddresses = account?.addresses.orEmpty()
+    var selectedIndex by remember(account?.id) { mutableIntStateOf(0) }
+    val selectedAddress = subAddresses.getOrNull(selectedIndex)
+    val address = selectedAddress?.bech32m ?: viewModel.getCurrentAddress()
     val clipboardManager = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
 
@@ -40,6 +46,38 @@ fun ReceiveScreen(
                 }
             }
         )
+
+        if (subAddresses.size > 1 && account != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CardBackground)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Receive to",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        subAddresses.forEachIndexed { idx, addr ->
+                            val isPq = NetworkConfig.isPqLock(addr.lockScript.codeHash, account.network)
+                            val label = if (isPq) "PQ (ML-DSA-65)" else "Classic (secp256k1)"
+                            FilterChip(
+                                selected = idx == selectedIndex,
+                                onClick = { selectedIndex = idx; copied = false },
+                                label = { Text(label) },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeonCyan.copy(alpha = 0.2f),
+                                    selectedLabelColor = NeonCyan
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         Card(
             modifier = Modifier.fillMaxWidth(),
