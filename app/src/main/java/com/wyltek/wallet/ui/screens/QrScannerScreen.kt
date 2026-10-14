@@ -24,8 +24,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.compose.runtime.mutableStateOf
-import com.wyltek.wallet.ui.theme.ErrorRed
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.wyltek.wallet.ui.theme.*
@@ -86,6 +84,12 @@ fun QrScannerScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             val previewView = remember { PreviewView(context) }
             val noAddressNotice = remember { mutableStateOf<String?>(null) }
+
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier.fillMaxSize()
+            )
+            // Drawn after the camera preview so it is not covered by its surface
             noAddressNotice.value?.let { notice ->
                 Text(
                     text = notice,
@@ -98,11 +102,6 @@ fun QrScannerScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
-
-            AndroidView(
-                factory = { previewView },
-                modifier = Modifier.fillMaxSize()
-            )
 
             // Overlay with scan frame
             Box(
@@ -199,7 +198,8 @@ fun QrScannerScreen(
                                 noAddressNotice.value = "No CKB address in that QR code"
                             }
                         } catch (_: NotFoundException) {
-                            // No QR found in this frame
+                            // No QR in this frame: a stale "no address" notice can go
+                            noAddressNotice.value = null
                         } catch (_: Exception) {
                             // Other decoding errors
                         }
