@@ -368,12 +368,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun importWallet(name: String, mnemonic: String) {
+    fun importWallet(name: String, mnemonic: String, type: AccountType = AccountType.CLASSIC) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val network = _uiState.value.currentNetwork
 
-            when (val result = repository.importWallet(name, mnemonic, network = network)) {
+            when (val result = repository.importWallet(name, mnemonic, type = type, network = network)) {
                 is WalletResult.Success -> {
                     val account = result.data
                     _uiState.value = _uiState.value.copy(

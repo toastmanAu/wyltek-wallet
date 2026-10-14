@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.wyltek.wallet.core.model.AccountType
 import com.wyltek.wallet.core.native.RustNative
 import com.wyltek.wallet.data.WalletViewModel
 import com.wyltek.wallet.ui.theme.*
@@ -33,6 +34,10 @@ fun WalletImportScreen(
     viewModel: WalletViewModel
 ) {
     var walletName by remember { mutableStateOf("") }
+    // Same selector + index→AccountType mapping as WalletCreateScreen
+    // (default Classic, matching the create screen).
+    var selectedType by remember { mutableIntStateOf(0) }
+    val types = listOf("Classic CKB", "Post-Quantum CKB", "Hybrid")
     val uiState by viewModel.uiState.collectAsState()
 
     val wordCount = 24
@@ -118,6 +123,28 @@ fun WalletImportScreen(
                 ),
                 singleLine = true
             )
+
+            Text(
+                text = "Account Type",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary
+            )
+
+            types.forEachIndexed { index, type ->
+                Card(
+                    onClick = { selectedType = index },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selectedType == index) DarkSurfaceVariant else CardBackground
+                    )
+                ) {
+                    Text(
+                        text = type,
+                        modifier = Modifier.padding(16.dp),
+                        color = if (selectedType == index) NeonCyan else TextPrimary
+                    )
+                }
+            }
 
             Text(
                 text = "Enter your ${wordCount}-word mnemonic phrase",
@@ -289,7 +316,12 @@ fun WalletImportScreen(
             Button(
                 onClick = {
                     val mnemonic = words.joinToString(" ")
-                    viewModel.importWallet(walletName, mnemonic)
+                    val accountType = when (selectedType) {
+                        0 -> AccountType.CLASSIC
+                        1 -> AccountType.POST_QUANTUM
+                        else -> AccountType.HYBRID
+                    }
+                    viewModel.importWallet(walletName, mnemonic, accountType)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
