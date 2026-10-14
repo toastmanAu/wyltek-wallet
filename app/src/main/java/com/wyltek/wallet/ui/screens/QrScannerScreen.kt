@@ -162,46 +162,45 @@ fun QrScannerScreen(
                         setHints(
                             mapOf(
                                 DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                                DecodeHintType.CHARACTER_SET to "UTF-8"
+                                DecodeHintType.CHARACTER_SET to "UTF-8",
+                                DecodeHintType.TRY_HARDER to true
                             )
                         )
                     }
 
                     imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
-                        val buffer = imageProxy.planes[0].buffer
-                        val bytes = ByteArray(buffer.remaining())
-                        buffer.get(bytes)
-
+                        val yPlane = imageProxy.planes[0]
+                        val buffer = yPlane.buffer
+                        val raw = ByteArray(buffer.remaining())
+                        buffer.get(raw)
+                        val bytes = QrFrame.luminance(raw, imageProxy.width, imageProxy.height, yPlane.rowStride)
                         val source = PlanarYUVLuminanceSource(
-                            bytes,
-                            imageProxy.width,
-                            imageProxy.height,
-                            0,
-                            0,
-                            imageProxy.width,
-                            imageProxy.height,
-                            false
+                            bytes, imageProxy.width, imageProxy.height,
+                            0, 0, imageProxy.width, imageProxy.height, false
                         )
-                        val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
-
-                        try {
-                            val result = scanner.decode(binaryBitmap)
-                            val text = result.text
-                            if (text.isNotBlank()) {
-                                // Accept a bare address, a ckb: URI, or a link carrying the address
-                                val address = QrAddress.extract(text)
-                                if (address != null) {
-                                    imageProxy.close()
-                                    onScanned(address)
-                                    return@setAnalyzer
-                                }
-                                noAddressNotice.value = "No CKB address in that QR code"
+                        // Dark-themed wallets (JoyID) show light-on-dark codes: try the inverted image too.
+                        val text = listOf(source, source.invert()).firstNotNullOfOrNull { lum ->
+                            try {
+                                scanner.decodeWithState(BinaryBitmap(HybridBinarizer(lum))).text
+                            } catch (_: NotFoundException) {
+                                null
+                            } catch (_: Exception) {
+                                null
+                            } finally {
+                                scanner.reset()
                             }
-                        } catch (_: NotFoundException) {
-                            // No QR in this frame: a stale "no address" notice can go
+                        }
+                        if (text.isNullOrBlank()) {
                             noAddressNotice.value = null
-                        } catch (_: Exception) {
-                            // Other decoding errors
+                        } else {
+                            val address = QrAddress.extract(text)
+                            if (address != null) {
+                                imageProxy.close()
+                                onScanned(address)
+                                return@setAnalyzer
+                            }
+                            android.util.Log.d("QrScanner", "decoded QR without a CKB address: ${text.take(80)}")
+                            noAddressNotice.value = "No CKB address in that QR code"
                         }
                         imageProxy.close()
                     }

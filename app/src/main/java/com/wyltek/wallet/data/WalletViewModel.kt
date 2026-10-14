@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import android.util.Log
+import com.wyltek.wallet.core.chain.NetworkConfig
 
 private const val TAG = "WalletVM"
 
@@ -36,6 +37,8 @@ data class WalletUiState(
     val balance: String = "0.00 CKB",
     val balanceCkb: ULong = 0u,
     val occupiedCapacity: ULong = 0u,
+    /** Per-address balances (Classic / PQ) when the account has more than one lock. */
+    val addressBalances: List<AddressBalance> = emptyList(),
     val tipBlockNumber: Long = 0L,
     val isConnected: Boolean = false,
     val isSyncing: Boolean = false,
@@ -127,8 +130,8 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             Log.d(TAG, "refreshBalance: no account, skipping")
             return
         }
-        val lockScript = account.addresses.firstOrNull()?.lockScript
-        if (lockScript == null) {
+        val addresses = account.addresses
+        if (addresses.isEmpty()) {
             Log.d(TAG, "refreshBalance: no lockScript, skipping")
             return
         }
@@ -148,30 +151,36 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             var lastError: String? = null
             for (attempt in 1..3) {
                 Log.d(TAG, "refreshBalance: attempt $attempt/3")
-                when (val result = repository.refreshBalance(lockScript)) {
-                    is WalletResult.Success -> {
-                        val capacity = result.data
-                        val ckb = capacity.totalCapacity / 100_000_000u
-                        val remainder = capacity.totalCapacity % 100_000_000u
-                        val fraction = remainder.toString().padStart(8, '0').trimEnd('0')
-
-                        Log.d(TAG, "refreshBalance: success, capacity=${capacity.totalCapacity}")
-                        _uiState.value = _uiState.value.copy(
-                            balance = if (fraction.isNotEmpty()) "$ckb.$fraction CKB" else "$ckb CKB",
-                            balanceCkb = capacity.totalCapacity,
-                            occupiedCapacity = capacity.occupiedCapacity,
-                            isSyncing = false,
-                            isConnected = true,
-                            error = null
-                        )
-                        lastError = null
-                        break
+                // One query per lock: a Hybrid account's PQ address holds its own cells.
+                val results = addresses.map { it to repository.refreshBalance(it.lockScript) }
+                val failed = results.firstOrNull { it.second is WalletResult.Error }
+                if (failed == null) {
+                    val capacities = results.map { (addr, r) -> addr to (r as WalletResult.Success).data }
+                    val perAddress = capacities.map { (addr, c) ->
+                        val isPq = NetworkConfig.isPqLock(addr.lockScript.codeHash, account.network)
+                        AddressBalance(if (isPq) "PQ" else "Classic", c.totalCapacity)
                     }
-                    is WalletResult.Error -> {
-                        Log.w(TAG, "refreshBalance: error on attempt $attempt: ${result.message}")
-                        lastError = result.message
-                        if (attempt < 3) delay(2000L * attempt)
-                    }
+                    val first = capacities.first().second
+                    val total = AddressBalance.total(perAddress)
+                    Log.d(TAG, "refreshBalance: success, total=$total across ${perAddress.size} address(es)")
+                    _uiState.value = _uiState.value.copy(
+                        balance = AddressBalance.formatCkb(total),
+                        // balanceCkb / occupiedCapacity stay the first (classic) address's figures:
+                        // DAO and internal transfer spend from that lock only.
+                        balanceCkb = first.totalCapacity,
+                        occupiedCapacity = first.occupiedCapacity,
+                        addressBalances = if (perAddress.size > 1) perAddress else emptyList(),
+                        isSyncing = false,
+                        isConnected = true,
+                        error = null
+                    )
+                    lastError = null
+                    break
+                } else {
+                    val msg = (failed.second as WalletResult.Error).message
+                    Log.w(TAG, "refreshBalance: error on attempt $attempt: $msg")
+                    lastError = msg
+                    if (attempt < 3) delay(2000L * attempt)
                 }
             }
 

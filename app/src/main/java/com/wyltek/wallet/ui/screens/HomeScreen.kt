@@ -1,5 +1,6 @@
 package com.wyltek.wallet.ui.screens
 
+import com.wyltek.wallet.data.AddressBalance
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -322,6 +323,13 @@ Row(
                                     color = textColor.copy(alpha = zone.textOpacity),
                                     fontWeight = FontWeight.Bold
                                 )
+                                if (uiState.addressBalances.isNotEmpty()) {
+                                    Text(
+                                        text = AddressBalance.breakdown(uiState.addressBalances),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = textColor.copy(alpha = 0.7f)
+                                    )
+                                }
                                 uiState.currentAccount?.let { account ->
                                     Text(
                                         text = "${account.name} · ${account.type.name}",
@@ -550,6 +558,13 @@ private fun DefaultPanelLayout(
                     color = textColorStyle,
                     fontWeight = FontWeight.Bold
                 )
+                if (uiState.addressBalances.isNotEmpty()) {
+                    Text(
+                        text = AddressBalance.breakdown(uiState.addressBalances),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
                 uiState.currentAccount?.let { account ->
                     Text(
                         text = "${account.name} · ${account.type.name}",
