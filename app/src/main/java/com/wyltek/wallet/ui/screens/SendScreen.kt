@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.wyltek.wallet.core.chain.NetworkConfig
@@ -24,8 +25,10 @@ fun SendScreen(
     scannedAddress: String? = null,
     viewModel: WalletViewModel
 ) {
-    var recipientAddress by remember { mutableStateOf(scannedAddress ?: "") }
-    var amount by remember { mutableStateOf("") }
+    // rememberSaveable: these survive the round trip to the QR scanner (plain remember is
+    // discarded when navigation leaves the screen, which reset the amount and the From choice).
+    var recipientAddress by rememberSaveable { mutableStateOf(scannedAddress ?: "") }
+    var amount by rememberSaveable { mutableStateOf("") }
     var authError by remember { mutableStateOf<String?>(null) }
     val uiState by viewModel.uiState.collectAsState()
     val biometric = rememberBiometricAuth()
@@ -37,7 +40,7 @@ fun SendScreen(
 
     val account = uiState.currentAccount
     val subAddresses = account?.addresses.orEmpty()
-    var selectedIndex by remember(account?.id) { mutableIntStateOf(0) }
+    var selectedIndex by rememberSaveable(account?.id) { mutableIntStateOf(0) }
     val selectedAddress = subAddresses.getOrNull(selectedIndex)
     val isPqSelection = selectedAddress != null && account != null &&
         NetworkConfig.isPqLock(selectedAddress.lockScript.codeHash, account.network)
