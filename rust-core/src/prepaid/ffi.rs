@@ -103,11 +103,13 @@ pub fn prepaid_verify_batch(k_debit_hex: String, entries_hex: String, cards: Vec
     let entries = hexv(&entries_hex)?;
     let states = cards.iter().map(|c| Ok(verifier::CardState { reserve_id: fixed::<32>(&c.reserve_id_hex, "reserve_id")?,
         balance_units: c.balance_units, settled_counter: c.settled_counter, revoked: c.revoked })).collect::<Result<Vec<_>, PrepaidError>>()?;
-    let r = verifier::verify_batch(&key, &entries, &states).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
+    let r = verifier::verify_batch(&key, &entries, &states, &[]).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
     Ok(BatchResultFfi {
         verdicts: r.verdicts.into_iter().map(|v| match v { verifier::Verdict::Accepted => JournalVerdict::Accepted, verifier::Verdict::Duplicate => JournalVerdict::Duplicate,
             verifier::Verdict::BadMac => JournalVerdict::BadMac, verifier::Verdict::UnknownCard => JournalVerdict::UnknownCard,
-            verifier::Verdict::StaleCounter => JournalVerdict::StaleCounter, verifier::Verdict::OverBalance => JournalVerdict::OverBalance }).collect(),
+            verifier::Verdict::StaleCounter => JournalVerdict::StaleCounter, verifier::Verdict::OverBalance => JournalVerdict::OverBalance,
+            // TEMPORARY until Task 5 adds voucher verdicts to the FFI; no voucher states are passed yet.
+            _ => JournalVerdict::BadMac }).collect(),
         nets: r.nets.into_iter().map(|n| CardNetFfi { reserve_id_hex: hex::encode(n.reserve_id), net_units: n.net_units, max_tmc: n.max_tmc, accepted: n.accepted }).collect(),
     })
 }
