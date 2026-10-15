@@ -33,6 +33,7 @@ import com.wyltek.wallet.prepaid.RoomVoucherStore
 import com.wyltek.wallet.prepaid.StaffKeyService
 import com.wyltek.wallet.prepaid.VoucherService
 import com.wyltek.wallet.prepaid.VoucherStore
+import com.wyltek.wallet.prepaid.wireVoucherService
 import com.wyltek.wallet.core.model.NetworkType
 import com.wyltek.wallet.core.native.authorizeOp
 import com.wyltek.wallet.core.native.tokenIdOf
@@ -260,7 +261,13 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     @Volatile private var prepaidHolder: PrepaidService? = null
     /** Built on demand; a null/failed build is never cached, so adding a testnet account later works without restart. */
     val prepaid: PrepaidService?
-        get() = prepaidHolder ?: synchronized(this) { prepaidHolder ?: buildPrepaid().also { prepaidHolder = it } }
+        get() = prepaidHolder ?: synchronized(this) {
+            prepaidHolder ?: buildPrepaid()?.also { core ->
+                // Hooks are installed before the service is published, so no caller can see it without them.
+                voucherHolder = wireVoucherService(core, voucherStore())
+                prepaidHolder = core
+            }
+        }
 
     private fun buildPrepaid(): PrepaidService? = try {
         val accounts = repository.getAllAccounts()
@@ -309,9 +316,9 @@ class AgentGateway(context: Context) : AgentDispatchPort {
 
     fun voucherStore(): VoucherStore = RoomVoucherStore(db)
     @Volatile private var voucherHolder: VoucherService? = null
-    /** Built on first use from the prepaid service; installing it sets the settle hooks. */
+    /** Created together with the prepaid service (see [prepaid]), which installs it as the settle hooks. */
     val vouchers: VoucherService?
-        get() = voucherHolder ?: synchronized(this) { voucherHolder ?: prepaid?.let { VoucherService(it, voucherStore()) }.also { voucherHolder = it } }
+        get() { prepaid; return voucherHolder }
     val staffKeys: StaffKeyService?
         get() = prepaid?.let { StaffKeyService(prepaidStore(), voucherStore(), NativeProtocol()) }
 
@@ -329,7 +336,6 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     override suspend fun prepaidJournal(token: String, entriesHex: String, sourceIp: String, nowUnix: Long): PrepaidJournalResult {
         if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidJournalResult.BadToken
         val svc = prepaid ?: return PrepaidJournalResult.BadRequest(prepaidUnavailableReason ?: "prepaid unavailable")
-        vouchers // installs the voucher settle hooks
         val tokenId = try { tokenIdOf(token, keyStore.rootPublicHex()).take(8) } catch (e: Exception) { "?" }
         val r = svc.settle(entriesHex, "terminal token $tokenId") ?: return PrepaidJournalResult.BadRequest("entries must be hex and a multiple of 96 bytes")
         return PrepaidJournalResult.Ok(r.verdicts.mapIndexed { i, v -> JournalVerdictDto(i, v, r.txHashAt(i)) })
