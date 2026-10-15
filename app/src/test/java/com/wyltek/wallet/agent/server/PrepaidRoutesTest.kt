@@ -5,6 +5,7 @@ import com.wyltek.wallet.core.native.Intent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,11 +62,19 @@ class PrepaidRoutesTest {
     }
 
     @Test fun staff_ok_lists_keys_and_needs_a_token() = runBlocking {
-        val p = port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken, PrepaidStaffResult.Ok(listOf(StaffKeyDto("77".repeat(8), "04958caa5c5e80", "5a".repeat(32)))))
+        val p = port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken, PrepaidStaffResult.Ok(listOf(StaffKeyDto("77".repeat(8)))))
         val r = routeAgentRequest("GET", "/v1/prepaid/staff", hdr, "", p)
         assertEquals(200, r.status)
-        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}","uid":"04958caa5c5e80","sig":"${"5a".repeat(32)}"}]}""", r.body)
+        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}"}]}""", r.body)
         assertEquals(401, routeAgentRequest("GET", "/v1/prepaid/staff", noHdr, "", p).status)
         assertEquals(401, routeAgentRequest("GET", "/v1/prepaid/staff", hdr, "", port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken)).status)
+    }
+
+    @Test fun staff_wire_never_carries_the_uid_or_the_signature() = runBlocking {
+        val k = com.wyltek.wallet.prepaid.db.StaffKeyEntity("77".repeat(8), "04958caa5c5e80", "5a".repeat(32), "ring", 1, null)
+        val p = port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken, PrepaidStaffResult.Ok(com.wyltek.wallet.agent.PrepaidGatewayMapping.staffDtosOf(listOf(k))))
+        val body = routeAgentRequest("GET", "/v1/prepaid/staff", hdr, "", p).body
+        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}"}]}""", body)
+        assertFalse(body.contains("04958caa5c5e80")); assertFalse(body.contains("5a".repeat(32)))
     }
 }

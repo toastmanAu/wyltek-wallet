@@ -55,9 +55,9 @@ class PrepaidGatewayMappingTest {
         assertEquals("K_debit generated; re-provision every terminal", e.detail)
     }
 
-    @Test fun staff_dto_carries_uid_and_signature_lower_case() {
-        val d = PrepaidGatewayMapping.staffDtoOf(com.wyltek.wallet.prepaid.db.StaffKeyEntity("77".repeat(8), "04958CAA5C5E80", "5A".repeat(32), "ring", 1, null))
-        assertEquals(StaffKeyDto("77".repeat(8), "04958caa5c5e80", "5a".repeat(32)), d)
+    @Test fun staff_dto_carries_the_key_id_only_lower_case() {
+        val d = PrepaidGatewayMapping.staffDtoOf(com.wyltek.wallet.prepaid.db.StaffKeyEntity("7A".repeat(8), "04958CAA5C5E80", "5A".repeat(32), "ring", 1, null))
+        assertEquals(StaffKeyDto("7a".repeat(8)), d)
     }
 
     @Test fun staff_list_is_capped_at_16_and_skips_revoked() {

@@ -4,7 +4,8 @@ import com.wyltek.wallet.prepaid.db.*
 import kotlinx.coroutines.CancellationException
 
 /** Vouchers spec §5.1. A staff key is any genuine NXP NTAG21x tag, identified by (UID, originality signature).
- *  Nothing is written to the tag. The POS only compares bytes; the ECC check happens here, once. */
+ *  Nothing is written to the tag. The ECC check happens here, once; terminals get only key_id (GET /v1/prepaid/staff)
+ *  and recompute it from (uid, READ_SIG) on tap. */
 class StaffKeyService(
     private val store: PrepaidStore,
     private val vouchers: VoucherStore,

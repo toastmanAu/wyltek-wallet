@@ -37,9 +37,9 @@ object PrepaidGatewayMapping {
 
     data class Candidate(val id: String, val testnet: Boolean, val firstAddressCodeHash: String?)
 
-    fun staffDtoOf(k: com.wyltek.wallet.prepaid.db.StaffKeyEntity) = com.wyltek.wallet.agent.server.StaffKeyDto(k.keyId.lowercase(), k.uid.lowercase(), k.sigHex.lowercase())
+    fun staffDtoOf(k: com.wyltek.wallet.prepaid.db.StaffKeyEntity) = com.wyltek.wallet.agent.server.StaffKeyDto(k.keyId.lowercase())
 
-    /** Active (non-revoked) keys only, capped at [com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE]; nothing beyond key_id/uid/sig. */
+    /** Active (non-revoked) keys only, capped at [com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE]; key_id only (never uid or sig). */
     fun staffDtosOf(keys: List<com.wyltek.wallet.prepaid.db.StaffKeyEntity>) =
         keys.filter { it.revokedAt == null }.take(com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE).map(::staffDtoOf)
 
