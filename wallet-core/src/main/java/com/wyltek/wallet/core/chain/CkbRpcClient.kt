@@ -321,7 +321,8 @@ data class CellResponse(
 data class CellOutput(
     val capacity: String,
     val lock: Script,
-    val type_: Script? = null
+    /** The RPC field is `type`; without the name it was never parsed and every typed cell looked type-less. */
+    @kotlinx.serialization.SerialName("type") val type_: Script? = null
 )
 
 object CellOutputDataSerializer : KSerializer<CellOutputData> {
