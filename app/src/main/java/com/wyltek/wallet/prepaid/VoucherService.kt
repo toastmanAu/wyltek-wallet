@@ -16,6 +16,8 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         val VOUCHER_CELL_SHANNONS: ULong = 6_900_000_000uL
         const val VOUCHER_CELL_DATA = "0x4242563100000000"
         private const val MAX_PRICE_MINOR = 4_294_967_295L
+        /** States an issue finalisation must never move back to ACTIVE. */
+        private val NEVER_REACTIVATED = setOf(VOUCHER_USED, VOUCHER_CLOSED, VOUCHER_VOID)
     }
 
     init { core.voucherHooks = this }
@@ -83,7 +85,11 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         if (!tag.uidHex.equals(v.uid, true)) return ActionOutcome.Failed("this is a different tag; present the voucher ${v.productName}")
         val before = try { core.protocol.voucherSelectSlot(core.kHex, tag.uidHex, tag.readSlots()) }
             catch (e: CancellationException) { throw e } catch (e: Exception) { return ActionOutcome.AwaitingTag(v.voucherId) }
-        if (before.record?.voucherIdHex.equals(v.voucherId, true) && before.record?.counter == 0u) return finaliseIssue(v, a, progress, "already on tag")
+        // Any valid record of THIS voucher under our merchant, at ANY counter, is final: a counter above 0 means a terminal
+        // has redeemed it, and resealing counter 0 with the full count would hand those uses back (final review HIGH-1).
+        before.record?.takeIf { it.voucherIdHex.equals(v.voucherId, true) && it.merchantIdHex.equals(core.merchantIdHex, true) }?.let {
+            return finaliseIssue(v, a, progress, if (it.counter == 0u) "already on tag" else "tag already redeemed (counter ${it.counter}); not rewritten")
+        }
         val raw = core.protocol.voucherSeal(core.kHex, tag.uidHex, VoucherRecordInfo(0u, v.voucherId, v.productHash, v.issuePriceMinor.toUInt(),
             v.currency, v.countIssued.toUByte(), 0u, core.merchantIdHex))
         try { tag.writeSlot(SlotPickFfi.A, raw); tag.zeroSlot(SlotPickFfi.B) }
@@ -103,10 +109,13 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         return finaliseIssue(v, a, progress, "")
     }
 
-    private suspend fun finaliseIssue(v: VoucherEntity, a: PrepaidService.Audit, progress: (Phase) -> Unit, detail: String): ActionOutcome {
-        val hash = v.pendingTxHash
-        vouchers.updateVoucher(cleared(v).copy(state = VOUCHER_ACTIVE))
-        core.log(a, PHASE_WRITTEN, txHash = hash, detail = detail); progress(Phase.WRITTEN)
+    /** Clears the issue marker. Only an ISSUING/ACTIVE row becomes ACTIVE: a USED, CLOSED or VOID voucher keeps its state
+     *  (settlement or a spend moved it on while the tag was away). [written] = false logs no WRITTEN phase. */
+    private suspend fun finaliseIssue(v: VoucherEntity, a: PrepaidService.Audit, progress: (Phase) -> Unit, detail: String, written: Boolean = true): ActionOutcome {
+        val cur = vouchers.voucher(v.voucherId) ?: v
+        val hash = cur.pendingTxHash ?: v.pendingTxHash
+        vouchers.updateVoucher(cleared(cur).copy(state = if (cur.state in NEVER_REACTIVATED) cur.state else VOUCHER_ACTIVE))
+        if (written) { core.log(a, PHASE_WRITTEN, txHash = hash, detail = detail); progress(Phase.WRITTEN) }
         core.log(a, PHASE_DONE, txHash = hash, detail = detail); progress(Phase.DONE)
         return ActionOutcome.Done
     }
@@ -136,7 +145,12 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
             false -> return@exclusive ActionOutcome.Failed("the issue did not commit")
             true -> progress(Phase.COMMITTED)
         }
-        writeTag(tag, vouchers.voucher(v.voucherId)!!, a, progress)
+        val cur = vouchers.voucher(v.voucherId)!!
+        // Only a voucher with every use still left may get the issue record (counter 0, full count) written. Anything else has
+        // been redeemed or spent while the tag was away: finalise without touching the tag (final review HIGH-1).
+        if (cur.state != VOUCHER_ACTIVE || cur.countLeft != cur.countIssued)
+            return@exclusive finaliseIssue(cur, a, progress, "voucher ${cur.state}, ${cur.countLeft} of ${cur.countIssued} uses left; tag not rewritten", written = false)
+        writeTag(tag, cur, a, progress)
     } ?: busy()
 
     /** One status check of an unconfirmed void/close. Committed: the row ends VOID/CLOSED (and a void wipes [tag] if it
@@ -225,11 +239,16 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         spendCell(v, KIND_VOUCHER_VOID, VOUCHER_VOID, tag?.takeIf { it.uidHex.equals(v.uid, true) }, progress)
     } ?: busy()
 
+    /** USED with no uses left and nothing pending that matters. A committed issue whose tag write never finished does not
+     *  block: its cell exists and settlement has used it up; the stale marker is replaced by the close's own (HIGH-1). */
+    private fun closable(v: VoucherEntity) = v.state == VOUCHER_USED && v.countLeft == 0 &&
+        (v.pendingTxHash == null || (v.pendingKind == KIND_VOUCHER_ISSUE && v.pendingCommitted))
+
     /** Spend the cell of every used-up voucher (state USED, nothing pending). Never touches an ACTIVE voucher.
      *  Called after each settlement (inside its lock) and from [recoverPending]. Returns how many closed now. */
     internal suspend fun closeUsedLocked(): Int {
         var closed = 0
-        for (v in vouchers.allVouchers().filter { it.state == VOUCHER_USED && it.countLeft == 0 && it.pendingTxHash == null }) {
+        for (v in vouchers.allVouchers().filter { closable(it) }) {
             // One voucher's failure never stops the rest, and never escapes into a settlement holding the lock.
             val out = try { spendCell(v, KIND_VOUCHER_CLOSE, VOUCHER_CLOSED, null, {}) }
                 catch (e: CancellationException) { throw e } catch (e: Exception) { ActionOutcome.Failed("close failed: ${e.message}") }
