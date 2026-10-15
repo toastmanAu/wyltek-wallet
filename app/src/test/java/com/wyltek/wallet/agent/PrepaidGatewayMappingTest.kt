@@ -3,6 +3,7 @@ package com.wyltek.wallet.agent
 import com.wyltek.wallet.agent.PrepaidGatewayMapping.Candidate
 import com.wyltek.wallet.agent.PrepaidGatewayMapping.FundingChoice
 import com.wyltek.wallet.agent.server.PrepaidCardDto
+import com.wyltek.wallet.agent.server.StaffKeyDto
 import com.wyltek.wallet.prepaid.db.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -52,5 +53,19 @@ class PrepaidGatewayMappingTest {
         val e = PrepaidGatewayMapping.keyGeneratedEvent(5, "id")
         assertEquals(KIND_KEY_GENERATED, e.kind); assertEquals(PHASE_DONE, e.phase); assertNull(e.reserveId); assertEquals("", e.uid)
         assertEquals("K_debit generated; re-provision every terminal", e.detail)
+    }
+
+    @Test fun staff_dto_carries_uid_and_signature_lower_case() {
+        val d = PrepaidGatewayMapping.staffDtoOf(com.wyltek.wallet.prepaid.db.StaffKeyEntity("77".repeat(8), "04958CAA5C5E80", "5A".repeat(32), "ring", 1, null))
+        assertEquals(StaffKeyDto("77".repeat(8), "04958caa5c5e80", "5a".repeat(32)), d)
+    }
+
+    @Test fun staff_list_is_capped_at_16_and_skips_revoked() {
+        fun k(i: Int, revoked: Long? = null) = StaffKeyEntity("%016x".format(i), "04aa", "5a".repeat(32), "n$i", 1, revoked)
+        val keys = (1..20).map { k(it) } + k(99, revoked = 5)
+        val out = PrepaidGatewayMapping.staffDtosOf(keys)
+        assertEquals(16, out.size)
+        assertEquals("%016x".format(1), out.first().keyId)
+        assertEquals(0, PrepaidGatewayMapping.staffDtosOf(listOf(k(1, revoked = 5))).size)
     }
 }

@@ -34,4 +34,7 @@ interface AgentDispatchPort {
     /** D3 spec §6: verify + settle a journal batch. Token in `x-device-token`, scope `prepaid_settle`. */
     suspend fun prepaidJournal(token: String, entriesHex: String, sourceIp: String, nowUnix: Long): PrepaidJournalResult = PrepaidJournalResult.BadToken
     suspend fun prepaidCards(token: String, sourceIp: String, nowUnix: Long): PrepaidCardsResult = PrepaidCardsResult.BadToken
+
+    /** Vouchers spec §5.2: active staff keys for terminals. Token in `x-device-token`, scope `prepaid_settle`. */
+    suspend fun prepaidStaff(token: String, sourceIp: String, nowUnix: Long): PrepaidStaffResult = PrepaidStaffResult.BadToken
 }

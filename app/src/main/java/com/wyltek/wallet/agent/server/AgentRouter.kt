@@ -31,6 +31,7 @@ private val json = Json { ignoreUnknownKeys = true }
  *   POST /relay/ckb                — token-gated, method-whitelisted CKB read-RPC proxy
  *   POST /v1/prepaid/journal       — verify + settle a prepaid terminal journal batch (x-device-token)
  *   GET  /v1/prepaid/cards         — active prepaid card set for terminals (x-device-token)
+ *   GET  /v1/prepaid/staff         — active staff keys (key_id, uid, sig; max 16) for terminals (x-device-token)
  *
  * [port] is an [AgentDispatchPort] — on device it is an adapter over AgentGateway;
  * in host-JVM tests it is a pure in-memory fake.
@@ -139,6 +140,13 @@ suspend fun routeAgentRequest(
             when (val r = port.prepaidCards(token, sourceIp, System.currentTimeMillis() / 1000)) {
                 PrepaidCardsResult.BadToken -> RouteResult(401)
                 is PrepaidCardsResult.Ok -> RouteResult(200, "application/json", json.encodeToString(PrepaidCardsResponse.serializer(), PrepaidCardsResponse(r.cards)))
+            }
+        }
+        method == "GET" && path == "/v1/prepaid/staff" -> {
+            val token = header("x-device-token") ?: return RouteResult(401)
+            when (val r = port.prepaidStaff(token, sourceIp, System.currentTimeMillis() / 1000)) {
+                PrepaidStaffResult.BadToken -> RouteResult(401)
+                is PrepaidStaffResult.Ok -> RouteResult(200, "application/json", json.encodeToString(StaffKeysResponse.serializer(), StaffKeysResponse(r.staff)))
             }
         }
 

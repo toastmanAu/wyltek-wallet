@@ -28,6 +28,11 @@ import com.wyltek.wallet.data.WalletResult
 import com.wyltek.wallet.agent.server.JournalVerdictDto
 import com.wyltek.wallet.agent.server.PrepaidCardsResult
 import com.wyltek.wallet.agent.server.PrepaidJournalResult
+import com.wyltek.wallet.agent.server.PrepaidStaffResult
+import com.wyltek.wallet.prepaid.RoomVoucherStore
+import com.wyltek.wallet.prepaid.StaffKeyService
+import com.wyltek.wallet.prepaid.VoucherService
+import com.wyltek.wallet.prepaid.VoucherStore
 import com.wyltek.wallet.core.model.NetworkType
 import com.wyltek.wallet.core.native.authorizeOp
 import com.wyltek.wallet.core.native.tokenIdOf
@@ -302,6 +307,14 @@ class AgentGateway(context: Context) : AgentDispatchPort {
 
     fun prepaidStore(): PrepaidStore = RoomPrepaidStore(db)
 
+    fun voucherStore(): VoucherStore = RoomVoucherStore(db)
+    @Volatile private var voucherHolder: VoucherService? = null
+    /** Built on first use from the prepaid service; installing it sets the settle hooks. */
+    val vouchers: VoucherService?
+        get() = voucherHolder ?: synchronized(this) { voucherHolder ?: prepaid?.let { VoucherService(it, voucherStore()) }.also { voucherHolder = it } }
+    val staffKeys: StaffKeyService?
+        get() = prepaid?.let { StaffKeyService(prepaidStore(), voucherStore(), NativeProtocol()) }
+
     suspend fun prepaidLiveCell(outpoint: String): com.wyltek.wallet.core.model.Utxo? =
         prepaid?.let { svc -> RpcChainPort(repository.getChainManager()).also { it.cachedLock = svc.lock } }?.cellAt(outpoint)
 
@@ -316,6 +329,7 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     override suspend fun prepaidJournal(token: String, entriesHex: String, sourceIp: String, nowUnix: Long): PrepaidJournalResult {
         if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidJournalResult.BadToken
         val svc = prepaid ?: return PrepaidJournalResult.BadRequest(prepaidUnavailableReason ?: "prepaid unavailable")
+        vouchers // installs the voucher settle hooks
         val tokenId = try { tokenIdOf(token, keyStore.rootPublicHex()).take(8) } catch (e: Exception) { "?" }
         val r = svc.settle(entriesHex, "terminal token $tokenId") ?: return PrepaidJournalResult.BadRequest("entries must be hex and a multiple of 96 bytes")
         return PrepaidJournalResult.Ok(r.verdicts.mapIndexed { i, v -> JournalVerdictDto(i, v, r.txHashAt(i)) })
@@ -324,6 +338,11 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     override suspend fun prepaidCards(token: String, sourceIp: String, nowUnix: Long): PrepaidCardsResult {
         if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidCardsResult.BadToken
         return PrepaidCardsResult.Ok(db.prepaidDao().allCards().mapNotNull(PrepaidGatewayMapping::cardDtoOf).take(64))
+    }
+
+    override suspend fun prepaidStaff(token: String, sourceIp: String, nowUnix: Long): PrepaidStaffResult {
+        if (!prepaidAuth(token, sourceIp, nowUnix)) return PrepaidStaffResult.BadToken
+        return PrepaidStaffResult.Ok(PrepaidGatewayMapping.staffDtosOf(voucherStore().activeStaffKeys()))
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────

@@ -37,6 +37,12 @@ object PrepaidGatewayMapping {
 
     data class Candidate(val id: String, val testnet: Boolean, val firstAddressCodeHash: String?)
 
+    fun staffDtoOf(k: com.wyltek.wallet.prepaid.db.StaffKeyEntity) = com.wyltek.wallet.agent.server.StaffKeyDto(k.keyId.lowercase(), k.uid.lowercase(), k.sigHex.lowercase())
+
+    /** Active (non-revoked) keys only, capped at [com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE]; nothing beyond key_id/uid/sig. */
+    fun staffDtosOf(keys: List<com.wyltek.wallet.prepaid.db.StaffKeyEntity>) =
+        keys.filter { it.revokedAt == null }.take(com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE).map(::staffDtoOf)
+
     sealed class FundingChoice {
         /** [persist] = this is a first selection that must be written to [KEY_FUNDING_ACCOUNT]. */
         data class Use(val accountId: String, val persist: Boolean) : FundingChoice()

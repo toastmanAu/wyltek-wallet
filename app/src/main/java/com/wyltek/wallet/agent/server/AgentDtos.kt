@@ -62,6 +62,12 @@ sealed class PrepaidJournalResult {
     data class BadRequest(val reason: String) : PrepaidJournalResult()
     data class Ok(val results: List<JournalVerdictDto>) : PrepaidJournalResult()
 }
+@Serializable data class StaffKeyDto(@SerialName("key_id") val keyId: String, val uid: String, val sig: String)
+@Serializable data class StaffKeysResponse(val staff: List<StaffKeyDto>)
+sealed class PrepaidStaffResult {
+    data object BadToken : PrepaidStaffResult()
+    data class Ok(val staff: List<StaffKeyDto>) : PrepaidStaffResult()
+}
 sealed class PrepaidCardsResult {
     data object BadToken : PrepaidCardsResult()
     data class Ok(val cards: List<PrepaidCardDto>) : PrepaidCardsResult()
