@@ -42,7 +42,9 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = DarkSurface) {
+    // Not dismissable mid-action: a running cash-out must finish where the user can see its result.
+    val sheetState = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden || !ui.busy })
+    ModalBottomSheet(onDismissRequest = { if (!ui.busy) onDismiss() }, sheetState = sheetState, containerColor = DarkSurface) {
         Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row { Text(headline(ui.tap), style = MaterialTheme.typography.titleMedium, color = TextPrimary); Spacer(Modifier.width(8.dp)); DemoBadge() }
             detail(ui.tap)?.let { Text(it, color = TextSecondary) }
@@ -50,7 +52,11 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                 OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Amount (CKB, max 1000)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (TapAction.ISSUE in actions) OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ui.armed?.let { armed ->
+                Text(armedPrompt(armed, ui.cards.firstOrNull { it.reserveId == armed.reserveId }), color = WarningOrange)
+                if (!ui.busy) OutlinedButton(onClick = viewModel::disarm) { Text(if (armed is Armed.Wipe) "Not now" else "Cancel cash-out") }
+            }
+            if (ui.armed == null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (a in actions) when (a) {
                     TapAction.ISSUE -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; val l = label; gated("Issue card") { viewModel.issue(c, a, l) } }) { Text("Issue") }
                     TapAction.LOAD -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; gated("Load card") { viewModel.load(c, a) } }) { Text("Load") }
@@ -60,6 +66,7 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                     TapAction.REVOKE -> OutlinedButton(enabled = !ui.busy, onClick = { viewModel.tappedCard()?.let(viewModel::revoke) }) { Text("Revoke") }
                     TapAction.REINSTATE -> OutlinedButton(enabled = !ui.busy, onClick = { viewModel.tappedCard()?.let(viewModel::reinstate) }) { Text("Reinstate") }
                     TapAction.VOID -> OutlinedButton(enabled = !ui.busy, colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed), onClick = { previewVoid = null; confirmVoid = viewModel.tappedCard() }) { Text("Void") }
+                    TapAction.WIPE -> OutlinedButton(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); gated("Wipe card") { viewModel.wipeClosed(c) } }) { Text("Wipe card") }
                     TapAction.CASH_OUT -> OutlinedButton(enabled = !ui.busy, onClick = { previewCashOut = null; cashOutOpen = true }) { Text("Cash out") }
                 }
             }
@@ -67,7 +74,7 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                 Text("The pending credit stays on chain (in the index balance) but is not written to the card.", color = TextSecondary)
                 OutlinedButton(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); gated("Accept card as-is") { viewModel.acceptTagAsIs(c) } }) { Text("Accept card as-is") }
             }
-            if (!ui.tagPresent && ui.tap != null && ui.tap !is TapClass.Refused) Text("Tap the card again to continue.", color = WarningOrange)
+            if (ui.armed == null && !ui.tagPresent && ui.tap != null && ui.tap !is TapClass.Refused) Text("Tap the card again to continue.", color = WarningOrange)
             authError?.let { Text(it, color = ErrorRed) }
             if (ui.phases.isNotEmpty()) Column { for ((p, t) in ui.phases) Text("${fmt.format(Date(t))}  ${p.name.lowercase()}", color = if (p == Phase.FAILED) ErrorRed else NeonCyan, style = MaterialTheme.typography.bodySmall) }
             when (val o = ui.outcome) {
@@ -75,6 +82,8 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                 is ActionOutcome.AwaitingTag -> Text("Committed on chain. Tap the card again to write it.", color = WarningOrange)
                 is ActionOutcome.StillConfirming -> Text("Still confirming ${o.txHash.take(10)}…; tap the card again later.", color = WarningOrange)
                 is ActionOutcome.Failed -> Text(o.reason, color = ErrorRed)
+                is ActionOutcome.NeedsTag -> Text("Could not read the card. Hold it still against the phone.", color = WarningOrange)
+                is ActionOutcome.WipePending -> Text("Paid out and closed on chain.", color = SuccessGreen)
                 null -> {}
             }
             if (ui.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -99,13 +108,21 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
             text = { Column {
                 Text("Pays ${PrepaidAmount.formatUnits(coCard.balanceUnits.toLong())} to the customer's address; the 61 CKB floor returns to the merchant.")
                 if (pv?.belowMinimum == true) Text("Below the 61 CKB minimum cell: pay this out in cash and void the card instead.", color = ErrorRed)
-                if (pv != null && taps == null) Text("Could not read the card. Hold it to the phone and reopen this dialog.", color = ErrorRed)
                 if (taps != null && taps > 0) Text("$taps unsettled taps: sync the terminal first.", color = ErrorRed)
+                else Text("After Pay out, hold the card to the phone: it is checked for unsettled terminal taps, then paid.", color = TextSecondary)
                 Text(scannedAddress?.let { "To: $it" } ?: "Scan the customer's address", color = TextSecondary)
                 TextButton(onClick = onScanAddress) { Text("Scan address") } } },
-            confirmButton = { TextButton(enabled = scannedAddress != null && pv != null && !pv.belowMinimum && taps == 0L,
-                onClick = { val c = viewModel.currentContext(); val addr = scannedAddress!!; cashOutOpen = false; viewModel.clearScannedAddress(); gated("Cash out") { viewModel.cashOut(c, addr) } }) { Text("Pay out") } },
+            confirmButton = { TextButton(enabled = scannedAddress != null && pv != null && !pv.belowMinimum && (taps == null || taps == 0L),
+                onClick = { val addr = scannedAddress!!; cashOutOpen = false; viewModel.clearScannedAddress(); gated("Cash out") { viewModel.cashOut(coCard, addr) } }) { Text("Pay out") } },
             dismissButton = { TextButton(onClick = { cashOutOpen = false; viewModel.clearScannedAddress() }) { Text("Cancel") } })
+    }
+}
+
+private fun armedPrompt(armed: Armed, card: PrepaidCardEntity?): String {
+    val name = card?.label ?: armed.uid
+    return when (armed) {
+        is Armed.CashOut -> "Hold $name to the phone to pay out to ${armed.address.take(14)}…${armed.address.takeLast(6)}. You can lift it once Done shows."
+        is Armed.Wipe -> "Hold $name to the phone to wipe it."
     }
 }
 

@@ -169,12 +169,45 @@ class PrepaidServiceRetireTest {
         assertTrue(tag.readSlots().all { it == 0.toByte() })
     }
 
-    @Test fun cash_out_refuses_when_the_tag_cannot_be_read() = runTest {
+    @Test fun cash_out_asks_for_the_card_when_the_tag_cannot_be_read_and_changes_nothing() = runTest {
         val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        val broadcasts = h.chain.broadcasts.size
         tag.failNextRead = true
-        val r = h.svc.cashOut(tag, card, "ckt1customer")
-        assertTrue(r is ActionOutcome.Failed && (r as ActionOutcome.Failed).reason.contains("could not read"))
-        assertEquals(CARD_ACTIVE, h.store.card(card.reserveId)!!.state)
+        assertEquals(ActionOutcome.NeedsTag(card.reserveId), h.svc.cashOut(tag, card, "ckt1customer"))
+        tag.present = false                                   // card already left the phone (address scan)
+        assertEquals(ActionOutcome.NeedsTag(card.reserveId), h.svc.cashOut(tag, card, "ckt1customer"))
+        val c = h.store.card(card.reserveId)!!
+        assertEquals(CARD_ACTIVE, c.state); assertNull(c.pendingTxHash)
+        assertTrue(h.store.events.none { it.kind == KIND_CASH_OUT })
+        assertEquals(broadcasts, h.chain.broadcasts.size)
+    }
+
+    @Test fun cash_out_with_the_card_gone_by_commit_closes_and_asks_for_a_wipe() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        tag.tearOnWriteCall = 1                               // card pulled before the post-commit wipe
+        assertEquals(ActionOutcome.WipePending(card.reserveId), h.svc.cashOut(tag, card, "ckt1customer"))
+        assertEquals(CARD_CLOSED, h.store.card(card.reserveId)!!.state)
+        assertEquals(1, h.chain.cellsByLock(customerLock).size)
+        assertEquals(PHASE_DONE, h.store.events.last { it.kind == KIND_CASH_OUT }.phase)
+        assertEquals(TapClass.Refused(TapClassifier.REASON_CLOSED), h.svc.classify(tag.also { it.present = true }))
+        assertEquals(ActionOutcome.Done, h.svc.wipeClosedTag(tag, h.store.card(card.reserveId)!!))
+        assertTrue(tag.readSlots().all { it == 0.toByte() })
+        assertEquals(TapClass.Blank(uid), h.svc.classify(tag))
+        val wipe = h.store.events.filter { it.actionId == h.store.events.last().actionId }
+        assertEquals(listOf(PHASE_REQUESTED, PHASE_DONE), wipe.map { it.phase }); assertTrue(wipe.last().detail.contains("tag wiped"))
+    }
+
+    @Test fun wipe_closed_tag_refuses_an_open_card_another_tag_and_another_reserves_record() = runTest {
+        val h = h(); val tag = FakeTag(uid); val card = issued(h, tag, 100_000)
+        assertTrue(h.svc.wipeClosedTag(tag, card) is ActionOutcome.Failed)                 // still active
+        assertFalse(tag.readSlots().all { it == 0.toByte() })
+        assertEquals(ActionOutcome.Done, h.svc.void(card, null))
+        val closed = h.store.card(card.reserveId)!!
+        assertTrue(h.svc.wipeClosedTag(FakeTag("04aaaaaaaaaaaa"), closed) is ActionOutcome.Failed)
+        tag.zeroSlot(SlotPickFfi.B)
+        tag.writeSlot(SlotPickFfi.A, h.protocol.seal("", uid, CardRecordInfo(0u, "ee".repeat(32), 1, 9u, h.svc.merchantIdHex)))
+        assertTrue(h.svc.wipeClosedTag(tag, closed) is ActionOutcome.Failed)               // not this card's record
+        assertFalse(tag.readSlots().all { it == 0.toByte() })
     }
 
     @Test fun adopt_recovery_waits_when_the_reserve_cell_is_not_visible() = runTest {

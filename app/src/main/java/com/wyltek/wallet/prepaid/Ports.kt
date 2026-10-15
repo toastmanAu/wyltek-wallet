@@ -55,4 +55,8 @@ sealed class ActionOutcome {
     data class AwaitingTag(val reserveId: String) : ActionOutcome()
     data class StillConfirming(val txHash: String) : ActionOutcome()
     data class Failed(val reason: String) : ActionOutcome()
+    /** Nothing was done: the card must be on the phone for this step (cash-out reads it before paying). */
+    data class NeedsTag(val reserveId: String) : ActionOutcome()
+    /** The card is closed on chain but its tag still carries the record; tap it to wipe ([PrepaidService.wipeClosedTag]). */
+    data class WipePending(val reserveId: String) : ActionOutcome()
 }

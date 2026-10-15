@@ -2,11 +2,13 @@ package com.wyltek.wallet.prepaid
 
 import com.wyltek.wallet.core.native.*
 import com.wyltek.wallet.prepaid.db.*
+import com.wyltek.wallet.prepaid.ui.Armed
 import com.wyltek.wallet.prepaid.ui.PrepaidUiReducer
 import com.wyltek.wallet.prepaid.ui.PrepaidUiState
 import com.wyltek.wallet.prepaid.ui.TapAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,5 +48,53 @@ class PrepaidUiStateTest {
         assertFalse(PrepaidUiReducer.offersAcceptAsIs(com.wyltek.wallet.prepaid.ActionOutcome.Failed("busy"), resume))
         assertFalse(PrepaidUiReducer.offersAcceptAsIs(refusal, TapClass.Known(card(CARD_ACTIVE), rec, slot)))
         assertFalse(PrepaidUiReducer.offersAcceptAsIs(null, resume))
+    }
+
+    @Test fun an_armed_cash_out_waits_for_the_card_then_becomes_a_wipe_or_ends() {
+        val co = Armed.CashOut("r", "u", "ckt1x")
+        assertEquals(co, PrepaidUiReducer.armAfter(co, ActionOutcome.NeedsTag("r")))
+        assertEquals(Armed.Wipe("r", "u"), PrepaidUiReducer.armAfter(co, ActionOutcome.WipePending("r")))
+        assertNull(PrepaidUiReducer.armAfter(co, ActionOutcome.Done))
+        assertNull(PrepaidUiReducer.armAfter(co, ActionOutcome.Failed("2 unsettled taps: sync the terminal first")))
+        assertNull(PrepaidUiReducer.armAfter(co, ActionOutcome.StillConfirming("0xh")))   // the pending marker takes over
+        val w = Armed.Wipe("r", "u")
+        assertEquals(w, PrepaidUiReducer.armAfter(w, ActionOutcome.NeedsTag("r")))
+        assertNull(PrepaidUiReducer.armAfter(w, ActionOutcome.Done))
+        assertNull(PrepaidUiReducer.armAfter(w, ActionOutcome.Failed("not this card's record")))
+    }
+
+    @Test fun a_finished_attempt_cannot_rearm_after_the_user_dismissed_or_changed_it() {
+        val co = Armed.CashOut("r", "u", "ckt1x")
+        assertNull(PrepaidUiReducer.settleArm(current = null, ran = co, out = ActionOutcome.NeedsTag("r")))
+        assertNull(PrepaidUiReducer.settleArm(current = null, ran = co, out = ActionOutcome.WipePending("r")))
+        val other = Armed.CashOut("r", "u", "ckt1other")
+        assertEquals(other, PrepaidUiReducer.settleArm(current = other, ran = co, out = ActionOutcome.Done))
+        assertEquals(co, PrepaidUiReducer.settleArm(current = co, ran = co, out = ActionOutcome.NeedsTag("r")))
+        assertEquals(Armed.Wipe("r", "u"), PrepaidUiReducer.settleArm(current = co, ran = co, out = ActionOutcome.WipePending("r")))
+    }
+
+    @Test fun busy_keeps_the_step_armed() {
+        val co = Armed.CashOut("r", "u", "ckt1x")
+        assertEquals(co, PrepaidUiReducer.armAfter(co, ActionOutcome.Failed("busy")))
+    }
+
+    @Test fun a_closed_card_with_its_record_still_on_the_tag_offers_a_wipe() {
+        assertEquals(listOf(TapAction.WIPE), PrepaidUiReducer.tapActions(TapClass.Refused(TapClassifier.REASON_CLOSED), true))
+        assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Refused(TapClassifier.REASON_CLOSED), false))
+        assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Refused(TapClassifier.REASON_OTHER_MERCHANT), true))
+    }
+
+    @Test fun an_armed_step_runs_only_for_its_own_card() {
+        val co = Armed.CashOut("r", "04ABCD", "ckt1x")
+        assertTrue(PrepaidUiReducer.armedFor(co, "04abcd"))
+        assertFalse(PrepaidUiReducer.armedFor(co, "04ffff"))
+        assertFalse(PrepaidUiReducer.armedFor(null, "04abcd"))
+    }
+
+    @Test fun waiting_outcomes_mark_the_tag_gone() {
+        assertTrue(PrepaidUiReducer.tagGone(ActionOutcome.NeedsTag("r")))
+        assertTrue(PrepaidUiReducer.tagGone(ActionOutcome.WipePending("r")))
+        assertTrue(PrepaidUiReducer.tagGone(ActionOutcome.AwaitingTag("r")))
+        assertFalse(PrepaidUiReducer.tagGone(ActionOutcome.Done))
     }
 }

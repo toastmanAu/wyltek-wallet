@@ -33,6 +33,7 @@ class PrepaidService(
         const val MAX_ACTIVE_CARDS = 64
         const val UNIT_SHANNONS = 100_000L
         const val PENDING_UNKNOWN_GIVE_UP_MS = 30L * 60 * 1000
+        private const val TAG_WIPED = "tag wiped"
     }
 
     val lock: LockScript get() = signer.lock
@@ -372,17 +373,19 @@ class PrepaidService(
     /** Best effort; a closed card is dead on chain whether or not its tag is wiped. */
     private suspend fun wipeTag(tag: TagPort?, card: PrepaidCardEntity): String {
         if (tag == null || !tag.uidHex.equals(card.uid, true)) return "tag absent"
-        return try { tag.zeroSlot(SlotPickFfi.A); tag.zeroSlot(SlotPickFfi.B); "tag wiped" } catch (e: TagLostException) { "tag wipe interrupted: ${e.message}" }
+        return try { tag.zeroSlot(SlotPickFfi.A); tag.zeroSlot(SlotPickFfi.B); TAG_WIPED } catch (e: TagLostException) { "tag wipe interrupted: ${e.message}" }
     }
 
-    /** Retire a card and pay its balance to [customerAddress]; the floor (minus fee) returns to the merchant. Tag required. */
+    /** Retire a card and pay its balance to [customerAddress]; the floor (minus fee) returns to the merchant.
+     *  The tag is read once, before paying (unsettled terminal taps); it need not stay on the phone after that.
+     *  [ActionOutcome.NeedsTag]: unreadable, nothing done. [ActionOutcome.WipePending]: paid and closed, tag not wiped. */
     suspend fun cashOut(tag: TagPort, card: PrepaidCardEntity, customerAddress: String, progress: (Phase) -> Unit = {}): ActionOutcome = exclusive {
         val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
         if (fresh.state != CARD_ACTIVE && fresh.state != CARD_REVOKED) return@exclusive ActionOutcome.Failed("card is ${fresh.state}")
         if (fresh.pendingTxHash != null) return@exclusive ActionOutcome.Failed("finish the pending credit first (tap the card)")
         if (!tag.uidHex.equals(fresh.uid, true)) return@exclusive ActionOutcome.Failed("this is a different tag")
         val preview = inspectForRetire(tag, fresh)
-        val unsettled = preview.unsettledTaps ?: return@exclusive ActionOutcome.Failed("could not read the card; tap again or repair it")
+        val unsettled = preview.unsettledTaps ?: return@exclusive ActionOutcome.NeedsTag(fresh.reserveId)
         if (unsettled > 0) return@exclusive ActionOutcome.Failed("$unsettled unsettled taps: sync the terminal first")
         val customerLock = protocol.lockOf(customerAddress) ?: return@exclusive ActionOutcome.Failed("customer address is not a valid CKB address")
         val reserve = chain.cellAt(fresh.currentOutpoint) ?: return@exclusive ActionOutcome.Failed("reserve cell not found on chain; use Inspect")
@@ -403,9 +406,29 @@ class PrepaidService(
                 store.updateCard(closedRow(fresh))
                 val wiped = wipeTag(tag, fresh)
                 log(a, PHASE_DONE, balanceAfter = 0, txHash = r.txHash, detail = "to $customerAddress; $wiped"); progress(Phase.DONE)
-                ActionOutcome.Done
+                if (wiped == TAG_WIPED) ActionOutcome.Done else ActionOutcome.WipePending(fresh.reserveId)
             }
         }
+    } ?: busy()
+
+    /** Wipe the leftover record from a closed card's tag (cash-out finished after the card left the phone).
+     *  Only this card's own record is wiped: an unreadable or foreign record is left alone. */
+    suspend fun wipeClosedTag(tag: TagPort, card: PrepaidCardEntity): ActionOutcome = exclusive {
+        val fresh = store.card(card.reserveId) ?: return@exclusive ActionOutcome.Failed("card not in the index")
+        if (fresh.state != CARD_CLOSED) return@exclusive ActionOutcome.Failed("card is ${fresh.state}, not closed")
+        if (!tag.uidHex.equals(fresh.uid, true)) return@exclusive ActionOutcome.Failed("this is a different tag; present the card ${fresh.label ?: fresh.uid}")
+        val slot = try { protocol.selectSlot(kHex, tag.uidHex, tag.readSlots()) }
+            catch (e: CancellationException) { throw e } catch (e: Exception) { return@exclusive ActionOutcome.NeedsTag(fresh.reserveId) }
+        val rec = slot.record
+        if (slot.pick == SlotPickFfi.NONE && slot.reason == SlotReason.NO_VALID_SLOT) return@exclusive ActionOutcome.Done
+        if ((slot.pick != SlotPickFfi.A && slot.pick != SlotPickFfi.B) || rec == null || !rec.reserveIdHex.equals(fresh.reserveId, true))
+            return@exclusive ActionOutcome.Failed("the card does not carry this card's record; not wiped")
+        val a = Audit(newActionId(), KIND_REPAIR, fresh.uid, fresh.reserveId, 0, 0, rec.counter.toLong())
+        log(a, PHASE_REQUESTED, detail = "wipe closed card")
+        val wiped = wipeTag(tag, fresh)
+        if (wiped != TAG_WIPED) { log(a, PHASE_FAILED, detail = "closed card: $wiped"); return@exclusive ActionOutcome.NeedsTag(fresh.reserveId) }
+        log(a, PHASE_DONE, balanceAfter = 0, detail = "closed card: $wiped")
+        ActionOutcome.Done
     } ?: busy()
 
     /** Rewrite a tag with no valid slot from the index (D3 spec §5.5). */
