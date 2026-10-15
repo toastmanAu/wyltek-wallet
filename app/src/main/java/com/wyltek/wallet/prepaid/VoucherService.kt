@@ -255,9 +255,65 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         ActionOutcome.Done
     } ?: busy()
 
-    // ------------------------------------------------------------ VoucherHooks (settlement: Task 13)
+    // ------------------------------------------------------------ VoucherHooks (settlement)
     override suspend fun uidHoldsVoucher(uidHex: String) = vouchers.voucherByUid(uidHex)?.state in VOUCHER_LIVE
-    override suspend fun voucherStates(): List<VoucherStateFfi> = emptyList()
-    override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String) = names
-    override suspend fun afterSettle() {}
+    /** Every voucher the verifier may meet, issuing ones excepted. USED and CLOSED go in too (void=false, with their
+     *  settled entries) so an identical resend of a last-use redeem still answers `duplicate`; only VOID is void. */
+    override suspend fun voucherStates(): List<VoucherStateFfi> = vouchers.allVouchers().filter { it.state != VOUCHER_ISSUING }.map { v ->
+        VoucherStateFfi(v.voucherId, v.countLeft.coerceIn(0, 255).toUByte(), v.state == VOUCHER_VOID,
+            vouchers.seenForVoucher(v.voucherId).mapNotNull { s -> s.counter?.let { SettledRedeemFfi(it.toUInt(), s.entryHash) } })
+    }
+
+    /** Finalises this batch's redeem (0x03) and override (0x04) verdicts. An entry stays `accepted` only once its record
+     *  is written: seen entry + count (redeems, one transaction) and audit row. A failed write answers `retry` so the
+     *  terminal keeps the entry; an entry already seen (earlier batch or earlier in this one) is `duplicate`, with no
+     *  second count-down and no second audit row (Review Focus 5). */
+    override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String): List<String> {
+        val out = names.toMutableList()
+        settleRedeems(res.redeems.filter { it.index.toInt() in out.indices }, out, terminalLabel)
+        for (o in res.overrides) if (o.index.toInt() in out.indices) out[o.index.toInt()] = settleOverride(o, terminalLabel)
+        return out
+    }
+
+    private suspend fun settleRedeems(redeems: List<RedeemFfi>, out: MutableList<String>, terminalLabel: String) {
+        if (redeems.isEmpty()) return
+        fun mark(rs: List<RedeemFfi>, name: String) = rs.forEach { out[it.index.toInt()] = name }
+        val now = core.clock()
+        val (fresh, updated) = try {
+            val hashes = mutableSetOf<String>(); val fresh = mutableListOf<RedeemFfi>()
+            for (r in redeems) if (!hashes.add(r.entryHashHex.lowercase()) || vouchers.seen(r.entryHashHex.lowercase()) != null) mark(listOf(r), "duplicate") else fresh += r
+            val updated = fresh.groupBy { it.voucherIdHex.lowercase() }.mapNotNull { (id, rs) ->
+                val v = vouchers.voucher(id)
+                if (v == null) { mark(rs, "retry"); null } else v to rs.sortedBy { it.counter } }
+            fresh to updated
+        } catch (e: CancellationException) { throw e } catch (e: Exception) { mark(redeems, "retry"); return }
+        val rows = updated.map { (v, rs) ->
+            val left = maxOf(0, v.countLeft - rs.size)
+            v.copy(countLeft = left, state = if (left == 0 && v.state == VOUCHER_ACTIVE) VOUCHER_USED else v.state,
+                tagCounter = maxOf(v.tagCounter, rs.maxOf { it.counter.toLong() }), updatedAt = now)
+        }
+        val seen = updated.flatMap { (v, rs) -> rs.map { JournalSeenEntity(it.entryHashHex.lowercase(), KIND_VOUCHER_REDEEM, v.voucherId, it.counter.toLong(), it.terminalId.toInt(), now) } }
+        try { vouchers.applyRedeems(rows, seen) } catch (e: CancellationException) { throw e } catch (e: Exception) { mark(fresh, "retry"); return }
+        for ((v, rs) in updated) rs.forEachIndexed { i, r ->
+            val before = v.countLeft - i
+            try {
+                core.log(PrepaidService.Audit(core.newActionId(), KIND_VOUCHER_REDEEM, v.uid, v.voucherId, 1, before, r.counter.toLong() - 1), PHASE_DONE,
+                    balanceAfter = maxOf(0, before - 1), counterAfter = r.counter.toLong(), detail = "$terminalLabel; terminal ${r.terminalId}; counter ${r.counter}")
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { mark(listOf(r), "retry") }   // counted; a resend answers duplicate
+        }
+    }
+
+    /** The seen marker is written before the audit row: a crash between them can lose that row, never count it twice. */
+    private suspend fun settleOverride(o: OverrideFfi, terminalLabel: String): String = try {
+        val hash = o.entryHashHex.lowercase()
+        if (vouchers.seen(hash) != null) "duplicate" else {
+            vouchers.insertSeen(JournalSeenEntity(hash, KIND_PRICE_OVERRIDE, null, null, o.terminalId.toInt(), core.clock()))
+            core.log(PrepaidService.Audit(core.newActionId(), KIND_PRICE_OVERRIDE, "", null, o.newPrice.toLong(), o.oldPrice, 0), PHASE_DONE,
+                balanceAfter = o.newPrice, detail = "terminal ${o.terminalId}; product ${o.productHashHex}; ${o.oldPrice} -> ${o.newPrice} ${o.currency} (minor units); staff key ${o.keyIdHex}; $terminalLabel")
+            "accepted"
+        }
+    } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }
+
+    /** Runs inside the settle lock already held: closeUsedLocked never re-acquires it and catches per voucher. */
+    override suspend fun afterSettle() { closeUsedLocked() }
 }

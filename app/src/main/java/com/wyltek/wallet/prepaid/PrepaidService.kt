@@ -33,6 +33,8 @@ class PrepaidService(
         const val MAX_ACTIVE_CARDS = 64
         const val UNIT_SHANNONS = 100_000L
         const val PENDING_UNKNOWN_GIVE_UP_MS = 30L * 60 * 1000
+        /** Journal kinds settled by [VoucherHooks.apply] (0x03 voucher redeem, 0x04 price override), not by the card batch. */
+        internal val VOUCHER_ENTRY_KINDS = setOf(0x03, 0x04)
         private const val TAG_WIPED = "tag wiped"
     }
 
@@ -658,15 +660,36 @@ class PrepaidService(
         return exclusive { settleLocked(hexBody, terminalLabel) } ?: SettleResult(List(hexBody.length / 192) { "retry" }, null)
     }
 
+    /** Journal entry kind = byte 1 of the 96-byte entry. */
+    private fun entryKind(hexBody: String, i: Int): Int = hexBody.substring(i * 192 + 2, i * 192 + 4).toInt(16)
+
+    /** The settlement batch, then (same lock) closing vouchers whose last use just settled. Every verdict is computed
+     *  and its record persisted before [VoucherHooks.afterSettle] runs, and nothing it does or throws reaches the
+     *  response: a close that fails is retried at the next settlement or page open. */
     private suspend fun settleLocked(hexBody: String, terminalLabel: String): SettleResult {
+        val r = settleBatchLocked(hexBody, terminalLabel)
+        try { voucherHooks.afterSettle() } catch (e: CancellationException) { throw e } catch (e: Exception) { /* retried next settle / page open */ }
+        return r
+    }
+
+    private suspend fun settleBatchLocked(hexBody: String, terminalLabel: String): SettleResult {
+        val allRetry = SettleResult(List(hexBody.length / 192) { "retry" }, null)
         val all = store.allCards()
         val pendingIds = all.filter { it.pendingTxHash != null }.map { it.reserveId.lowercase() }.toSet()
         val eligible = all.filter { (it.state == CARD_ACTIVE || it.state == CARD_REVOKED) && it.pendingTxHash == null }
+        // Without the voucher states the verifier would answer unknown_voucher for valid redeems: retry instead.
+        val voucherStates = try { voucherHooks.voucherStates() } catch (e: CancellationException) { throw e } catch (e: Exception) { return allRetry }
         val res = try {
-            protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) }, emptyList())
-        } catch (e: PrepaidException) { return SettleResult(List(hexBody.length / 192) { "retry" }, null) }
+            protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) }, voucherStates)
+        } catch (e: PrepaidException) { return allRetry }
         var names = res.verdicts.mapIndexed { i, v -> if (v == JournalVerdict.UNKNOWN_CARD && entryReserveId(hexBody, i) in pendingIds) "retry" else verdictName(v) }
-        fun retryAll() = SettleResult(names.map { if (it == "accepted") "retry" else it }, null)
+        // Redeems and overrides are final here, before any card transaction: `accepted` only once recorded. The hook
+        // retries its own entries on a failed write; a hook that throws anyway leaves no voucher entry accepted.
+        names = try { voucherHooks.apply(res, names, terminalLabel) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            names.mapIndexed { i, v -> if (v == "accepted" && entryKind(hexBody, i) in VOUCHER_ENTRY_KINDS) "retry" else v }
+        }
+        // A card batch that does not commit retries only card entries; voucher entries were already settled above.
+        fun retryAll() = SettleResult(names.mapIndexed { i, v -> if (v == "accepted" && entryKind(hexBody, i) !in VOUCHER_ENTRY_KINDS) "retry" else v }, null)
         if (res.nets.isEmpty()) return SettleResult(names, null)
 
         val byId = eligible.associateBy { it.reserveId.lowercase() }
