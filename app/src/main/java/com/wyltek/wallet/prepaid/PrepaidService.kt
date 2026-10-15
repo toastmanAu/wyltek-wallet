@@ -19,13 +19,13 @@ data class CashOutPreview(val balanceUnits: Int, val unsettledTaps: Long?, val b
  * Audit rows are appended at every phase and never touched again.
  */
 class PrepaidService(
-    private val store: PrepaidStore,
-    private val chain: ChainPort,
-    private val signer: SignerPort,
-    private val protocol: Protocol,
+    internal val store: PrepaidStore,
+    internal val chain: ChainPort,
+    internal val signer: SignerPort,
+    internal val protocol: Protocol,
     private val keys: PrepaidKeys,
-    private val clock: () -> Long = { System.currentTimeMillis() },
-    private val newActionId: () -> String = { java.util.UUID.randomUUID().toString() },
+    internal val clock: () -> Long = { System.currentTimeMillis() },
+    internal val newActionId: () -> String = { java.util.UUID.randomUUID().toString() },
     private val pollDelayMs: Long = 3_000,
     private val pollBudgetMs: Long = 90_000,
 ) {
@@ -38,8 +38,10 @@ class PrepaidService(
 
     val lock: LockScript get() = signer.lock
     val merchantIdHex: String by lazy { protocol.merchantId(signer.lock) }
-    private val kHex: String get() = keys.kDebitHex()
+    internal val kHex: String get() = keys.kDebitHex()
     private val mutex = Mutex()
+    /** Installed by VoucherService; the card flows learn about vouchers only through this. */
+    @Volatile internal var voucherHooks: VoucherHooks = NoVoucherHooks
 
     // ---------------------------------------------------------------- audit
     internal class Audit(val actionId: String, val kind: String, val uid: String, val reserveId: String?, val amount: Long,
@@ -61,10 +63,15 @@ class PrepaidService(
     // ---------------------------------------------------------------- classify
     suspend fun classify(tag: TagPort): TapClass {
         val raw = try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) { return TapClass.Refused("tag lost while reading") }
-        val slot = protocol.selectSlot(kHex, tag.uidHex, raw)
-        val byUid = store.cardByUid(tag.uidHex)
+        return classifyRaw(tag.uidHex, raw)
+    }
+
+    /** The card classifier over slots already read; VoucherService falls back to it when the tag is not a voucher. */
+    internal suspend fun classifyRaw(uidHex: String, raw: ByteArray): TapClass {
+        val slot = protocol.selectSlot(kHex, uidHex, raw)
+        val byUid = store.cardByUid(uidHex)
         val byReserve = slot.record?.let { store.card(it.reserveIdHex) }
-        return TapClassifier.classify(tag.uidHex, slot, byUid, byReserve, merchantIdHex)
+        return TapClassifier.classify(uidHex, slot, byUid, byReserve, merchantIdHex)
     }
 
     // ---------------------------------------------------------------- chain helpers
@@ -91,7 +98,7 @@ class PrepaidService(
     }
 
     /** Every hash the service stores is `0x` + lower-case, whatever shape the signer returned (C1). */
-    private fun build(planned: PlannedTx): BuiltTransaction =
+    internal fun build(planned: PlannedTx): BuiltTransaction =
         signer.build(planned.inputs, planned.outputs).let { it.copy(txHashHex = ensure0x(it.txHashHex)) }
 
     /** A status query that threw is "no answer", never an abort. */
@@ -219,6 +226,7 @@ class PrepaidService(
         // A retired (closed) tag may be reissued: its index row goes, its audit rows keep the old reserveId (I7).
         val previous = store.cardByUid(tag.uidHex)
         if (previous != null && previous.state != CARD_CLOSED) return@exclusive ActionOutcome.Failed("this tag is already indexed")
+        if (voucherHooks.uidHoldsVoucher(tag.uidHex)) return@exclusive ActionOutcome.Failed("this tag holds a voucher")
         if (store.activeCount() >= MAX_ACTIVE_CARDS) return@exclusive ActionOutcome.Failed("card limit of $MAX_ACTIVE_CARDS reached")
         val plan = try { protocol.plan(PrepaidAction.ISSUE, 0, 0uL, amountUnits) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed(e.message ?: "refused") }
         val planned = try {

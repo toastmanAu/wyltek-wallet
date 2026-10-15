@@ -1,0 +1,21 @@
+package com.wyltek.wallet.prepaid
+
+import com.wyltek.wallet.core.native.BatchResultFfi
+import com.wyltek.wallet.core.native.VoucherStateFfi
+
+/** What PrepaidService needs to know about vouchers, and nothing more. VoucherService installs itself. */
+interface VoucherHooks {
+    suspend fun uidHoldsVoucher(uidHex: String): Boolean
+    suspend fun voucherStates(): List<VoucherStateFfi>
+    /** Applies accepted redeems and overrides; returns [names] with this hook's own entries finalised. Runs inside the settle lock. */
+    suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String): List<String>
+    /** After the settlement batch, inside the same lock: close vouchers whose last use settled. Must not throw. */
+    suspend fun afterSettle()
+}
+
+object NoVoucherHooks : VoucherHooks {
+    override suspend fun uidHoldsVoucher(uidHex: String) = false
+    override suspend fun voucherStates() = emptyList<VoucherStateFfi>()
+    override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String) = names
+    override suspend fun afterSettle() {}
+}

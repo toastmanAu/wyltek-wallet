@@ -66,8 +66,11 @@ class FakeChain : ChainPort {
         }
         j["outputs"]!!.jsonArray.forEachIndexed { idx, o ->
             val lo = o.jsonObject["lock"]!!.jsonObject
+            // Keep the output data, empty mapped to null exactly as ChainProvider does, so a data cell never looks "pure".
+            val data = j["outputs_data"]?.jsonArray?.getOrNull(idx)?.jsonPrimitive?.content
             add(Utxo(OutPoint(txHash, idx.toUInt()), o.jsonObject["capacity"]!!.jsonPrimitive.content.removePrefix("0x").toULong(16),
-                LockScript(lo["code_hash"]!!.jsonPrimitive.content, lo["hash_type"]!!.jsonPrimitive.content, lo["args"]!!.jsonPrimitive.content)))
+                LockScript(lo["code_hash"]!!.jsonPrimitive.content, lo["hash_type"]!!.jsonPrimitive.content, lo["args"]!!.jsonPrimitive.content),
+                data = data?.takeIf { it != "0x" }))
         }
     }
 }

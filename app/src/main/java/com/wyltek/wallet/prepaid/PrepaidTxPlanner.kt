@@ -30,6 +30,10 @@ object PrepaidTxPlanner {
     fun output(capacity: ULong, lock: LockScript) =
         TxOutput(capacity, lock.codeHash, lock.hashType, lock.args, "", "", "", "")
 
+    /** An output carrying [dataHex] (`0x`-prefixed). A data cell is never "pure", so [plan] never spends it as a fee input. */
+    fun output(capacity: ULong, lock: LockScript, dataHex: String) =
+        TxOutput(capacity, lock.codeHash, lock.hashType, lock.args, "", "", "", dataHex)
+
     fun outpointKey(u: Utxo) = "${ensure0x(u.outPoint.txHash)}:${u.outPoint.index}"
 
     fun plan(reserveInputs: List<Utxo>, walletCells: List<Utxo>, excludeOutpoints: Set<String>, fixedOutputs: List<TxOutput>, merchantLock: LockScript): PlannedTx {
