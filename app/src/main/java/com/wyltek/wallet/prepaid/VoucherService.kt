@@ -270,8 +270,10 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
      *  second count-down and no second audit row (Review Focus 5). */
     override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String): List<String> {
         val out = names.toMutableList()
-        settleRedeems(res.redeems.filter { it.index.toInt() in out.indices }, out, terminalLabel)
-        for (o in res.overrides) if (o.index.toInt() in out.indices) out[o.index.toInt()] = settleOverride(o, terminalLabel)
+        // Only entries the verifier (and the card-side mapping before us) left `accepted` are acted on.
+        fun accepted(i: UInt) = out.getOrNull(i.toInt()) == "accepted"
+        settleRedeems(res.redeems.filter { accepted(it.index) }, out, terminalLabel)
+        for (o in res.overrides) if (accepted(o.index)) out[o.index.toInt()] = settleOverride(o, terminalLabel)
         return out
     }
 
@@ -314,6 +316,6 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         }
     } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }
 
-    /** Runs inside the settle lock already held: closeUsedLocked never re-acquires it and catches per voucher. */
+    /** Called by PrepaidService.launchAfterSettle inside `exclusive`: closeUsedLocked never re-acquires the lock and catches per voucher. */
     override suspend fun afterSettle() { closeUsedLocked() }
 }

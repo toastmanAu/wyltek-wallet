@@ -9,7 +9,8 @@ interface VoucherHooks {
     suspend fun voucherStates(): List<VoucherStateFfi>
     /** Applies accepted redeems and overrides; returns [names] with this hook's own entries finalised. Runs inside the settle lock. */
     suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String): List<String>
-    /** After the settlement batch, inside the same lock: close vouchers whose last use settled. Must not throw. */
+    /** After a settlement has returned, in a separate turn of the lock (PrepaidService.launchAfterSettle): close
+     *  vouchers whose last use settled. Must not throw. */
     suspend fun afterSettle()
 }
 

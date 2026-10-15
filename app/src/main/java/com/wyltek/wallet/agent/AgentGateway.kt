@@ -279,7 +279,7 @@ class AgentGateway(context: Context) : AgentDispatchPort {
                         val store = RoomPrepaidStore(db)
                         noteKDebitGeneration(store)
                         val chainPort = RpcChainPort(repository.getChainManager()).also { it.cachedLock = address.lockScript }
-                        PrepaidService(store, chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys)
+                        PrepaidService(store, chainPort, SecpSigner(seed, address, account.network), NativeProtocol(), prepaidKeys, background = gatewayScope)
                             .also { prepaidUnavailableReason = null }
                     }
                 }
@@ -318,7 +318,7 @@ class AgentGateway(context: Context) : AgentDispatchPort {
         val svc = prepaid ?: return PrepaidJournalResult.BadRequest(prepaidUnavailableReason ?: "prepaid unavailable")
         val tokenId = try { tokenIdOf(token, keyStore.rootPublicHex()).take(8) } catch (e: Exception) { "?" }
         val r = svc.settle(entriesHex, "terminal token $tokenId") ?: return PrepaidJournalResult.BadRequest("entries must be hex and a multiple of 96 bytes")
-        return PrepaidJournalResult.Ok(r.verdicts.mapIndexed { i, v -> JournalVerdictDto(i, v, r.txHash.takeIf { v == "accepted" }) })
+        return PrepaidJournalResult.Ok(r.verdicts.mapIndexed { i, v -> JournalVerdictDto(i, v, r.txHashAt(i)) })
     }
 
     override suspend fun prepaidCards(token: String, sourceIp: String, nowUnix: Long): PrepaidCardsResult {

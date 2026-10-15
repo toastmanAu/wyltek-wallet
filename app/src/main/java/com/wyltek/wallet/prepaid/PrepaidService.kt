@@ -6,7 +6,12 @@ import com.wyltek.wallet.core.model.Utxo
 import com.wyltek.wallet.core.native.*
 import com.wyltek.wallet.prepaid.db.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 /** What the retire confirm sheets show. [unsettledTaps] is null when the tag counter could not be read. */
@@ -28,6 +33,8 @@ class PrepaidService(
     internal val newActionId: () -> String = { java.util.UUID.randomUUID().toString() },
     private val pollDelayMs: Long = 3_000,
     private val pollBudgetMs: Long = 90_000,
+    /** Runs work that must not hold a terminal's request: the used-voucher close after a settlement. */
+    private val background: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     companion object {
         const val MAX_ACTIVE_CARDS = 64
@@ -639,7 +646,11 @@ class PrepaidService(
     } ?: 0
 
     // ---------------------------------------------------------------- settle
-    data class SettleResult(val verdicts: List<String>, val txHash: String?)
+    /** [voucherIndexes]: entries settled by the voucher hooks (kinds 0x03/0x04), never by the card batch transaction. */
+    data class SettleResult(val verdicts: List<String>, val txHash: String?, val voucherIndexes: Set<Int> = emptySet()) {
+        /** The batch transaction that settled entry [i]: only for an accepted card entry. */
+        fun txHashAt(i: Int): String? = txHash.takeIf { verdicts.getOrNull(i) == "accepted" && i !in voucherIndexes }
+    }
 
     private fun verdictName(v: JournalVerdict) = when (v) {
         JournalVerdict.ACCEPTED -> "accepted"; JournalVerdict.DUPLICATE -> "duplicate"; JournalVerdict.BAD_MAC -> "bad_mac"
@@ -657,20 +668,25 @@ class PrepaidService(
     suspend fun settle(entriesHex: String, terminalLabel: String): SettleResult? {
         val hexBody = entriesHex.removePrefix("0x").lowercase()
         if (hexBody.length % 192 != 0 || !hexBody.all { it in '0'..'9' || it in 'a'..'f' }) return null
-        return exclusive { settleLocked(hexBody, terminalLabel) } ?: SettleResult(List(hexBody.length / 192) { "retry" }, null)
+        val r = exclusive { settleBatchLocked(hexBody, terminalLabel) } ?: return SettleResult(List(hexBody.length / 192) { "retry" }, null)
+        val voucherIndexes = (0 until hexBody.length / 192).filter { entryKind(hexBody, it) in VOUCHER_ENTRY_KINDS }.toSet()
+        launchAfterSettle()
+        return r.copy(voucherIndexes = voucherIndexes)
+    }
+
+    /** Closes vouchers whose last use just settled, AFTER the settlement's lock is released and without holding the
+     *  terminal's request (a close is a broadcast plus up to [pollBudgetMs] of polling per voucher). Takes the lock
+     *  in its own turn; if another action holds it, this run is skipped and the next settle or page open retries.
+     *  Every verdict is already computed and persisted, and nothing here can reach the response. */
+    internal fun launchAfterSettle(): Job? {
+        if (voucherHooks === NoVoucherHooks) return null
+        return background.launch {
+            try { exclusive { voucherHooks.afterSettle() } } catch (e: CancellationException) { throw e } catch (e: Exception) { /* retried next settle / page open */ }
+        }
     }
 
     /** Journal entry kind = byte 1 of the 96-byte entry. */
     private fun entryKind(hexBody: String, i: Int): Int = hexBody.substring(i * 192 + 2, i * 192 + 4).toInt(16)
-
-    /** The settlement batch, then (same lock) closing vouchers whose last use just settled. Every verdict is computed
-     *  and its record persisted before [VoucherHooks.afterSettle] runs, and nothing it does or throws reaches the
-     *  response: a close that fails is retried at the next settlement or page open. */
-    private suspend fun settleLocked(hexBody: String, terminalLabel: String): SettleResult {
-        val r = settleBatchLocked(hexBody, terminalLabel)
-        try { voucherHooks.afterSettle() } catch (e: CancellationException) { throw e } catch (e: Exception) { /* retried next settle / page open */ }
-        return r
-    }
 
     private suspend fun settleBatchLocked(hexBody: String, terminalLabel: String): SettleResult {
         val allRetry = SettleResult(List(hexBody.length / 192) { "retry" }, null)
