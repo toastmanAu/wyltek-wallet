@@ -104,12 +104,17 @@ pub fn prepaid_verify_batch(k_debit_hex: String, entries_hex: String, cards: Vec
     let states = cards.iter().map(|c| Ok(verifier::CardState { reserve_id: fixed::<32>(&c.reserve_id_hex, "reserve_id")?,
         balance_units: c.balance_units, settled_counter: c.settled_counter, revoked: c.revoked })).collect::<Result<Vec<_>, PrepaidError>>()?;
     let r = verifier::verify_batch(&key, &entries, &states, &[]).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
+    // TEMPORARY until Task 5 carries voucher verdicts, redeems and overrides across the FFI. Anything voucher- or
+    // override-related (including an override the verifier Accepted, which needs no state) is answered BadMac so the
+    // terminal never deletes an entry whose effect is not recorded here.
+    let held: std::collections::HashSet<usize> = r.overrides.iter().map(|o| o.index as usize)
+        .chain(r.redeems.iter().map(|d| d.index as usize)).collect();
     Ok(BatchResultFfi {
-        verdicts: r.verdicts.into_iter().map(|v| match v { verifier::Verdict::Accepted => JournalVerdict::Accepted, verifier::Verdict::Duplicate => JournalVerdict::Duplicate,
+        verdicts: r.verdicts.into_iter().enumerate().map(|(i, v)| if held.contains(&i) { JournalVerdict::BadMac } else { match v {
+            verifier::Verdict::Accepted => JournalVerdict::Accepted, verifier::Verdict::Duplicate => JournalVerdict::Duplicate,
             verifier::Verdict::BadMac => JournalVerdict::BadMac, verifier::Verdict::UnknownCard => JournalVerdict::UnknownCard,
             verifier::Verdict::StaleCounter => JournalVerdict::StaleCounter, verifier::Verdict::OverBalance => JournalVerdict::OverBalance,
-            // TEMPORARY until Task 5 adds voucher verdicts to the FFI; no voucher states are passed yet.
-            _ => JournalVerdict::BadMac }).collect(),
+            _ => JournalVerdict::BadMac } }).collect(),
         nets: r.nets.into_iter().map(|n| CardNetFfi { reserve_id_hex: hex::encode(n.reserve_id), net_units: n.net_units, max_tmc: n.max_tmc, accepted: n.accepted }).collect(),
     })
 }
@@ -199,5 +204,18 @@ mod tests {
         let r = prepaid_verify_batch(K.into(), "".into(), vec![]).unwrap();
         assert!(r.verdicts.is_empty());
         assert!(prepaid_verify_batch(K.into(), "00".repeat(95), vec![]).is_err());
+    }
+
+    #[test]
+    fn interim_a_valid_price_override_is_not_acked_through_the_ffi() {
+        // Task 5 replaces this: until overrides cross the FFI, answering Accepted would make the terminal drop the entry.
+        use crate::prepaid::journal::{attest, JournalEntry, KIND_PRICE_OVERRIDE};
+        let mut rid = [0u8; 32]; rid[..8].copy_from_slice(&[0x5A; 8]);
+        let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0x77; 8]); pad[8..11].copy_from_slice(b"AUD");
+        let mut e = JournalEntry { version: 0x02, kind: KIND_PRICE_OVERRIDE, terminal_id: 4, merchant_id: [0x11; 8], uid: [4, 9, 9, 9, 9, 9, 9],
+            reserve_id: rid, tmc: 0, amount_units: 500, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
+        let raw = attest(&hex16(K).unwrap(), &mut e);
+        let r = prepaid_verify_batch(K.into(), hex::encode(raw), vec![]).unwrap();
+        assert_eq!(r.verdicts, vec![JournalVerdict::BadMac]);
     }
 }

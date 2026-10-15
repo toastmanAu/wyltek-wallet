@@ -1,7 +1,7 @@
 //! Settlement verifier for version-0x02 (terminal-attested) journal entries. D3 spec §6, demo-tier §6.3.
 //! Verdict order per entry: length → MAC (covers decode + sign rule) → known & not revoked →
 //! tmc above settled → tmc above this batch's running max for the card → cumulative net within balance.
-//! Redeems: MAC → known voucher → not void → settled counter (same hash = duplicate, else double_redeem) → batch counter → uses left. Overrides: MAC only.
+//! Redeems: MAC → known voucher → settled counter (same hash = duplicate, else double_redeem; answered even for a void voucher) → not void → batch counter → uses left. Overrides: MAC only.
 
 use super::journal::{self, ENTRY_SIZE, KIND_PRICE_OVERRIDE, KIND_VOUCHER_REDEEM};
 use super::reserve::ckb_blake2b;
@@ -58,10 +58,10 @@ pub fn verify_batch(key: &[u8; 16], entries: &[u8], cards: &[CardState], voucher
             KIND_VOUCHER_REDEEM => {
                 let v_id: [u8; 16] = e.reserve_id[..16].try_into().unwrap();
                 let Some(v) = vindex.get(&v_id) else { verdicts.push(Verdict::UnknownVoucher); continue; };
-                if v.void { verdicts.push(Verdict::VoucherVoid); continue; }
                 if let Some((_, h)) = v.settled.iter().find(|(c, _)| *c == e.tmc) {
                     verdicts.push(if *h == hash { Verdict::Duplicate } else { Verdict::DoubleRedeem }); continue;
                 }
+                if v.void { verdicts.push(Verdict::VoucherVoid); continue; }
                 let run = vrun.entry(v_id).or_default();
                 if let Some(h) = run.seen.get(&e.tmc) {
                     verdicts.push(if *h == hash { Verdict::Duplicate } else { Verdict::DoubleRedeem }); continue;
@@ -296,5 +296,23 @@ mod tests {
         let r = verify_batch(&key(), &redeem_raw, &[c], &[vstate(1, 1, false, &[])]).unwrap();
         assert_eq!(r.verdicts, vec![Verdict::Accepted]);
         assert!(r.nets.is_empty(), "accepted redeem must not appear in card nets");
+    }
+
+    #[test]
+    fn identical_resend_of_a_settled_redeem_stays_duplicate_after_the_voucher_is_voided() {
+        let first = redeem(1, 1, 3);
+        let v = vstate(1, 0, true, &[first.clone()]);
+        assert_eq!(verify_batch(&key(), &first, &[], &[v.clone()]).unwrap().verdicts, vec![Verdict::Duplicate]);
+        assert_eq!(verify_batch(&key(), &redeem(1, 2, 3), &[], &[v.clone()]).unwrap().verdicts, vec![Verdict::VoucherVoid]);
+        assert_eq!(verify_batch(&key(), &redeem(1, 1, 9), &[], &[v]).unwrap().verdicts, vec![Verdict::DoubleRedeem]);
+    }
+
+    #[test]
+    fn a_new_redeem_after_the_uses_are_spent_in_earlier_batches_is_double_redeem() {
+        // `count` is the uses left; a voucher whose only use is already settled has count 0.
+        let v = vstate(1, 0, false, &[redeem(1, 1, 3)]);
+        let r = verify_batch(&key(), &redeem(1, 2, 3), &[], &[v]).unwrap();
+        assert_eq!(r.verdicts, vec![Verdict::DoubleRedeem]);
+        assert!(r.redeems.is_empty());
     }
 }
