@@ -136,8 +136,23 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         writeTag(tag, vouchers.voucher(v.voucherId)!!, a, progress)
     } ?: busy()
 
-    /** Task 11 replaces this with the void/close status check. */
-    internal suspend fun resumeSpend(v: VoucherEntity, tag: TagPort?, progress: (Phase) -> Unit): ActionOutcome = ActionOutcome.StillConfirming(v.pendingTxHash!!)
+    /** One status check of an unconfirmed void/close. Committed: the row ends VOID/CLOSED (and a void wipes [tag] if it
+     *  carries this voucher); rejected or given up: the pending marker is cleared and the voucher stays as it was. */
+    internal suspend fun resumeSpend(v: VoucherEntity, tag: TagPort?, progress: (Phase) -> Unit): ActionOutcome {
+        val hash = v.pendingTxHash!!
+        val a = auditOf(v, v.pendingKind!!)
+        val st = core.statusOrNull(hash)
+        return when {
+            st == TxStatus.CONFIRMED -> { core.log(a, PHASE_COMMITTED, txHash = hash); progress(Phase.COMMITTED)
+                finishSpend(v, a, endStateOf(v.pendingKind), tag, hash, progress) }
+            st == TxStatus.REJECTED -> { core.log(a, PHASE_FAILED, txHash = hash, detail = "rejected by the node"); vouchers.updateVoucher(cleared(v))
+                ActionOutcome.Failed("rejected by the node") }
+            st == TxStatus.UNKNOWN && v.pendingSince != null && core.clock() - v.pendingSince >= PrepaidService.PENDING_UNKNOWN_GIVE_UP_MS -> {
+                core.log(a, PHASE_FAILED, txHash = hash, detail = "transaction unknown to the node for 30 min; given up"); vouchers.updateVoucher(cleared(v))
+                ActionOutcome.Failed("transaction unknown to the node; given up") }
+            else -> ActionOutcome.StillConfirming(hash)
+        }
+    }
 
     /** On page open: re-poll every unconfirmed voucher transaction once. Returns how many rows changed. */
     suspend fun recoverPending(): Int = core.exclusive {
@@ -146,8 +161,92 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
             if (v.pendingKind == KIND_VOUCHER_ISSUE) { if (!v.pendingCommitted && checkIssue(v, auditOf(v, KIND_VOUCHER_ISSUE)) != null) changed++ }
             else if (resumeSpend(v, null, {}) !is ActionOutcome.StillConfirming) changed++
         }
-        changed
+        changed + closeUsedLocked()
     } ?: 0
+
+    // ------------------------------------------------------------ void / close / wipe
+    /** Spend [v]'s cell back to the merchant, ending in [endState]. A cell the indexer cannot see is a FAILURE, never a
+     *  close: an RPC outage looks the same (Review Focus 4). The pending marker is written before broadcast, as for card
+     *  retires; a refusal or rejection puts the row back exactly as it was. */
+    private suspend fun spendCell(v: VoucherEntity, kind: String, endState: String, tag: TagPort?, progress: (Phase) -> Unit): ActionOutcome {
+        val cell = core.chain.cellAt(v.outpoint) ?: return ActionOutcome.Failed("voucher cell not found on chain; check the RPC and try again")
+        val lock = core.signer.lock
+        val planned = try {
+            PrepaidTxPlanner.plan(listOf(cell), core.chain.cellsByLock(lock), core.excludedOutpoints() - normalizeOutpoint(v.outpoint), emptyList(), lock)
+        } catch (e: InsufficientFunds) { return ActionOutcome.Failed(e.message!!) }
+        val built = core.build(planned)
+        val a = PrepaidService.Audit(core.newActionId(), kind, v.uid, v.voucherId, -v.countLeft.toLong(), v.countLeft, v.tagCounter)
+        core.log(a, PHASE_REQUESTED, detail = "${v.countLeft} of ${v.countIssued} uses left"); progress(Phase.REQUESTED)
+        vouchers.updateVoucher(v.copy(pendingKind = kind, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false,
+            pendingSince = core.clock(), updatedAt = core.clock()))
+        return when (val r = core.broadcastAndAwait(a, planned, built, progress)) {
+            is PrepaidService.TxResult.Refused -> { vouchers.updateVoucher(v.copy(updatedAt = core.clock())); ActionOutcome.Failed(r.reason) }
+            is PrepaidService.TxResult.Rejected -> { vouchers.updateVoucher(v.copy(updatedAt = core.clock())); ActionOutcome.Failed("rejected by the node") }
+            is PrepaidService.TxResult.Timeout -> ActionOutcome.StillConfirming(r.txHash)
+            is PrepaidService.TxResult.Committed -> finishSpend(vouchers.voucher(v.voucherId)!!, a, endState, tag, r.txHash, progress)
+        }
+    }
+
+    private fun endStateOf(kind: String?) = if (kind == KIND_VOUCHER_VOID) VOUCHER_VOID else VOUCHER_CLOSED
+
+    private suspend fun finishSpend(v: VoucherEntity, a: PrepaidService.Audit, endState: String, tag: TagPort?, hash: String, progress: (Phase) -> Unit): ActionOutcome {
+        vouchers.updateVoucher(cleared(v).copy(state = endState, countLeft = 0))
+        val wiped = if (endState == VOUCHER_VOID) wipeTag(tag, v) else "tag left as is"
+        core.log(a, PHASE_DONE, balanceAfter = 0, txHash = hash, detail = wiped); progress(Phase.DONE)
+        return ActionOutcome.Done
+    }
+
+    /** Zeroes both slots only when [tag] is [v]'s tag AND its current record is this voucher's, under our merchant id.
+     *  Anything else (another voucher, another merchant, unreadable, ambiguous) is left alone. Returns the audit detail. */
+    private suspend fun wipeTag(tag: TagPort?, v: VoucherEntity): String {
+        if (tag == null || !tag.uidHex.equals(v.uid, true)) return "tag absent"
+        val slot = try { core.protocol.voucherSelectSlot(core.kHex, tag.uidHex, tag.readSlots()) }
+            catch (e: CancellationException) { throw e } catch (e: Exception) { return "tag wipe interrupted: ${e.message}" }
+        if (slot.pick == SlotPickFfi.NONE && slot.reason == SlotReason.NO_VALID_SLOT) return "tag already blank"
+        val rec = slot.record
+        if (rec == null || !rec.voucherIdHex.equals(v.voucherId, true) || !rec.merchantIdHex.equals(core.merchantIdHex, true))
+            return "tag does not carry this voucher; not wiped"
+        return try { tag.zeroSlot(SlotPickFfi.A); tag.zeroSlot(SlotPickFfi.B); "tag wiped" }
+            catch (e: CancellationException) { throw e } catch (e: Exception) { "tag wipe interrupted: ${e.message}" }
+    }
+
+    /** Void an active voucher: its cell goes back to the merchant and, if [tag] is its tag, the record is wiped. */
+    suspend fun void(voucher: VoucherEntity, tag: TagPort?, progress: (Phase) -> Unit = {}): ActionOutcome = core.exclusive {
+        val v = vouchers.voucher(voucher.voucherId) ?: return@exclusive ActionOutcome.Failed("voucher not in the index")
+        if (v.state != VOUCHER_ACTIVE) return@exclusive ActionOutcome.Failed("voucher is ${v.state}")
+        if (v.pendingTxHash != null && !(v.pendingKind == KIND_VOUCHER_ISSUE && v.pendingCommitted))
+            return@exclusive ActionOutcome.Failed("finish the pending action first (tap the voucher)")
+        spendCell(v, KIND_VOUCHER_VOID, VOUCHER_VOID, tag?.takeIf { it.uidHex.equals(v.uid, true) }, progress)
+    } ?: busy()
+
+    /** Spend the cell of every used-up voucher (state USED, nothing pending). Never touches an ACTIVE voucher.
+     *  Called after each settlement (inside its lock) and from [recoverPending]. Returns how many closed now. */
+    internal suspend fun closeUsedLocked(): Int {
+        var closed = 0
+        for (v in vouchers.allVouchers().filter { it.state == VOUCHER_USED && it.countLeft == 0 && it.pendingTxHash == null })
+            if (spendCell(v, KIND_VOUCHER_CLOSE, VOUCHER_CLOSED, null, {}) == ActionOutcome.Done) closed++
+        return closed
+    }
+    suspend fun closeUsed(): Int = core.exclusive { closeUsedLocked() } ?: 0
+
+    /** Wipe a void, used or closed voucher's record from its tag. Only this voucher's own record is wiped. */
+    suspend fun wipe(tag: TagPort, voucher: VoucherEntity): ActionOutcome = core.exclusive {
+        val v = vouchers.voucher(voucher.voucherId) ?: return@exclusive ActionOutcome.Failed("voucher not in the index")
+        if (v.state !in setOf(VOUCHER_VOID, VOUCHER_USED, VOUCHER_CLOSED)) return@exclusive ActionOutcome.Failed("voucher is ${v.state}; void it first")
+        if (!tag.uidHex.equals(v.uid, true)) return@exclusive ActionOutcome.Failed("this is a different tag")
+        val slot = try { core.protocol.voucherSelectSlot(core.kHex, tag.uidHex, tag.readSlots()) }
+            catch (e: CancellationException) { throw e } catch (e: Exception) { return@exclusive ActionOutcome.NeedsTag(v.voucherId) }
+        if (slot.pick == SlotPickFfi.NONE && slot.reason == SlotReason.NO_VALID_SLOT) return@exclusive ActionOutcome.Done
+        val rec = slot.record
+        if (rec == null || !rec.voucherIdHex.equals(v.voucherId, true) || !rec.merchantIdHex.equals(core.merchantIdHex, true))
+            return@exclusive ActionOutcome.Failed("the tag does not carry this voucher; not wiped")
+        val a = PrepaidService.Audit(core.newActionId(), KIND_REPAIR, v.uid, v.voucherId, 0, 0, v.tagCounter)
+        core.log(a, PHASE_REQUESTED, detail = "wipe ${v.state} voucher")
+        val wiped = wipeTag(tag, v)
+        if (wiped != "tag wiped") { core.log(a, PHASE_FAILED, detail = wiped); return@exclusive ActionOutcome.NeedsTag(v.voucherId) }
+        core.log(a, PHASE_DONE, detail = wiped)
+        ActionOutcome.Done
+    } ?: busy()
 
     // ------------------------------------------------------------ VoucherHooks (settlement: Task 13)
     override suspend fun uidHoldsVoucher(uidHex: String) = vouchers.voucherByUid(uidHex)?.state in VOUCHER_LIVE
