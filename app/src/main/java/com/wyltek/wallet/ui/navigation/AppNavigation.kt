@@ -53,6 +53,10 @@ sealed class Screen(val route: String, val label: String) {
         fun route(reserveId: String) = "prepaid-card/$reserveId"
     }
     data object PrepaidAudit : Screen("prepaid-audit", "Prepaid audit")
+    data object PrepaidStaff : Screen("prepaid-staff", "Staff keys")
+    data object PrepaidVoucher : Screen("prepaid-voucher/{voucherId}", "Voucher") {
+        fun route(voucherId: String) = "prepaid-voucher/$voucherId"
+    }
 }
 
 private val bottomBarScreens = listOf(
@@ -296,6 +300,8 @@ fun AppNavigation(
                     onBack = { navController.popBackStack() },
                     onCard = { navController.navigate(Screen.PrepaidCard.route(it)) },
                     onAudit = { navController.navigate(Screen.PrepaidAudit.route) },
+                    onVoucher = { navController.navigate(Screen.PrepaidVoucher.route(it)) },
+                    onStaff = { navController.navigate(Screen.PrepaidStaff.route) },
                     onScanAddress = { navController.navigate(Screen.QrScanner.route) },
                     scannedAddress = scanned,
                     onConsumeScannedAddress = { backStackEntry.savedStateHandle.remove<String>("scannedAddress") })
@@ -306,6 +312,13 @@ fun AppNavigation(
             }
             composable(Screen.PrepaidAudit.route) {
                 com.wyltek.wallet.prepaid.ui.PrepaidAuditScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.PrepaidStaff.route) {
+                com.wyltek.wallet.prepaid.ui.StaffKeysScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.PrepaidVoucher.route) { backStackEntry ->
+                val voucherId = backStackEntry.arguments?.getString("voucherId")
+                if (voucherId != null) com.wyltek.wallet.prepaid.ui.VoucherDetailScreen(voucherId = voucherId, onBack = { navController.popBackStack() })
             }
             composable(Screen.AgentApproval.route) {
                 AgentApprovalScreen(

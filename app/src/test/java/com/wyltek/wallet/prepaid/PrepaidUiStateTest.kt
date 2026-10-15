@@ -18,7 +18,7 @@ class PrepaidUiStateTest {
     private val rec = CardRecordInfo(0u, "r", 100, 0u, "m")
 
     @Test fun actions_follow_the_classification_table() {
-        assertEquals(listOf(TapAction.ISSUE), PrepaidUiReducer.tapActions(TapClass.Blank("u"), true))
+        assertEquals(listOf(TapAction.ISSUE, TapAction.ISSUE_VOUCHER), PrepaidUiReducer.tapActions(TapClass.Blank("u"), true))
         assertEquals(listOf(TapAction.RESUME), PrepaidUiReducer.tapActions(TapClass.Resume(card(CARD_ACTIVE), slot), true))
         assertEquals(listOf(TapAction.REPAIR, TapAction.VOID, TapAction.CASH_OUT), PrepaidUiReducer.tapActions(TapClass.Damaged(card(CARD_ACTIVE), "x"), true))
         assertEquals(listOf(TapAction.LOAD, TapAction.REVOKE, TapAction.CASH_OUT, TapAction.VOID), PrepaidUiReducer.tapActions(TapClass.Known(card(CARD_ACTIVE), rec, slot), true))
@@ -27,6 +27,17 @@ class PrepaidUiStateTest {
         assertEquals(listOf(TapAction.ADOPT), PrepaidUiReducer.tapActions(TapClass.Bench(rec, slot), true))
         assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Refused("x"), true))
         assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(null, false))
+    }
+
+    private fun voucher(state: String, pending: String? = null) = VoucherEntity("c0".repeat(16), "u", "COF01", "Flat white", "5a".repeat(8), 450, "AUD", 1, 1, "x:0", state, pendingTxHash = pending, issuedAt = 0, updatedAt = 0)
+    private val vrec = VoucherRecordInfo(0u, "c0".repeat(16), "5a".repeat(8), 450u, "AUD", 1u, 0u, "m")
+
+    @Test fun voucher_actions_follow_their_state() {
+        assertEquals(listOf(TapAction.ISSUE, TapAction.ISSUE_VOUCHER), PrepaidUiReducer.tapActions(TapClass.Blank("u"), true))
+        assertEquals(listOf(TapAction.VOID_VOUCHER), PrepaidUiReducer.tapActions(TapClass.Voucher(voucher(VOUCHER_ACTIVE), vrec), true))
+        for (s in listOf(VOUCHER_VOID, VOUCHER_USED, VOUCHER_CLOSED)) assertEquals(listOf(TapAction.WIPE_VOUCHER), PrepaidUiReducer.tapActions(TapClass.Voucher(voucher(s), vrec), true))
+        assertEquals(listOf(TapAction.RESUME_VOUCHER), PrepaidUiReducer.tapActions(TapClass.VoucherResume(voucher(VOUCHER_ACTIVE, "0xab")), false))
+        assertEquals(listOf(TapAction.VOID_VOUCHER), PrepaidUiReducer.tapActions(TapClass.VoucherDamaged(voucher(VOUCHER_ACTIVE), "x"), true))
     }
 
     @Test fun without_a_tag_only_resume_remains() {

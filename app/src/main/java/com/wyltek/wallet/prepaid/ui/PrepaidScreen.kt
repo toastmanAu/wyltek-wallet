@@ -7,12 +7,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wyltek.wallet.prepaid.PrepaidAmount
+import com.wyltek.wallet.prepaid.VoucherMoney
 import com.wyltek.wallet.prepaid.db.*
 import com.wyltek.wallet.prepaid.nfc.NfcReaderMode
 import com.wyltek.wallet.ui.theme.*
@@ -26,12 +28,16 @@ fun PrepaidScreen(
     onBack: () -> Unit,
     onCard: (String) -> Unit,
     onAudit: () -> Unit,
+    onVoucher: (String) -> Unit,
+    onStaff: () -> Unit,
     onScanAddress: () -> Unit,
     scannedAddress: String? = null,
     onConsumeScannedAddress: () -> Unit = {},
     viewModel: PrepaidViewModel = viewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
+    val vouchersFlow = remember(viewModel) { viewModel.vouchersFlow() }
+    val vouchers by vouchersFlow.collectAsState(initial = emptyList())
     val readerOn = ui.nfcAvailable && ui.unavailableReason == null
     LaunchedEffect(scannedAddress) { if (scannedAddress != null) { viewModel.consumeScannedAddress(scannedAddress); onConsumeScannedAddress() } }
     NfcReaderMode(enabled = readerOn, onTag = viewModel::onTag)
@@ -39,7 +45,10 @@ fun PrepaidScreen(
     Scaffold(topBar = {
         TopAppBar(title = { Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text("Prepaid cards"); Spacer(Modifier.width(8.dp)); DemoBadge() } },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-            actions = { IconButton(onClick = onAudit) { Icon(Icons.Default.History, "Audit log") } })
+            actions = {
+                IconButton(onClick = onStaff) { Icon(Icons.Default.Lock, "Staff keys") }
+                IconButton(onClick = onAudit) { Icon(Icons.Default.History, "Audit log") }
+            })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val active = ui.cards.count { it.state == CARD_ACTIVE }; val revoked = ui.cards.count { it.state == CARD_REVOKED }; val closed = ui.cards.count { it.state == CARD_CLOSED }
@@ -65,6 +74,17 @@ fun PrepaidScreen(
                         supportingContent = { Text("${PrepaidAmount.formatUnits(c.balanceUnits.toLong())} · counter ${c.counter}" + (c.pendingUnits?.takeIf { c.pendingKind != KIND_SETTLE }?.let { " · pending ${PrepaidAmount.formatUnits(it.toLong())}" } ?: ""), color = TextSecondary) },
                         trailingContent = { AssistChip(onClick = {}, label = { Text(c.state) }) },
                         modifier = Modifier.clickable { onCard(c.reserveId) },
+                        colors = ListItemDefaults.colors(containerColor = DarkSurfaceVariant))
+                }
+                item { Text("Vouchers", color = NeonCyan, modifier = Modifier.padding(top = 8.dp)) }
+                if (vouchers.isEmpty()) item { Text("No vouchers yet. Tap a blank tag and choose Voucher.", color = TextSecondary) }
+                items(vouchers, key = { "v-" + it.voucherId }) { v ->
+                    ListItem(
+                        headlineContent = { Text(v.productName) },
+                        supportingContent = { Text("${v.countLeft}/${v.countIssued} × ${v.productCode} · ${VoucherMoney.format(v.issuePriceMinor, v.currency)}" +
+                            (v.pendingTxHash?.let { " · pending" } ?: ""), color = TextSecondary) },
+                        trailingContent = { AssistChip(onClick = {}, label = { Text(v.state) }) },
+                        modifier = Modifier.clickable { onVoucher(v.voucherId) },
                         colors = ListItemDefaults.colors(containerColor = DarkSurfaceVariant))
                 }
             }

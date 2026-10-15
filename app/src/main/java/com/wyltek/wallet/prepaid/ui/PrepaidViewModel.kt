@@ -15,7 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import android.util.Log
 
-enum class TapAction { ISSUE, LOAD, RESUME, ADOPT, REPAIR, REVOKE, REINSTATE, VOID, CASH_OUT, WIPE }
+enum class TapAction { ISSUE, LOAD, RESUME, ADOPT, REPAIR, REVOKE, REINSTATE, VOID, CASH_OUT, WIPE, ISSUE_VOUCHER, VOID_VOUCHER, WIPE_VOUCHER, RESUME_VOUCHER }
 
 /** A confirmed step waiting for one specific card to be tapped. The card may leave the phone (address scan) in between. */
 sealed class Armed {
@@ -48,7 +48,8 @@ object PrepaidUiReducer {
 
     /** Tag-requiring actions are hidden once the tag is gone; only Resume stays (the sheet then says "tap the card again"). */
     fun tapActions(tap: TapClass?, tagPresent: Boolean): List<TapAction> =
-        if (tagPresent) tapActionsWithTag(tap) else if (tap is TapClass.Resume) listOf(TapAction.RESUME) else emptyList()
+        if (tagPresent) tapActionsWithTag(tap) else if (tap is TapClass.Resume) listOf(TapAction.RESUME)
+        else if (tap is TapClass.VoucherResume) listOf(TapAction.RESUME_VOUCHER) else emptyList()
 
     /** Stores a freshly scanned customer address in state; null leaves the state untouched. */
     fun consumeScannedAddress(state: PrepaidUiState, address: String?): PrepaidUiState =
@@ -57,11 +58,14 @@ object PrepaidUiReducer {
     private fun tapActionsWithTag(tap: TapClass?): List<TapAction> = when (tap) {
         null -> emptyList()
         is TapClass.Refused -> if (tap.reason == TapClassifier.REASON_CLOSED) listOf(TapAction.WIPE) else emptyList()
-        is TapClass.Blank -> listOf(TapAction.ISSUE)
+        is TapClass.Blank -> listOf(TapAction.ISSUE, TapAction.ISSUE_VOUCHER)
         is TapClass.Resume -> listOf(TapAction.RESUME)
         is TapClass.Damaged -> listOf(TapAction.REPAIR, TapAction.VOID, TapAction.CASH_OUT)
         is TapClass.Bench -> listOf(TapAction.ADOPT)
-        is TapClass.Voucher, is TapClass.VoucherResume, is TapClass.VoucherDamaged -> emptyList() // Task 15
+        is TapClass.Voucher -> if (tap.voucher.state == VOUCHER_ACTIVE) listOf(TapAction.VOID_VOUCHER)
+            else if (tap.voucher.state in setOf(VOUCHER_VOID, VOUCHER_USED, VOUCHER_CLOSED)) listOf(TapAction.WIPE_VOUCHER) else emptyList()
+        is TapClass.VoucherResume -> listOf(TapAction.RESUME_VOUCHER)
+        is TapClass.VoucherDamaged -> if (tap.voucher.state == VOUCHER_ACTIVE) listOf(TapAction.VOID_VOUCHER) else emptyList()
         is TapClass.Known -> when (tap.card.state) {
             CARD_ACTIVE -> listOf(TapAction.LOAD, TapAction.REVOKE, TapAction.CASH_OUT, TapAction.VOID)
             CARD_REVOKED -> listOf(TapAction.REINSTATE, TapAction.CASH_OUT, TapAction.VOID)
@@ -95,9 +99,14 @@ data class PrepaidUiState(
 /** The tag and classification the user was looking at when they clicked; actions use this, never later state. */
 data class TapContext(val tag: TagPort, val tap: TapClass)
 
+/** Issue-form cap on the product name (the service has none; the POS shows it on a 480-px line). */
+const val VOUCHER_NAME_MAX = 40
+
 class PrepaidViewModel(application: Application) : AndroidViewModel(application) {
     private val gateway = (application as WyltekWalletApp).agentGateway
     private val svc: PrepaidService? = gateway.prepaid
+    /** The one VoucherService the gateway wired to [svc] (never construct another: it installs the settle hooks). */
+    private val vsvc: VoucherService? = gateway.vouchers
     @Volatile private var ctx: TapContext? = null
     private val _ui = MutableStateFlow(PrepaidUiState(
         nfcAvailable = NfcAdapter.getDefaultAdapter(application) != null,
@@ -113,6 +122,8 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try { svc?.recoverPending() } catch (e: CancellationException) { throw e }
             catch (e: Exception) { Log.w("PrepaidViewModel", "recoverPending failed", e) }
+            try { vsvc?.recoverPending() } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { Log.w("PrepaidViewModel", "voucher recoverPending failed", e) }
         }
     }
 
@@ -135,13 +146,21 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         val pending = _ui.value.tap as? TapClass.Resume
+        val pendingVoucher = _ui.value.tap as? TapClass.VoucherResume
         viewModelScope.launch {
             if (pending != null && pending.card.uid.equals(port.uidHex, true) && _ui.value.outcome is ActionOutcome.AwaitingTag) {
                 val c = TapContext(port, pending); ctx = c
                 _ui.update { it.copy(tagPresent = true) }
                 run("resume") { s.resume(port, pending.card, ::phase) }; return@launch
             }
-            val cls = try { s.classify(port) } catch (e: CancellationException) { throw e }
+            val v = vsvc
+            if (v != null && pendingVoucher != null && pendingVoucher.voucher.uid.equals(port.uidHex, true) && _ui.value.outcome is ActionOutcome.AwaitingTag) {
+                ctx = TapContext(port, pendingVoucher)
+                _ui.update { it.copy(tagPresent = true) }
+                run("resume voucher") { v.resume(port, pendingVoucher.voucher, ::phase) }; return@launch
+            }
+            // Voucher classifier first: a voucher tag must never come back Blank and be offered "Issue card".
+            val cls = try { v?.classify(port) ?: s.classify(port) } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 ctx = null
                 _ui.update { it.copy(tap = TapClass.Refused("could not read the card: ${e.message}"), tagPresent = false, tapEpoch = it.tapEpoch + 1) }
@@ -221,6 +240,31 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
     fun voidCard(card: PrepaidCardEntity, c: TapContext? = ctx) = viewModelScope.launch {
         svc?.let { s -> run("void") { s.void(card, c?.tag?.takeIf { it.uidHex.equals(card.uid, true) }, ::phase) } } }
     suspend fun preview(card: PrepaidCardEntity): CashOutPreview? = svc?.inspectForRetire(ctx?.tag, card)
+
+    fun issueVoucher(c: TapContext?, code: String, name: String, priceText: String, currency: String, countText: String) = act(c) { _, t ->
+        val v = vsvc ?: return@act ActionOutcome.Failed("vouchers unavailable")
+        val cur = currency.trim().uppercase()
+        if (name.trim().length > VOUCHER_NAME_MAX) return@act ActionOutcome.Failed("product name is limited to $VOUCHER_NAME_MAX characters")
+        val price = VoucherMoney.parse(priceText, cur) ?: return@act ActionOutcome.Failed("enter the price, e.g. 4.50")
+        val count = countText.trim().toIntOrNull() ?: return@act ActionOutcome.Failed("enter how many uses (1-255)")
+        v.issue(t.tag, VoucherForm(code, name, price, cur, count), ::phase)
+    }
+    fun resumeVoucher(c: TapContext?) = act(c) { _, t ->
+        val voucher = (t.tap as? TapClass.VoucherResume)?.voucher ?: return@act ActionOutcome.Failed("no voucher")
+        val v = vsvc ?: return@act ActionOutcome.Failed("vouchers unavailable")
+        v.resume(t.tag, voucher, ::phase)
+    }
+    fun wipeVoucher(c: TapContext?) = act(c) { _, t ->
+        val voucher = (t.tap as? TapClass.Voucher)?.voucher ?: return@act ActionOutcome.Failed("no voucher")
+        val v = vsvc ?: return@act ActionOutcome.Failed("vouchers unavailable")
+        v.wipe(t.tag, voucher)
+    }
+    /** [c] captured at click time, before the biometric prompt. */
+    fun voidVoucher(v: VoucherEntity, c: TapContext? = ctx) = viewModelScope.launch {
+        vsvc?.let { s -> run("void voucher") { s.void(v, c?.tag?.takeIf { it.uidHex.equals(v.uid, true) }, ::phase) } } }
+    fun vouchersFlow(): Flow<List<VoucherEntity>> = gateway.voucherStore().vouchersFlow()
+    suspend fun voucher(id: String) = gateway.voucherStore().voucher(id)
+    fun tappedVoucher(): VoucherEntity? = when (val t = ui.value.tap) { is TapClass.Voucher -> t.voucher; is TapClass.VoucherDamaged -> t.voucher; else -> null }
 
     fun eventsFlow(): Flow<List<PrepaidEventEntity>> = gateway.prepaidStore().eventsFlow()
     suspend fun eventsFor(reserveId: String) = gateway.prepaidStore().eventsForCard(reserveId)

@@ -27,6 +27,19 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
     var previewCashOut by remember { mutableStateOf<CashOutPreview?>(null) }
     val scannedAddress = ui.scannedAddress
     var authError by remember { mutableStateOf<String?>(null) }
+    // Voucher issue form. Saveable: the product-code scan navigates away and back.
+    var issueKind by rememberSaveable { mutableStateOf("card") }
+    var vCode by rememberSaveable { mutableStateOf("") }
+    var vName by rememberSaveable { mutableStateOf("") }
+    var vPrice by rememberSaveable { mutableStateOf("") }
+    var vCurrency by rememberSaveable { mutableStateOf("AUD") }
+    var vCount by rememberSaveable { mutableStateOf("1") }
+    var confirmVoidVoucher by remember { mutableStateOf<VoucherEntity?>(null) }
+    var confirmWipeVoucher by remember { mutableStateOf(false) }
+    LaunchedEffect(ui.scannedAddress) {
+        val scanned = ui.scannedAddress
+        if (issueKind == "voucher" && scanned != null) { vCode = scanned; viewModel.clearScannedAddress() }
+    }
     val actions = PrepaidUiReducer.tapActions(ui.tap, ui.tagPresent)
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
@@ -48,7 +61,22 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
         Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row { Text(headline(ui.tap), style = MaterialTheme.typography.titleMedium, color = TextPrimary); Spacer(Modifier.width(8.dp)); DemoBadge() }
             detail(ui.tap)?.let { Text(it, color = TextSecondary) }
-            if (TapAction.ISSUE in actions || TapAction.LOAD in actions) {
+            val voucherForm = TapAction.ISSUE_VOUCHER in actions && issueKind == "voucher"
+            if (TapAction.ISSUE_VOUCHER in actions) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = issueKind == "card", onClick = { issueKind = "card" }, label = { Text("Card") })
+                FilterChip(selected = issueKind == "voucher", onClick = { issueKind = "voucher" }, label = { Text("Voucher") })
+            }
+            if (voucherForm) {
+                OutlinedTextField(value = vCode, onValueChange = { vCode = it }, label = { Text("Product code") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = { TextButton(onClick = onScanAddress) { Text("Scan") } })
+                OutlinedTextField(value = vName, onValueChange = { vName = it.take(VOUCHER_NAME_MAX) }, label = { Text("Product name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    supportingText = { Text("${vName.length}/$VOUCHER_NAME_MAX") })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = vPrice, onValueChange = { vPrice = it }, label = { Text("Price") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = vCurrency, onValueChange = { vCurrency = it.uppercase().take(3) }, label = { Text("Currency") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = vCount, onValueChange = { vCount = it }, label = { Text("Uses") }, singleLine = true, modifier = Modifier.weight(1f))
+                }
+            } else if (TapAction.ISSUE in actions || TapAction.LOAD in actions) {
                 OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Amount (CKB, max 1000)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (TapAction.ISSUE in actions) OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
@@ -58,7 +86,7 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
             }
             if (ui.armed == null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (a in actions) when (a) {
-                    TapAction.ISSUE -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; val l = label; gated("Issue card") { viewModel.issue(c, a, l) } }) { Text("Issue") }
+                    TapAction.ISSUE -> if (issueKind == "card") Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; val l = label; gated("Issue card") { viewModel.issue(c, a, l) } }) { Text("Issue") }
                     TapAction.LOAD -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); val a = amount; gated("Load card") { viewModel.load(c, a) } }) { Text("Load") }
                     TapAction.RESUME -> Button(enabled = !ui.busy, onClick = { viewModel.resume(viewModel.currentContext()) }) { Text("Finish pending action") }
                     TapAction.ADOPT -> Button(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); gated("Adopt card") { viewModel.adopt(c) } }) { Text("Adopt") }
@@ -68,6 +96,13 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
                     TapAction.VOID -> OutlinedButton(enabled = !ui.busy, colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed), onClick = { previewVoid = null; confirmVoid = viewModel.tappedCard() }) { Text("Void") }
                     TapAction.WIPE -> OutlinedButton(enabled = !ui.busy, onClick = { val c = viewModel.currentContext(); gated("Wipe card") { viewModel.wipeClosed(c) } }) { Text("Wipe card") }
                     TapAction.CASH_OUT -> OutlinedButton(enabled = !ui.busy, onClick = { previewCashOut = null; cashOutOpen = true }) { Text("Cash out") }
+                    TapAction.ISSUE_VOUCHER -> if (issueKind == "voucher") Button(enabled = !ui.busy, onClick = {
+                        val c = viewModel.currentContext(); val f = listOf(vCode, vName, vPrice, vCurrency, vCount)
+                        gated("Issue voucher") { viewModel.issueVoucher(c, f[0], f[1], f[2], f[3], f[4]) } }) { Text("Issue voucher") }
+                    TapAction.RESUME_VOUCHER -> Button(enabled = !ui.busy, onClick = { viewModel.resumeVoucher(viewModel.currentContext()) }) { Text("Finish pending action") }
+                    TapAction.VOID_VOUCHER -> OutlinedButton(enabled = !ui.busy, colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
+                        onClick = { confirmVoidVoucher = viewModel.tappedVoucher() }) { Text("Void") }
+                    TapAction.WIPE_VOUCHER -> OutlinedButton(enabled = !ui.busy, onClick = { confirmWipeVoucher = true }) { Text("Wipe") }
                 }
             }
             if (PrepaidUiReducer.offersAcceptAsIs(ui.outcome, ui.tap)) {
@@ -99,6 +134,19 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
             confirmButton = { TextButton(onClick = { val c = viewModel.currentContext(); confirmVoid = null; gated("Void card") { viewModel.voidCard(card, c) } }) { Text("Void", color = ErrorRed) } },
             dismissButton = { TextButton(onClick = { confirmVoid = null }) { Text("Cancel") } })
     }
+    confirmVoidVoucher?.let { v ->
+        AlertDialog(onDismissRequest = { confirmVoidVoucher = null }, title = { Text("Void ${v.productName}?") },
+            text = { Text("Cancels ${v.countLeft} of ${v.countIssued} uses; the voucher cell returns to you. Its tag is wiped if it is still on the phone.", color = ErrorRed) },
+            confirmButton = { TextButton(onClick = { val c = viewModel.currentContext(); confirmVoidVoucher = null; gated("Void voucher") { viewModel.voidVoucher(v, c) } }) { Text("Void", color = ErrorRed) } },
+            dismissButton = { TextButton(onClick = { confirmVoidVoucher = null }) { Text("Cancel") } })
+    }
+    if (confirmWipeVoucher) {
+        val v = (ui.tap as? TapClass.Voucher)?.voucher
+        AlertDialog(onDismissRequest = { confirmWipeVoucher = false }, title = { Text("Wipe ${v?.productName ?: "voucher"}?") },
+            text = { Text("Erases this ${v?.state ?: ""} voucher's record from the tag so it can be reused.") },
+            confirmButton = { TextButton(onClick = { val c = viewModel.currentContext(); confirmWipeVoucher = false; gated("Wipe voucher") { viewModel.wipeVoucher(c) } }) { Text("Wipe", color = ErrorRed) } },
+            dismissButton = { TextButton(onClick = { confirmWipeVoucher = false }) { Text("Cancel") } })
+    }
     val coCard = if (cashOutOpen) viewModel.tappedCard() else null
     if (coCard != null) {
         LaunchedEffect(ui.tapEpoch, coCard.reserveId) { previewCashOut = viewModel.preview(coCard) }
@@ -129,7 +177,8 @@ private fun armedPrompt(armed: Armed, card: PrepaidCardEntity?): String {
 private fun headline(t: TapClass?) = when (t) {
     is TapClass.Blank -> "Blank card"; is TapClass.Resume -> "Pending action"; is TapClass.Damaged -> "Damaged card"
     is TapClass.Known -> t.card.label ?: t.card.uid; is TapClass.Bench -> "Terminal-formatted card"; is TapClass.Refused -> "Refused"
-    is TapClass.Voucher, is TapClass.VoucherResume, is TapClass.VoucherDamaged -> "Voucher"; null -> ""
+    is TapClass.Voucher -> "Voucher: ${t.voucher.productName}"; is TapClass.VoucherResume -> "Pending voucher"
+    is TapClass.VoucherDamaged -> "Damaged voucher"; null -> ""
 }
 private fun pendingText(c: PrepaidCardEntity): String = when (c.pendingKind) {
     KIND_VOID -> "A void is pending"
@@ -145,6 +194,8 @@ private fun detail(t: TapClass?) = when (t) {
     is TapClass.Known -> "Card ${PrepaidAmount.formatUnits(t.record.balanceUnits.toLong())} (counter ${t.record.counter}) · index ${PrepaidAmount.formatUnits(t.card.balanceUnits.toLong())} (counter ${t.card.counter}) · ${t.card.state}"
     is TapClass.Bench -> "Terminal ${t.record.writerId} wrote ${PrepaidAmount.formatUnits(t.record.balanceUnits.toLong())}. Adopting funds a reserve for it."
     is TapClass.Refused -> t.reason
-    is TapClass.Voucher, is TapClass.VoucherResume, is TapClass.VoucherDamaged -> "Voucher"
+    is TapClass.Voucher -> "${t.record.count} of ${t.voucher.countIssued} × ${t.voucher.productCode} · issued at ${VoucherMoney.format(t.voucher.issuePriceMinor, t.voucher.currency)} · index ${t.voucher.countLeft} left · ${t.voucher.state}"
+    is TapClass.VoucherResume -> if (t.voucher.pendingCommitted) "Committed on chain, not yet on the tag. Tap Finish." else "Waiting for the chain. Tap Finish to check."
+    is TapClass.VoucherDamaged -> "${t.reason}. Index: ${t.voucher.countLeft} of ${t.voucher.countIssued} uses left."
     null -> null
 }
