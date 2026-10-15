@@ -278,6 +278,14 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
     } ?: busy()
 
     // ------------------------------------------------------------ VoucherHooks (settlement)
+    /** "enrolled", "revoked" or "unknown" (also on a failed read): the CURRENT status of the staff key an entry names.
+     *  Audit only; the verdict never depends on it (final review MEDIUM-2). */
+    private suspend fun staffStatus(keyIdHex: String): String = try {
+        val k = vouchers.staffKey(keyIdHex.lowercase())
+        when { k == null -> "unknown"; k.revokedAt != null -> "revoked"; else -> "enrolled" }
+    } catch (e: CancellationException) { throw e } catch (e: Exception) { "unknown" }
+    private suspend fun staffNote(keyIdHex: String) = "staff key ${keyIdHex.lowercase()} (${staffStatus(keyIdHex)})"
+
     override suspend fun uidHoldsVoucher(uidHex: String) = vouchers.voucherByUid(uidHex)?.state in VOUCHER_LIVE
     /** Every voucher the verifier may meet, issuing ones excepted. USED and CLOSED go in too (void=false, with their
      *  settled entries) so an identical resend of a last-use redeem still answers `duplicate`; only VOID is void. */
@@ -322,7 +330,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
             val before = v.countLeft - i
             try {
                 core.log(PrepaidService.Audit(core.newActionId(), KIND_VOUCHER_REDEEM, v.uid, v.voucherId, 1, before, r.counter.toLong() - 1), PHASE_DONE,
-                    balanceAfter = maxOf(0, before - 1), counterAfter = r.counter.toLong(), detail = "$terminalLabel; terminal ${r.terminalId}; counter ${r.counter}")
+                    balanceAfter = maxOf(0, before - 1), counterAfter = r.counter.toLong(), detail = "$terminalLabel; terminal ${r.terminalId}; counter ${r.counter}; ${staffNote(r.keyIdHex)}")
             } catch (e: CancellationException) { throw e } catch (e: Exception) { mark(listOf(r), "retry") }   // counted; a resend answers duplicate
         }
     }
@@ -333,7 +341,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         if (vouchers.seen(hash) != null) "duplicate" else {
             vouchers.insertSeen(JournalSeenEntity(hash, KIND_PRICE_OVERRIDE, null, null, o.terminalId.toInt(), core.clock()))
             core.log(PrepaidService.Audit(core.newActionId(), KIND_PRICE_OVERRIDE, "", null, o.newPrice.toLong(), o.oldPrice, 0), PHASE_DONE,
-                balanceAfter = o.newPrice, detail = "terminal ${o.terminalId}; product ${o.productHashHex}; ${o.oldPrice} -> ${o.newPrice} ${o.currency} (minor units); staff key ${o.keyIdHex}; $terminalLabel")
+                balanceAfter = o.newPrice, detail = "terminal ${o.terminalId}; product ${o.productHashHex}; ${o.oldPrice} -> ${o.newPrice} ${o.currency} (minor units); ${staffNote(o.keyIdHex)}; $terminalLabel")
             "accepted"
         }
     } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }

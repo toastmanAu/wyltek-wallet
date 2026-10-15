@@ -71,8 +71,9 @@ class FakeProtocol : Protocol {
     }
     var lastCards: List<CardStateFfi> = emptyList()
     var lastVouchers: List<VoucherStateFfi> = emptyList()
-    override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>): BatchResultFfi {
-        lastCards = cards; lastVouchers = vouchers; return verifyResult
+    var lastMerchant: String? = null
+    override fun verifyBatch(kHex: String, merchantIdHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>): BatchResultFfi {
+        lastCards = cards; lastVouchers = vouchers; lastMerchant = merchantIdHex; return verifyResult
     }
     private fun decodeV(raw: ByteArray): VoucherRecordInfo? {
         if (String(raw, 0, 4, Charsets.US_ASCII) != "BBV1" || raw[4] != 0x01.toByte() || raw[5] != 0.toByte()) return null

@@ -35,7 +35,7 @@ class VoucherResumeSafetyTest {
 
     private fun settleOne(h: VoucherHarness, v: VoucherEntity) {
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(),
-            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
     }
 
     @Test fun a_redeemed_tag_behind_a_committed_issue_marker_is_never_rewritten_and_the_cell_closes() = runTest {

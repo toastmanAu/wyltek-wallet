@@ -12,7 +12,7 @@ class NativeProtocol : Protocol {
     override fun reserveId(txHashHex: String, index: UInt) = prepaidReserveId(txHashHex, index)
     override fun merchantId(lock: LockScript) = prepaidMerchantId(lock.codeHash, lock.hashType, lock.args)
     override fun plan(action: PrepaidAction, balanceUnits: Int, capacityShannons: ULong, amountUnits: Int) = prepaidPlan(action, balanceUnits, capacityShannons, amountUnits)
-    override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>) = prepaidVerifyBatch(kHex, entriesHex, cards, vouchers)
+    override fun verifyBatch(kHex: String, merchantIdHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>) = prepaidVerifyBatch(kHex, merchantIdHex, entriesHex, cards, vouchers)
     override fun voucherSelectSlot(kHex: String, uidHex: String, raw128: ByteArray) = prepaidVoucherSelectSlot(kHex, uidHex, hex(raw128))
     override fun voucherSeal(kHex: String, uidHex: String, rec: VoucherRecordInfo) = unhex(prepaidVoucherSeal(kHex, uidHex, rec))
     override fun normaliseProductCode(code: String) = prepaidNormaliseProductCode(code)

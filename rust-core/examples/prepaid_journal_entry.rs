@@ -1,6 +1,8 @@
 //! Builds one attested journal entry for a manual settlement test (device checkpoint, no POS needed).
 //! It signs with the real merchant K_debit, so every argument is validated and a bad one exits 2 with no stdout.
 //! Optional trailing flags: --uid <7B hex> (default 04000000000001) --merchant <8B hex> (default 0000000000000000)
+//! For a live settlement --merchant MUST be the Vault's real merchant_id: the verifier answers bad_mac to a redeem or
+//! override carrying any other merchant_id (vouchers spec §8.3), including the all-zero default.
 //!                          --ts <u32> (default 0) --sale-ref <8B hex> (default 0000000000000000)
 use wyltekwalletcore::prepaid::journal::{self, attest, JournalEntry, KIND_PRICE_OVERRIDE, KIND_VOUCHER_REDEEM, VERSION_DEMO};
 
@@ -8,6 +10,7 @@ pub const USAGE: &str = "usage:
   prepaid_journal_entry <k_debit16> redeem <voucher_id16> <product_hash8> <counter u32> <count_after 0..254> <terminal_id u16> <key_id8 non-zero> [flags]
   prepaid_journal_entry <k_debit16> override <product_hash8> <old_minor >=0> <new_minor >=0> <currency AAA> <terminal_id u16> <key_id8 non-zero> [flags]
 flags: --uid <7B hex> (default 04000000000001)  --merchant <8B hex> (default 0000000000000000)
+       --merchant MUST be the Vault's real merchant_id for a live settlement; any other value (the default too) answers bad_mac.
        --ts <u32> (default 0)  --sale-ref <8B hex> (default 0000000000000000)
 hex arguments are exact-length (optional 0x prefix). Output: one 96-byte entry as hex.";
 

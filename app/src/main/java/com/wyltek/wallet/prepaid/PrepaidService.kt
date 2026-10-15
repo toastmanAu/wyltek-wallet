@@ -696,7 +696,7 @@ class PrepaidService(
         // Without the voucher states the verifier would answer unknown_voucher for valid redeems: retry instead.
         val voucherStates = try { voucherHooks.voucherStates() } catch (e: CancellationException) { throw e } catch (e: Exception) { return allRetry }
         val res = try {
-            protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) }, voucherStates)
+            protocol.verifyBatch(kHex, merchantIdHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) }, voucherStates)
         } catch (e: PrepaidException) { return allRetry }
         var names = res.verdicts.mapIndexed { i, v -> if (v == JournalVerdict.UNKNOWN_CARD && entryReserveId(hexBody, i) in pendingIds) "retry" else verdictName(v) }
         // Redeems and overrides are final here, before any card transaction: `accepted` only once recorded. The hook

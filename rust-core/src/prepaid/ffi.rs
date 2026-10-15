@@ -109,7 +109,7 @@ pub struct SettledRedeemFfi { pub counter: u32, pub entry_hash_hex: String }
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct VoucherStateFfi { pub voucher_id_hex: String, pub count: u8, pub void: bool, pub settled: Vec<SettledRedeemFfi> }
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct RedeemFfi { pub index: u32, pub terminal_id: u16, pub voucher_id_hex: String, pub counter: u32, pub entry_hash_hex: String }
+pub struct RedeemFfi { pub index: u32, pub terminal_id: u16, pub voucher_id_hex: String, pub counter: u32, pub key_id_hex: String, pub entry_hash_hex: String }
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct OverrideFfi { pub index: u32, pub terminal_id: u16, pub product_hash_hex: String, pub old_price: i32, pub new_price: i32,
     pub currency: String, pub key_id_hex: String, pub entry_hash_hex: String }
@@ -170,20 +170,22 @@ fn verdict_ffi(v: verifier::Verdict) -> JournalVerdict {
     }
 }
 
+/// `merchant_id_hex` = this Vault's merchant_id (8 bytes): voucher redeems and price overrides of any other merchant answer `bad_mac`.
 #[uniffi::export]
-pub fn prepaid_verify_batch(k_debit_hex: String, entries_hex: String, cards: Vec<CardStateFfi>, vouchers: Vec<VoucherStateFfi>) -> Result<BatchResultFfi, PrepaidError> {
+pub fn prepaid_verify_batch(k_debit_hex: String, merchant_id_hex: String, entries_hex: String, cards: Vec<CardStateFfi>, vouchers: Vec<VoucherStateFfi>) -> Result<BatchResultFfi, PrepaidError> {
     let key = hex16(&k_debit_hex)?;
+    let merchant = fixed::<8>(&merchant_id_hex, "merchant_id")?;
     let entries = hexv(&entries_hex)?;
     let states = cards.iter().map(|c| Ok(verifier::CardState { reserve_id: fixed::<32>(&c.reserve_id_hex, "reserve_id")?,
         balance_units: c.balance_units, settled_counter: c.settled_counter, revoked: c.revoked })).collect::<Result<Vec<_>, PrepaidError>>()?;
     let vstates = vouchers.iter().map(|v| Ok(verifier::VoucherState { voucher_id: hex16b(&v.voucher_id_hex)?, count: v.count, void: v.void,
         settled: v.settled.iter().map(|s| Ok((s.counter, fixed::<32>(&s.entry_hash_hex, "entry_hash")?))).collect::<Result<Vec<_>, PrepaidError>>()? }))
         .collect::<Result<Vec<_>, PrepaidError>>()?;
-    let r = verifier::verify_batch(&key, &entries, &states, &vstates).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
+    let r = verifier::verify_batch(&key, &merchant, &entries, &states, &vstates).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
     Ok(BatchResultFfi {
         verdicts: r.verdicts.into_iter().map(verdict_ffi).collect(),
         nets: r.nets.into_iter().map(|n| CardNetFfi { reserve_id_hex: hex::encode(n.reserve_id), net_units: n.net_units, max_tmc: n.max_tmc, accepted: n.accepted }).collect(),
-        redeems: r.redeems.into_iter().map(|x| RedeemFfi { index: x.index, terminal_id: x.terminal_id, voucher_id_hex: hex::encode(x.voucher_id), counter: x.counter, entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
+        redeems: r.redeems.into_iter().map(|x| RedeemFfi { index: x.index, terminal_id: x.terminal_id, voucher_id_hex: hex::encode(x.voucher_id), counter: x.counter, key_id_hex: hex::encode(x.key_id), entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
         overrides: r.overrides.into_iter().map(|x| OverrideFfi { index: x.index, terminal_id: x.terminal_id, product_hash_hex: hex::encode(x.product_hash),
             old_price: x.old_price, new_price: x.new_price, currency: String::from_utf8_lossy(&x.currency).into_owned(), key_id_hex: hex::encode(x.key_id), entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
     })
@@ -196,6 +198,7 @@ mod tests {
 
     const K: &str = "000102030405060708090a0b0c0d0e0f";
     const UID: &str = "04958caa5c5e80";
+    const M: &str = "1111111111111111";
 
     fn sealed(counter: u32, balance: i32) -> String {
         let mut r = record::DemoCardRecord { version: record::VERSION_DEMO, scheme: record::SCHEME_CKB_MILLI, writer_id: 0,
@@ -271,9 +274,9 @@ mod tests {
         assert_eq!(p.successor_capacity, 6_100_000_000 + 1000 * 100_000);
         let e = prepaid_plan(PrepaidAction::Issue, 0, 0, 0).unwrap_err();
         assert!(matches!(e, PrepaidError::Plan(_)));
-        let r = prepaid_verify_batch(K.into(), "".into(), vec![], vec![]).unwrap();
+        let r = prepaid_verify_batch(K.into(), M.into(), "".into(), vec![], vec![]).unwrap();
         assert!(r.verdicts.is_empty());
-        assert!(prepaid_verify_batch(K.into(), "00".repeat(95), vec![], vec![]).is_err());
+        assert!(prepaid_verify_batch(K.into(), M.into(), "00".repeat(95), vec![], vec![]).is_err());
     }
 
     #[test]
@@ -290,7 +293,7 @@ mod tests {
         assert!(prepaid_voucher_seal(K.into(), UID.into(), bad).is_err());
         assert_eq!(prepaid_voucher_id("07".repeat(32), 0).unwrap(), prepaid_reserve_id("07".repeat(32), 0).unwrap()[..32]);
         assert_eq!(prepaid_staff_key_id(UID.into(), "5a".repeat(32)).unwrap().len(), 16);
-        let r = prepaid_verify_batch(K.into(), "".into(), vec![], vec![]).unwrap();
+        let r = prepaid_verify_batch(K.into(), M.into(), "".into(), vec![], vec![]).unwrap();
         assert!(r.redeems.is_empty() && r.overrides.is_empty());
     }
 
@@ -302,7 +305,7 @@ mod tests {
         let mut e = JournalEntry { version: 0x02, kind: KIND_PRICE_OVERRIDE, terminal_id: 4, merchant_id: [0x11; 8], uid: [4, 9, 9, 9, 9, 9, 9],
             reserve_id: rid, tmc: 0, amount_units: 500, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
         let raw = attest(&hex16(K).unwrap(), &mut e);
-        let r = prepaid_verify_batch(K.into(), hex::encode(raw), vec![], vec![]).unwrap();
+        let r = prepaid_verify_batch(K.into(), M.into(), hex::encode(raw), vec![], vec![]).unwrap();
         assert_eq!(r.verdicts, vec![JournalVerdict::Accepted]);
         assert_eq!(r.overrides.len(), 1);
         assert_eq!(r.overrides[0].old_price, 500);
@@ -321,8 +324,20 @@ mod tests {
         let want_hash = hex::encode(crate::prepaid::reserve::ckb_blake2b(&raw));
         let v = VoucherStateFfi { voucher_id_hex: "c0".repeat(16), count: 2, void: false,
             settled: vec![SettledRedeemFfi { counter: 0, entry_hash_hex: "ee".repeat(32) }] };
-        let r = prepaid_verify_batch(K.into(), hex::encode(raw), vec![], vec![v]).unwrap();
+        let r = prepaid_verify_batch(K.into(), M.into(), hex::encode(raw), vec![], vec![v]).unwrap();
         assert_eq!(r.verdicts, vec![JournalVerdict::Accepted]);
-        assert_eq!(r.redeems, vec![RedeemFfi { index: 0, terminal_id: 4, voucher_id_hex: "c0".repeat(16), counter: 1, entry_hash_hex: want_hash }]);
+        assert_eq!(r.redeems, vec![RedeemFfi { index: 0, terminal_id: 4, voucher_id_hex: "c0".repeat(16), counter: 1, key_id_hex: "77".repeat(8), entry_hash_hex: want_hash }]);
+    }
+
+    #[test]
+    fn verify_batch_takes_the_merchant_and_refuses_another_merchants_override() {
+        use crate::prepaid::journal::{attest, JournalEntry, KIND_PRICE_OVERRIDE};
+        let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0x77; 8]); pad[8..11].copy_from_slice(b"AUD");
+        let mut e = JournalEntry { version: 0x02, kind: KIND_PRICE_OVERRIDE, terminal_id: 4, merchant_id: [0x11; 8], uid: [4, 9, 9, 9, 9, 9, 9],
+            reserve_id: [0; 32], tmc: 0, amount_units: 500, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
+        let raw = hex::encode(attest(&hex16(K).unwrap(), &mut e));
+        assert_eq!(prepaid_verify_batch(K.into(), M.into(), raw.clone(), vec![], vec![]).unwrap().verdicts, vec![JournalVerdict::Accepted]);
+        assert_eq!(prepaid_verify_batch(K.into(), "2222222222222222".into(), raw.clone(), vec![], vec![]).unwrap().verdicts, vec![JournalVerdict::BadMac]);
+        assert!(prepaid_verify_batch(K.into(), "11".into(), raw, vec![], vec![]).is_err(), "merchant_id must be 8 bytes");
     }
 }

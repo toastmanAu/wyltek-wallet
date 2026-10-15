@@ -854,7 +854,7 @@ external fun uniffi_wyltekwalletcore_fn_func_prepaid_select_slot(`kDebitHex`: Ru
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_staff_key_id(`uidHex`: RustBuffer.ByValue,`sigHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(`kDebitHex`: RustBuffer.ByValue,`entriesHex`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,`vouchers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(`kDebitHex`: RustBuffer.ByValue,`merchantIdHex`: RustBuffer.ByValue,`entriesHex`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,`vouchers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_voucher_id(`txHashHex`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1134,7 +1134,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_staff_key_id() != 54180) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 16364) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 21867) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_id() != 62559) {
@@ -2379,6 +2379,8 @@ data class RedeemFfi (
     , 
     var `counter`: kotlin.UInt
     , 
+    var `keyIdHex`: kotlin.String
+    , 
     var `entryHashHex`: kotlin.String
     
 ){
@@ -2401,6 +2403,7 @@ public object FfiConverterTypeRedeemFfi: FfiConverterRustBuffer<RedeemFfi> {
             FfiConverterString.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
@@ -2409,6 +2412,7 @@ public object FfiConverterTypeRedeemFfi: FfiConverterRustBuffer<RedeemFfi> {
             FfiConverterUShort.allocationSize(value.`terminalId`) +
             FfiConverterString.allocationSize(value.`voucherIdHex`) +
             FfiConverterUInt.allocationSize(value.`counter`) +
+            FfiConverterString.allocationSize(value.`keyIdHex`) +
             FfiConverterString.allocationSize(value.`entryHashHex`)
     )
 
@@ -2417,6 +2421,7 @@ public object FfiConverterTypeRedeemFfi: FfiConverterRustBuffer<RedeemFfi> {
             FfiConverterUShort.write(value.`terminalId`, buf)
             FfiConverterString.write(value.`voucherIdHex`, buf)
             FfiConverterUInt.write(value.`counter`, buf)
+            FfiConverterString.write(value.`keyIdHex`, buf)
             FfiConverterString.write(value.`entryHashHex`, buf)
     }
 }
@@ -4670,12 +4675,15 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     }
     
 
-    @Throws(PrepaidException::class) fun `prepaidVerifyBatch`(`kDebitHex`: kotlin.String, `entriesHex`: kotlin.String, `cards`: List<CardStateFfi>, `vouchers`: List<VoucherStateFfi>): BatchResultFfi {
+        /**
+         * `merchant_id_hex` = this Vault's merchant_id (8 bytes): voucher redeems and price overrides of any other merchant answer `bad_mac`.
+         */
+    @Throws(PrepaidException::class) fun `prepaidVerifyBatch`(`kDebitHex`: kotlin.String, `merchantIdHex`: kotlin.String, `entriesHex`: kotlin.String, `cards`: List<CardStateFfi>, `vouchers`: List<VoucherStateFfi>): BatchResultFfi {
             return FfiConverterTypeBatchResultFfi.lift(
     uniffiRustCallWithError(PrepaidException) { _status ->
     UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(
     
-        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`entriesHex`),FfiConverterSequenceTypeCardStateFfi.lower(`cards`),FfiConverterSequenceTypeVoucherStateFfi.lower(`vouchers`),_status)
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`merchantIdHex`),FfiConverterString.lower(`entriesHex`),FfiConverterSequenceTypeCardStateFfi.lower(`cards`),FfiConverterSequenceTypeVoucherStateFfi.lower(`vouchers`),_status)
 }
     )
     }

@@ -22,7 +22,7 @@ class VoucherSettleTest {
         val h = vh(); assertEquals(ActionOutcome.Done, h.svc.issue(FakeTag(uid), form))
         val v = h.vstore.voucherByUid(uid)!!
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(),
-            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         val r = h.core.settle(entry(3), "t")!!
         assertEquals(listOf("accepted"), r.verdicts)
         assertEquals(listOf(VoucherStateFfi(v.voucherId, 1u, false, emptyList())), h.protocol.lastVouchers)
@@ -38,7 +38,7 @@ class VoucherSettleTest {
     @Test fun settled_entries_are_handed_back_to_the_verifier() = runTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form.copy(count = 3))
         val v = h.vstore.voucherByUid(uid)!!
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         h.core.settle(entry(3), "t")
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.DUPLICATE), emptyList(), emptyList(), emptyList())
         assertEquals(listOf("duplicate"), h.core.settle(entry(3), "t")!!.verdicts)
@@ -68,7 +68,7 @@ class VoucherSettleTest {
         val cardEntry = cardEntry("ab".repeat(32))
         h.store.insertCard(PrepaidCardEntity("ab".repeat(32), "04ebbb02cd2a81", null, "0xff:0", "0xff:0", 1000, 0, 0, CARD_ACTIVE, issuedAt = 0, updatedAt = 0))
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
-            listOf(CardNetFfi("ab".repeat(32), 100, 1u, 1u)), listOf(RedeemFfi(1u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+            listOf(CardNetFfi("ab".repeat(32), 100, 1u, 1u)), listOf(RedeemFfi(1u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         val r = h.core.settle(cardEntry + entry(3), "t")!!                // card reserve cell "0xff:0" is missing → card entry retried
         assertEquals(listOf("retry", "accepted"), r.verdicts)
         assertEquals(1, h.vstore.voucher(v.voucherId)!!.countLeft)
@@ -84,7 +84,7 @@ class VoucherSettleTest {
         val card = h.store.allCards().single()
         h.chain.refuseBroadcast = true
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
-            listOf(CardNetFfi(card.reserveId, 1000, 1u, 1u)), listOf(RedeemFfi(1u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+            listOf(CardNetFfi(card.reserveId, 1000, 1u, 1u)), listOf(RedeemFfi(1u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("retry", "accepted"), h.core.settle(cardEntry(card.reserveId) + entry(3), "t")!!.verdicts)
         assertEquals(1, h.vstore.voucher(v.voucherId)!!.countLeft)
         assertEquals(300_000, h.store.allCards().single().balanceUnits)
@@ -99,7 +99,7 @@ class VoucherSettleTest {
         val v = h.vstore.voucherByUid(uid)!!
         // Even if the verifier reported both copies as accepted, Kotlin must not decrement twice.
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED), emptyList(),
-            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32)), RedeemFfi(1u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32)), RedeemFfi(1u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("accepted", "duplicate"), h.core.settle(entry(3) + entry(3), "t")!!.verdicts)
         assertEquals(2, h.vstore.voucher(v.voucherId)!!.countLeft)
         assertEquals(1, redeemAudits(h))
@@ -108,7 +108,7 @@ class VoucherSettleTest {
     @Test fun a_redeem_resent_in_a_later_batch_counts_down_once_and_audits_once() = runTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form.copy(count = 3))
         val v = h.vstore.voucherByUid(uid)!!
-        val redeem = RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))
+        val redeem = RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(redeem), emptyList())
         assertEquals(listOf("accepted"), h.core.settle(entry(3), "t")!!.verdicts)
         // Defence in depth: the verifier answers duplicate from the settled list; even an `accepted` with the same hash is a duplicate.
@@ -129,7 +129,7 @@ class VoucherSettleTest {
     @Test fun used_and_closed_vouchers_are_handed_to_the_verifier_and_only_void_ones_as_void() = runTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form)
         val closed = h.vstore.voucherByUid(uid)!!
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, closed.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, closed.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         h.core.settle(entry(3), "t"); advanceUntilIdle()
         assertEquals(VOUCHER_CLOSED, h.vstore.voucher(closed.voucherId)!!.state)
         h.svc.issue(FakeTag("04aaaaaaaaaaaa"), form)
@@ -157,7 +157,7 @@ class VoucherSettleTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form.copy(count = 2))
         val v = h.vstore.voucherByUid(uid)!!
         VoucherService(h.core, FailingWrites(h.vstore))                    // installs itself as the hooks
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("retry"), h.core.settle(entry(3), "t")!!.verdicts)
         assertEquals(2, h.vstore.voucher(v.voucherId)!!.countLeft)
         assertEquals(0, redeemAudits(h))
@@ -174,7 +174,7 @@ class VoucherSettleTest {
 
     @Test fun a_redeem_of_a_voucher_missing_from_the_index_is_retried() = runTest {
         val h = vh()
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, "99".repeat(32), 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, "99".repeat(32), 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("retry"), h.core.settle(entry(3), "t")!!.verdicts)
         assertNull(h.vstore.seen("ee".repeat(32)))
     }
@@ -183,7 +183,7 @@ class VoucherSettleTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form)
         val v = h.vstore.voucherByUid(uid)!!
         h.core.voucherHooks = object : VoucherHooks by h.svc { override suspend fun afterSettle() = throw IllegalStateException("boom") }
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("accepted"), h.core.settle(entry(3), "t")!!.verdicts)
         advanceUntilIdle()
         assertEquals(VOUCHER_USED, h.vstore.voucher(v.voucherId)!!.state)
@@ -193,7 +193,7 @@ class VoucherSettleTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form)
         val v = h.vstore.voucherByUid(uid)!!
         h.chain.cellAtThrowsFor += v.outpoint
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("accepted"), h.core.settle(entry(3), "t")!!.verdicts)
         advanceUntilIdle()
         val after = h.vstore.voucher(v.voucherId)!!
@@ -207,7 +207,7 @@ class VoucherSettleTest {
         val v = h.vstore.voucherByUid(uid)!!
         h.chain.confirmAfterPolls = null                                  // the close transaction never confirms
         val before = h.chain.broadcasts.size
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         val start = testScheduler.currentTime
         assertEquals(listOf("accepted"), h.core.settle(entry(3), "t")!!.verdicts)
         assertEquals(start, testScheduler.currentTime)                    // no virtual time spent polling inside settle
@@ -223,7 +223,7 @@ class VoucherSettleTest {
         val h = vh(); h.svc.issue(FakeTag(uid), form)
         val v = h.vstore.voucherByUid(uid)!!
         val before = h.chain.broadcasts.size
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
         assertEquals(listOf("accepted"), h.core.settle(entry(3), "t")!!.verdicts)
         assertNotNull(h.core.exclusive { yield() })                       // hold the lock while the queued close runs: it finds it busy
         advanceUntilIdle()
@@ -239,7 +239,7 @@ class VoucherSettleTest {
         val v = h.vstore.voucherByUid(uid)!!
         val o = OverrideFfi(1u, 4u, "5a".repeat(8), 500, 0, "AUD", "77".repeat(8), "dd".repeat(32))
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.DOUBLE_REDEEM, JournalVerdict.BAD_MAC), emptyList(),
-            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "ee".repeat(32))), listOf(o))
+            listOf(RedeemFfi(0u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), listOf(o))
         assertEquals(listOf("double_redeem", "bad_mac"), h.core.settle(entry(3) + entry(4), "t")!!.verdicts)
         assertEquals(2, h.vstore.voucher(v.voucherId)!!.countLeft)
         assertNull(h.vstore.seen("ee".repeat(32))); assertNull(h.vstore.seen("dd".repeat(32)))
@@ -253,11 +253,47 @@ class VoucherSettleTest {
         val card = h.store.allCards().single()
         val o = OverrideFfi(2u, 4u, "5a".repeat(8), 500, 0, "AUD", "77".repeat(8), "dd".repeat(32))
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
-            listOf(CardNetFfi(card.reserveId, 1000, 1u, 1u)), listOf(RedeemFfi(1u, 3u, v.voucherId, 1u, "ee".repeat(32))), listOf(o))
+            listOf(CardNetFfi(card.reserveId, 1000, 1u, 1u)), listOf(RedeemFfi(1u, 3u, v.voucherId, 1u, "77".repeat(8), "ee".repeat(32))), listOf(o))
         val r = h.core.settle(cardEntry(card.reserveId) + entry(3) + entry(4), "t")!!
         assertEquals(listOf("accepted", "accepted", "accepted"), r.verdicts)
         assertNotNull(r.txHash)
         assertEquals(listOf(r.txHash, null, null), r.verdicts.indices.map { r.txHashAt(it) })
         assertNull(PrepaidService.SettleResult(listOf("retry"), "0xab").txHashAt(0))
+    }
+
+    // ---------------------------------------------------------------- final review MEDIUM-2 / LOW-1
+
+    @Test fun settlement_hands_this_vaults_merchant_id_to_the_verifier() = runTest {
+        val h = vh()
+        h.core.settle(entry(4), "t")
+        assertEquals(h.core.merchantIdHex, h.protocol.lastMerchant)
+    }
+
+    private suspend fun enrol(h: VoucherHarness, keyId: String, revokedAt: Long? = null) =
+        h.vstore.insertStaffKey(StaffKeyEntity(keyId, "04aabbccddeeff", "5a".repeat(32), "ring", 1, revokedAt))
+
+    @Test fun redeem_audit_rows_record_the_staff_key_status_and_verdicts_are_unchanged() = runTest {
+        val h = vh(); h.svc.issue(FakeTag(uid), form.copy(count = 3))
+        val v = h.vstore.voucherByUid(uid)!!
+        enrol(h, "71".repeat(8)); enrol(h, "72".repeat(8), revokedAt = 5)
+        h.protocol.verifyResult = BatchResultFfi(List(3) { JournalVerdict.ACCEPTED }, emptyList(), listOf(
+            RedeemFfi(0u, 3u, v.voucherId, 1u, "71".repeat(8), "e1".repeat(32)),
+            RedeemFfi(1u, 3u, v.voucherId, 2u, "72".repeat(8), "e2".repeat(32)),
+            RedeemFfi(2u, 3u, v.voucherId, 3u, "73".repeat(8), "e3".repeat(32))), emptyList())
+        assertEquals(List(3) { "accepted" }, h.core.settle(entry(3) + entry(3) + entry(3), "t")!!.verdicts)
+        val details = h.store.events.filter { it.kind == KIND_VOUCHER_REDEEM && it.phase == PHASE_DONE }.map { it.detail }
+        assertEquals(3, details.size)
+        assertTrue(details[0], details[0].endsWith("staff key ${"71".repeat(8)} (enrolled)"))
+        assertTrue(details[1], details[1].endsWith("staff key ${"72".repeat(8)} (revoked)"))
+        assertTrue(details[2], details[2].endsWith("staff key ${"73".repeat(8)} (unknown)"))
+    }
+
+    @Test fun override_audit_rows_record_the_staff_key_status() = runTest {
+        val h = vh(); enrol(h, "72".repeat(8), revokedAt = 5)
+        val o = OverrideFfi(0u, 4u, "5a".repeat(8), 500, 0, "AUD", "72".repeat(8), "dd".repeat(32))
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), emptyList(), listOf(o))
+        assertEquals(listOf("accepted"), h.core.settle(entry(4), "t")!!.verdicts)
+        val d = h.store.events.single { it.kind == KIND_PRICE_OVERRIDE }.detail
+        assertTrue(d, d.contains("staff key ${"72".repeat(8)} (revoked)"))
     }
 }
