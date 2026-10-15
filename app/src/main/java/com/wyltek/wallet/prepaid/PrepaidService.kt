@@ -634,6 +634,8 @@ class PrepaidService(
     private fun verdictName(v: JournalVerdict) = when (v) {
         JournalVerdict.ACCEPTED -> "accepted"; JournalVerdict.DUPLICATE -> "duplicate"; JournalVerdict.BAD_MAC -> "bad_mac"
         JournalVerdict.UNKNOWN_CARD -> "unknown_card"; JournalVerdict.STALE_COUNTER -> "stale_counter"; JournalVerdict.OVER_BALANCE -> "over_balance"
+        JournalVerdict.DOUBLE_REDEEM -> "double_redeem"; JournalVerdict.UNKNOWN_VOUCHER -> "unknown_voucher"
+        JournalVerdict.VOUCHER_VOID -> "voucher_void"; JournalVerdict.UNSUPPORTED_KIND -> "retry"
     }
 
     /** reserve_id of entry i = bytes 20..52 of the 96-byte entry (main spec §8.1). */
@@ -653,7 +655,7 @@ class PrepaidService(
         val pendingIds = all.filter { it.pendingTxHash != null }.map { it.reserveId.lowercase() }.toSet()
         val eligible = all.filter { (it.state == CARD_ACTIVE || it.state == CARD_REVOKED) && it.pendingTxHash == null }
         val res = try {
-            protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) })
+            protocol.verifyBatch(kHex, hexBody, eligible.map { CardStateFfi(it.reserveId, it.balanceUnits, it.settledCounter.toUInt(), it.state == CARD_REVOKED) }, emptyList())
         } catch (e: PrepaidException) { return SettleResult(List(hexBody.length / 192) { "retry" }, null) }
         var names = res.verdicts.mapIndexed { i, v -> if (v == JournalVerdict.UNKNOWN_CARD && entryReserveId(hexBody, i) in pendingIds) "retry" else verdictName(v) }
         fun retryAll() = SettleResult(names.map { if (it == "accepted") "retry" else it }, null)

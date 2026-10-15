@@ -276,7 +276,7 @@ class PrepaidServiceRetireTest {
         val hash = h.chain.broadcasts.last().first
         val row = h.store.card(card.reserveId)!!
         assertEquals(KIND_CASH_OUT, row.pendingKind); assertEquals(hash, row.pendingTxHash)
-        h.protocol.verifyResult = com.wyltek.wallet.core.native.BatchResultFfi(listOf(com.wyltek.wallet.core.native.JournalVerdict.UNKNOWN_CARD), emptyList())
+        h.protocol.verifyResult = com.wyltek.wallet.core.native.BatchResultFfi(listOf(com.wyltek.wallet.core.native.JournalVerdict.UNKNOWN_CARD), emptyList(), emptyList(), emptyList())
         val p = h.svc.settle("00".repeat(20) + card.reserveId + "00".repeat(44), "t")!!   // a pending retire is not settleable
         assertTrue(h.protocol.lastCards.none { it.reserveIdHex == card.reserveId }); assertEquals(listOf("retry"), p.verdicts)
         h.chain.confirm(hash)

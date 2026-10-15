@@ -12,7 +12,13 @@ class NativeProtocol : Protocol {
     override fun reserveId(txHashHex: String, index: UInt) = prepaidReserveId(txHashHex, index)
     override fun merchantId(lock: LockScript) = prepaidMerchantId(lock.codeHash, lock.hashType, lock.args)
     override fun plan(action: PrepaidAction, balanceUnits: Int, capacityShannons: ULong, amountUnits: Int) = prepaidPlan(action, balanceUnits, capacityShannons, amountUnits)
-    override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>) = prepaidVerifyBatch(kHex, entriesHex, cards)
+    override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>) = prepaidVerifyBatch(kHex, entriesHex, cards, vouchers)
+    override fun voucherSelectSlot(kHex: String, uidHex: String, raw128: ByteArray) = prepaidVoucherSelectSlot(kHex, uidHex, hex(raw128))
+    override fun voucherSeal(kHex: String, uidHex: String, rec: VoucherRecordInfo) = unhex(prepaidVoucherSeal(kHex, uidHex, rec))
+    override fun normaliseProductCode(code: String) = prepaidNormaliseProductCode(code)
+    override fun productHash(code: String) = prepaidProductHash(code)
+    override fun voucherId(txHashHex: String, index: UInt) = prepaidVoucherId(txHashHex, index)
+    override fun staffKeyId(uidHex: String, sigHex: String) = prepaidStaffKeyId(uidHex, sigHex)
     /** Null for hash types rust-core's build_transaction cannot serialise (it writes every non-"type" as 0) (I8). */
     override fun lockOf(address: String): LockScript? = try {
         val i = decodeAddress(address)

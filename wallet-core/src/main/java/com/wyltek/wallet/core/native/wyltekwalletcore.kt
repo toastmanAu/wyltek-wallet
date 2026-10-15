@@ -711,7 +711,11 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_next_slot(
     ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_normalise_product_code(
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_plan(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_product_hash(
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_reserve_id(
     ): Int
@@ -719,7 +723,15 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_select_slot(
     ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_staff_key_id(
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_id(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_seal(
+    ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_select_slot(
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex(
     ): Int
@@ -828,7 +840,11 @@ external fun uniffi_wyltekwalletcore_fn_func_prepaid_merchant_id(`codeHashHex`: 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_next_slot(`pick`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_normalise_product_code(`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_plan(`action`: RustBuffer.ByValue,`balanceUnits`: Int,`capacityShannons`: Long,`amountUnits`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_product_hash(`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_reserve_id(`txHashHex`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -836,7 +852,15 @@ external fun uniffi_wyltekwalletcore_fn_func_prepaid_seal_record(`kDebitHex`: Ru
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_select_slot(`kDebitHex`: RustBuffer.ByValue,`uidHex`: RustBuffer.ByValue,`raw128Hex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(`kDebitHex`: RustBuffer.ByValue,`entriesHex`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_staff_key_id(`uidHex`: RustBuffer.ByValue,`sigHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(`kDebitHex`: RustBuffer.ByValue,`entriesHex`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,`vouchers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_voucher_id(`txHashHex`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_voucher_seal(`kDebitHex`: RustBuffer.ByValue,`uidHex`: RustBuffer.ByValue,`record`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_voucher_select_slot(`kDebitHex`: RustBuffer.ByValue,`uidHex`: RustBuffer.ByValue,`raw128Hex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_mldsa65_witness_placeholder_hex(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1089,7 +1113,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_next_slot() != 39758) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_normalise_product_code() != 35024) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_plan() != 39232) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_product_hash() != 60747) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_reserve_id() != 20402) {
@@ -1101,7 +1131,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_select_slot() != 56662) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 24586) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_staff_key_id() != 54180) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 16364) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_id() != 62559) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_seal() != 10270) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_select_slot() != 24012) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_mldsa65_witness_placeholder_hex() != 59935) {
@@ -1552,6 +1594,10 @@ data class BatchResultFfi (
     var `verdicts`: List<JournalVerdict>
     , 
     var `nets`: List<CardNetFfi>
+    , 
+    var `redeems`: List<RedeemFfi>
+    , 
+    var `overrides`: List<OverrideFfi>
     
 ){
     
@@ -1570,17 +1616,23 @@ public object FfiConverterTypeBatchResultFfi: FfiConverterRustBuffer<BatchResult
         return BatchResultFfi(
             FfiConverterSequenceTypeJournalVerdict.read(buf),
             FfiConverterSequenceTypeCardNetFfi.read(buf),
+            FfiConverterSequenceTypeRedeemFfi.read(buf),
+            FfiConverterSequenceTypeOverrideFfi.read(buf),
         )
     }
 
     override fun allocationSize(value: BatchResultFfi) = (
             FfiConverterSequenceTypeJournalVerdict.allocationSize(value.`verdicts`) +
-            FfiConverterSequenceTypeCardNetFfi.allocationSize(value.`nets`)
+            FfiConverterSequenceTypeCardNetFfi.allocationSize(value.`nets`) +
+            FfiConverterSequenceTypeRedeemFfi.allocationSize(value.`redeems`) +
+            FfiConverterSequenceTypeOverrideFfi.allocationSize(value.`overrides`)
     )
 
     override fun write(value: BatchResultFfi, buf: ByteBuffer) {
             FfiConverterSequenceTypeJournalVerdict.write(value.`verdicts`, buf)
             FfiConverterSequenceTypeCardNetFfi.write(value.`nets`, buf)
+            FfiConverterSequenceTypeRedeemFfi.write(value.`redeems`, buf)
+            FfiConverterSequenceTypeOverrideFfi.write(value.`overrides`, buf)
     }
 }
 
@@ -2212,6 +2264,74 @@ public object FfiConverterTypeMnemonicResult: FfiConverterRustBuffer<MnemonicRes
 
 
 
+data class OverrideFfi (
+    var `index`: kotlin.UInt
+    , 
+    var `terminalId`: kotlin.UShort
+    , 
+    var `productHashHex`: kotlin.String
+    , 
+    var `oldPrice`: kotlin.Int
+    , 
+    var `newPrice`: kotlin.Int
+    , 
+    var `currency`: kotlin.String
+    , 
+    var `keyIdHex`: kotlin.String
+    , 
+    var `entryHashHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOverrideFfi: FfiConverterRustBuffer<OverrideFfi> {
+    override fun read(buf: ByteBuffer): OverrideFfi {
+        return OverrideFfi(
+            FfiConverterUInt.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: OverrideFfi) = (
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterUShort.allocationSize(value.`terminalId`) +
+            FfiConverterString.allocationSize(value.`productHashHex`) +
+            FfiConverterInt.allocationSize(value.`oldPrice`) +
+            FfiConverterInt.allocationSize(value.`newPrice`) +
+            FfiConverterString.allocationSize(value.`currency`) +
+            FfiConverterString.allocationSize(value.`keyIdHex`) +
+            FfiConverterString.allocationSize(value.`entryHashHex`)
+    )
+
+    override fun write(value: OverrideFfi, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterUShort.write(value.`terminalId`, buf)
+            FfiConverterString.write(value.`productHashHex`, buf)
+            FfiConverterInt.write(value.`oldPrice`, buf)
+            FfiConverterInt.write(value.`newPrice`, buf)
+            FfiConverterString.write(value.`currency`, buf)
+            FfiConverterString.write(value.`keyIdHex`, buf)
+            FfiConverterString.write(value.`entryHashHex`, buf)
+    }
+}
+
+
+
 data class PqKeyPair (
     var `publicKeyHex`: kotlin.String
     , 
@@ -2245,6 +2365,59 @@ public object FfiConverterTypePQKeyPair: FfiConverterRustBuffer<PqKeyPair> {
     override fun write(value: PqKeyPair, buf: ByteBuffer) {
             FfiConverterString.write(value.`publicKeyHex`, buf)
             FfiConverterString.write(value.`privateKeyHex`, buf)
+    }
+}
+
+
+
+data class RedeemFfi (
+    var `index`: kotlin.UInt
+    , 
+    var `terminalId`: kotlin.UShort
+    , 
+    var `voucherIdHex`: kotlin.String
+    , 
+    var `counter`: kotlin.UInt
+    , 
+    var `entryHashHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRedeemFfi: FfiConverterRustBuffer<RedeemFfi> {
+    override fun read(buf: ByteBuffer): RedeemFfi {
+        return RedeemFfi(
+            FfiConverterUInt.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RedeemFfi) = (
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterUShort.allocationSize(value.`terminalId`) +
+            FfiConverterString.allocationSize(value.`voucherIdHex`) +
+            FfiConverterUInt.allocationSize(value.`counter`) +
+            FfiConverterString.allocationSize(value.`entryHashHex`)
+    )
+
+    override fun write(value: RedeemFfi, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterUShort.write(value.`terminalId`, buf)
+            FfiConverterString.write(value.`voucherIdHex`, buf)
+            FfiConverterUInt.write(value.`counter`, buf)
+            FfiConverterString.write(value.`entryHashHex`, buf)
     }
 }
 
@@ -2337,6 +2510,44 @@ public object FfiConverterTypeReservePlan: FfiConverterRustBuffer<ReservePlan> {
             FfiConverterULong.write(value.`successorCapacity`, buf)
             FfiConverterULong.write(value.`customerShannons`, buf)
             FfiConverterInt.write(value.`balanceAfter`, buf)
+    }
+}
+
+
+
+data class SettledRedeemFfi (
+    var `counter`: kotlin.UInt
+    , 
+    var `entryHashHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSettledRedeemFfi: FfiConverterRustBuffer<SettledRedeemFfi> {
+    override fun read(buf: ByteBuffer): SettledRedeemFfi {
+        return SettledRedeemFfi(
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SettledRedeemFfi) = (
+            FfiConverterUInt.allocationSize(value.`counter`) +
+            FfiConverterString.allocationSize(value.`entryHashHex`)
+    )
+
+    override fun write(value: SettledRedeemFfi, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`counter`, buf)
+            FfiConverterString.write(value.`entryHashHex`, buf)
     }
 }
 
@@ -2686,6 +2897,170 @@ public object FfiConverterTypeTxOutput: FfiConverterRustBuffer<TxOutput> {
 
 
 
+data class VoucherRecordInfo (
+    var `writerId`: kotlin.UShort
+    , 
+    var `voucherIdHex`: kotlin.String
+    , 
+    var `productHashHex`: kotlin.String
+    , 
+    var `issuePrice`: kotlin.UInt
+    , 
+    var `currency`: kotlin.String
+    , 
+    var `count`: kotlin.UByte
+    , 
+    var `counter`: kotlin.UInt
+    , 
+    var `merchantIdHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVoucherRecordInfo: FfiConverterRustBuffer<VoucherRecordInfo> {
+    override fun read(buf: ByteBuffer): VoucherRecordInfo {
+        return VoucherRecordInfo(
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: VoucherRecordInfo) = (
+            FfiConverterUShort.allocationSize(value.`writerId`) +
+            FfiConverterString.allocationSize(value.`voucherIdHex`) +
+            FfiConverterString.allocationSize(value.`productHashHex`) +
+            FfiConverterUInt.allocationSize(value.`issuePrice`) +
+            FfiConverterString.allocationSize(value.`currency`) +
+            FfiConverterUByte.allocationSize(value.`count`) +
+            FfiConverterUInt.allocationSize(value.`counter`) +
+            FfiConverterString.allocationSize(value.`merchantIdHex`)
+    )
+
+    override fun write(value: VoucherRecordInfo, buf: ByteBuffer) {
+            FfiConverterUShort.write(value.`writerId`, buf)
+            FfiConverterString.write(value.`voucherIdHex`, buf)
+            FfiConverterString.write(value.`productHashHex`, buf)
+            FfiConverterUInt.write(value.`issuePrice`, buf)
+            FfiConverterString.write(value.`currency`, buf)
+            FfiConverterUByte.write(value.`count`, buf)
+            FfiConverterUInt.write(value.`counter`, buf)
+            FfiConverterString.write(value.`merchantIdHex`, buf)
+    }
+}
+
+
+
+data class VoucherSlotResult (
+    var `pick`: SlotPickFfi
+    , 
+    var `record`: VoucherRecordInfo?
+    , 
+    var `reason`: SlotReason
+    , 
+    var `merchantHintHex`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVoucherSlotResult: FfiConverterRustBuffer<VoucherSlotResult> {
+    override fun read(buf: ByteBuffer): VoucherSlotResult {
+        return VoucherSlotResult(
+            FfiConverterTypeSlotPickFfi.read(buf),
+            FfiConverterOptionalTypeVoucherRecordInfo.read(buf),
+            FfiConverterTypeSlotReason.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: VoucherSlotResult) = (
+            FfiConverterTypeSlotPickFfi.allocationSize(value.`pick`) +
+            FfiConverterOptionalTypeVoucherRecordInfo.allocationSize(value.`record`) +
+            FfiConverterTypeSlotReason.allocationSize(value.`reason`) +
+            FfiConverterOptionalString.allocationSize(value.`merchantHintHex`)
+    )
+
+    override fun write(value: VoucherSlotResult, buf: ByteBuffer) {
+            FfiConverterTypeSlotPickFfi.write(value.`pick`, buf)
+            FfiConverterOptionalTypeVoucherRecordInfo.write(value.`record`, buf)
+            FfiConverterTypeSlotReason.write(value.`reason`, buf)
+            FfiConverterOptionalString.write(value.`merchantHintHex`, buf)
+    }
+}
+
+
+
+data class VoucherStateFfi (
+    var `voucherIdHex`: kotlin.String
+    , 
+    var `count`: kotlin.UByte
+    , 
+    var `void`: kotlin.Boolean
+    , 
+    var `settled`: List<SettledRedeemFfi>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeVoucherStateFfi: FfiConverterRustBuffer<VoucherStateFfi> {
+    override fun read(buf: ByteBuffer): VoucherStateFfi {
+        return VoucherStateFfi(
+            FfiConverterString.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeSettledRedeemFfi.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: VoucherStateFfi) = (
+            FfiConverterString.allocationSize(value.`voucherIdHex`) +
+            FfiConverterUByte.allocationSize(value.`count`) +
+            FfiConverterBoolean.allocationSize(value.`void`) +
+            FfiConverterSequenceTypeSettledRedeemFfi.allocationSize(value.`settled`)
+    )
+
+    override fun write(value: VoucherStateFfi, buf: ByteBuffer) {
+            FfiConverterString.write(value.`voucherIdHex`, buf)
+            FfiConverterUByte.write(value.`count`, buf)
+            FfiConverterBoolean.write(value.`void`, buf)
+            FfiConverterSequenceTypeSettledRedeemFfi.write(value.`settled`, buf)
+    }
+}
+
+
+
 
 
 /**
@@ -2922,7 +3297,11 @@ enum class JournalVerdict {
     BAD_MAC,
     UNKNOWN_CARD,
     STALE_COUNTER,
-    OVER_BALANCE;
+    OVER_BALANCE,
+    DOUBLE_REDEEM,
+    UNKNOWN_VOUCHER,
+    VOUCHER_VOID,
+    UNSUPPORTED_KIND;
 
     
 
@@ -3305,6 +3684,38 @@ public object FfiConverterOptionalTypeCardRecordInfo: FfiConverterRustBuffer<Car
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeVoucherRecordInfo: FfiConverterRustBuffer<VoucherRecordInfo?> {
+    override fun read(buf: ByteBuffer): VoucherRecordInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeVoucherRecordInfo.read(buf)
+    }
+
+    override fun allocationSize(value: VoucherRecordInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeVoucherRecordInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: VoucherRecordInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeVoucherRecordInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -3445,6 +3856,90 @@ public object FfiConverterSequenceTypeMldsaInputCell: FfiConverterRustBuffer<Lis
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeOverrideFfi: FfiConverterRustBuffer<List<OverrideFfi>> {
+    override fun read(buf: ByteBuffer): List<OverrideFfi> {
+        val len = buf.getInt()
+        return List<OverrideFfi>(len) {
+            FfiConverterTypeOverrideFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<OverrideFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeOverrideFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<OverrideFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeOverrideFfi.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeRedeemFfi: FfiConverterRustBuffer<List<RedeemFfi>> {
+    override fun read(buf: ByteBuffer): List<RedeemFfi> {
+        val len = buf.getInt()
+        return List<RedeemFfi>(len) {
+            FfiConverterTypeRedeemFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<RedeemFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeRedeemFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<RedeemFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeRedeemFfi.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSettledRedeemFfi: FfiConverterRustBuffer<List<SettledRedeemFfi>> {
+    override fun read(buf: ByteBuffer): List<SettledRedeemFfi> {
+        val len = buf.getInt()
+        return List<SettledRedeemFfi>(len) {
+            FfiConverterTypeSettledRedeemFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SettledRedeemFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSettledRedeemFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SettledRedeemFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSettledRedeemFfi.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeTxCellDep: FfiConverterRustBuffer<List<TxCellDep>> {
     override fun read(buf: ByteBuffer): List<TxCellDep> {
         val len = buf.getInt()
@@ -3519,6 +4014,34 @@ public object FfiConverterSequenceTypeTxOutput: FfiConverterRustBuffer<List<TxOu
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeTxOutput.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeVoucherStateFfi: FfiConverterRustBuffer<List<VoucherStateFfi>> {
+    override fun read(buf: ByteBuffer): List<VoucherStateFfi> {
+        val len = buf.getInt()
+        return List<VoucherStateFfi>(len) {
+            FfiConverterTypeVoucherStateFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<VoucherStateFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeVoucherStateFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<VoucherStateFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeVoucherStateFfi.write(it, buf)
         }
     }
 }
@@ -4070,12 +4593,34 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     }
     
 
+    @Throws(PrepaidException::class) fun `prepaidNormaliseProductCode`(`code`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_normalise_product_code(
+    
+        FfiConverterString.lower(`code`),_status)
+}
+    )
+    }
+    
+
     @Throws(PrepaidException::class) fun `prepaidPlan`(`action`: PrepaidAction, `balanceUnits`: kotlin.Int, `capacityShannons`: kotlin.ULong, `amountUnits`: kotlin.Int): ReservePlan {
             return FfiConverterTypeReservePlan.lift(
     uniffiRustCallWithError(PrepaidException) { _status ->
     UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_plan(
     
         FfiConverterTypePrepaidAction.lower(`action`),FfiConverterInt.lower(`balanceUnits`),FfiConverterULong.lower(`capacityShannons`),FfiConverterInt.lower(`amountUnits`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidProductHash`(`code`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_product_hash(
+    
+        FfiConverterString.lower(`code`),_status)
 }
     )
     }
@@ -4114,12 +4659,56 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     }
     
 
-    @Throws(PrepaidException::class) fun `prepaidVerifyBatch`(`kDebitHex`: kotlin.String, `entriesHex`: kotlin.String, `cards`: List<CardStateFfi>): BatchResultFfi {
+    @Throws(PrepaidException::class) fun `prepaidStaffKeyId`(`uidHex`: kotlin.String, `sigHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_staff_key_id(
+    
+        FfiConverterString.lower(`uidHex`),FfiConverterString.lower(`sigHex`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidVerifyBatch`(`kDebitHex`: kotlin.String, `entriesHex`: kotlin.String, `cards`: List<CardStateFfi>, `vouchers`: List<VoucherStateFfi>): BatchResultFfi {
             return FfiConverterTypeBatchResultFfi.lift(
     uniffiRustCallWithError(PrepaidException) { _status ->
     UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(
     
-        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`entriesHex`),FfiConverterSequenceTypeCardStateFfi.lower(`cards`),_status)
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`entriesHex`),FfiConverterSequenceTypeCardStateFfi.lower(`cards`),FfiConverterSequenceTypeVoucherStateFfi.lower(`vouchers`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidVoucherId`(`txHashHex`: kotlin.String, `index`: kotlin.UInt): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_voucher_id(
+    
+        FfiConverterString.lower(`txHashHex`),FfiConverterUInt.lower(`index`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidVoucherSeal`(`kDebitHex`: kotlin.String, `uidHex`: kotlin.String, `record`: VoucherRecordInfo): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_voucher_seal(
+    
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`uidHex`),FfiConverterTypeVoucherRecordInfo.lower(`record`),_status)
+}
+    )
+    }
+    
+
+    @Throws(PrepaidException::class) fun `prepaidVoucherSelectSlot`(`kDebitHex`: kotlin.String, `uidHex`: kotlin.String, `raw128Hex`: kotlin.String): VoucherSlotResult {
+            return FfiConverterTypeVoucherSlotResult.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_voucher_select_slot(
+    
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`uidHex`),FfiConverterString.lower(`raw128Hex`),_status)
 }
     )
     }

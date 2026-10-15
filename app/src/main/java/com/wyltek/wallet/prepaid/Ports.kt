@@ -32,7 +32,14 @@ interface Protocol {
     fun merchantId(lock: LockScript): String
     /** Throws PrepaidException on refusal. */
     fun plan(action: PrepaidAction, balanceUnits: Int, capacityShannons: ULong, amountUnits: Int): ReservePlan
-    fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>): BatchResultFfi
+    fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>): BatchResultFfi
+    fun voucherSelectSlot(kHex: String, uidHex: String, raw128: ByteArray): VoucherSlotResult
+    fun voucherSeal(kHex: String, uidHex: String, rec: VoucherRecordInfo): ByteArray
+    /** Throws PrepaidException.InvalidInput for an empty, over-long or control-character code. */
+    fun normaliseProductCode(code: String): String
+    fun productHash(code: String): String
+    fun voucherId(txHashHex: String, index: UInt): String
+    fun staffKeyId(uidHex: String, sigHex: String): String
     fun lockOf(address: String): LockScript?
 }
 

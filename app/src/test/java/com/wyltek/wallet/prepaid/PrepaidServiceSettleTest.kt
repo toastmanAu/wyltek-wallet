@@ -24,7 +24,7 @@ class PrepaidServiceSettleTest {
         val (c1, c2) = h.store.allCards().sortedBy { it.uid }
         h.protocol.verifyResult = BatchResultFfi(
             verdicts = listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED, JournalVerdict.DUPLICATE, JournalVerdict.ACCEPTED),
-            nets = listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 2u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)))
+            nets = listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 2u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)), emptyList(), emptyList())
         val r = h.svc.settle(entries(c1.reserveId, c1.reserveId, c1.reserveId, c2.reserveId), "terminal 7")!!
         assertEquals(listOf("accepted", "accepted", "duplicate", "accepted"), r.verdicts)
         assertNotNull(r.txHash)
@@ -42,7 +42,7 @@ class PrepaidServiceSettleTest {
     @Test fun zero_net_only_advances_counters_without_a_transaction() = runTest {
         val h = h(); h.svc.issue(FakeTag("04000000000001"), 300_000, null)
         val c1 = h.store.allCards().single()
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 0, 9u, 2u)))
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 0, 9u, 2u)), emptyList(), emptyList())
         val r = h.svc.settle(entries(c1.reserveId, c1.reserveId), "t")!!
         assertNull(r.txHash); assertEquals(listOf("accepted", "accepted"), r.verdicts)
         assertEquals(9L, h.store.card(c1.reserveId)!!.settledCounter); assertEquals(1, h.chain.broadcasts.size)
@@ -51,7 +51,7 @@ class PrepaidServiceSettleTest {
     @Test fun failed_transaction_turns_accepted_into_retry_and_advances_nothing() = runTest {
         val h = h(); h.svc.issue(FakeTag("04000000000001"), 300_000, null)
         val c1 = h.store.allCards().single()
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.BAD_MAC), listOf(CardNetFfi(c1.reserveId, 1000, 2u, 1u)))
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.BAD_MAC), listOf(CardNetFfi(c1.reserveId, 1000, 2u, 1u)), emptyList(), emptyList())
         h.chain.refuseBroadcast = true
         val r = h.svc.settle(entries(c1.reserveId, c1.reserveId), "t")!!
         assertEquals(listOf("retry", "bad_mac"), r.verdicts); assertNull(r.txHash)
@@ -67,7 +67,7 @@ class PrepaidServiceSettleTest {
         h.svc.issue(FakeTag("04000000000002"), 300_000, null); val issuing = h.store.cardByUid("04000000000002")!!
         h.chain.confirmAfterPolls = 1
         h.svc.issue(FakeTag("04000000000003"), 300_000, null); val active = h.store.cardByUid("04000000000003")!!
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.UNKNOWN_CARD, JournalVerdict.UNKNOWN_CARD, JournalVerdict.ACCEPTED), listOf(CardNetFfi(active.reserveId, 0, 1u, 1u)))
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.UNKNOWN_CARD, JournalVerdict.UNKNOWN_CARD, JournalVerdict.ACCEPTED), listOf(CardNetFfi(active.reserveId, 0, 1u, 1u)), emptyList(), emptyList())
         val r = h.svc.settle(entries(closed.reserveId, issuing.reserveId, active.reserveId), "t")!!
         assertEquals(listOf(active.reserveId), h.protocol.lastCards.map { it.reserveIdHex })
         assertEquals(listOf("unknown_card", "retry", "accepted"), r.verdicts)   // a pending card's entries are retried, not refused
@@ -81,7 +81,7 @@ class PrepaidServiceSettleTest {
         h.svc.load(tag, card, 100_000)                         // timeout: the card stays ACTIVE with a pending tx
         val pending = h.store.card(card.reserveId)!!
         assertNotNull(pending.pendingTxHash); assertEquals(CARD_ACTIVE, pending.state)
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.UNKNOWN_CARD), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.UNKNOWN_CARD), emptyList(), emptyList(), emptyList())
         val r = h.svc.settle(entries(card.reserveId), "t")!!
         assertEquals(emptyList<String>(), h.protocol.lastCards.map { it.reserveIdHex })
         assertEquals(listOf("retry"), r.verdicts)
@@ -91,7 +91,7 @@ class PrepaidServiceSettleTest {
         h.svc.issue(FakeTag("04000000000001"), 300_000, null); h.svc.issue(FakeTag("04000000000002"), 300_000, null)
         val (c1, c2) = h.store.allCards().sortedBy { it.uid }
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
-            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)))
+            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)), emptyList(), emptyList())
         h.chain.confirmAfterPolls = null
         val r = h.svc.settle(entries(c1.reserveId, c2.reserveId), "t")!!
         assertEquals(listOf("retry", "retry"), r.verdicts); assertNull(r.txHash)
@@ -131,7 +131,7 @@ class PrepaidServiceSettleTest {
     @Test fun settle_broadcast_refusal_is_audited() = runTest {
         val h = h(); h.svc.issue(FakeTag("04000000000001"), 300_000, null)
         val c1 = h.store.allCards().single()
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 1000, 1u, 1u)))
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 1000, 1u, 1u)), emptyList(), emptyList())
         h.chain.refuseBroadcast = true
         h.svc.settle(entries(c1.reserveId), "t")
         val last = h.store.events.last { it.kind == KIND_SETTLE }
@@ -140,7 +140,7 @@ class PrepaidServiceSettleTest {
 
     @Test fun bad_length_is_null() = runTest {
         val h = h()
-        h.protocol.verifyResult = BatchResultFfi(emptyList(), emptyList())
+        h.protocol.verifyResult = BatchResultFfi(emptyList(), emptyList(), emptyList(), emptyList())
         assertNull(h.svc.settle("00".repeat(95), "t"))
         assertNotNull(h.svc.settle("", "t"))
     }
@@ -150,7 +150,7 @@ class PrepaidServiceSettleTest {
         h.svc.issue(FakeTag("04000000000001"), 300_000, null); h.svc.issue(FakeTag("04000000000002"), 300_000, null)
         val (c1, c2) = h.store.allCards().sortedBy { it.uid }
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED),
-            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)))
+            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, -10_000, 3u, 1u)), emptyList(), emptyList())
         h.chain.confirmAfterPolls = null
         val job = launch { h.svc.settle(entries(c1.reserveId, c2.reserveId), "t") }
         runCurrent(); job.cancelAndJoin()
@@ -170,7 +170,7 @@ class PrepaidServiceSettleTest {
     @Test fun refused_settlement_leaves_no_markers() = runTest {
         val h = h(); h.svc.issue(FakeTag("04000000000001"), 300_000, null)
         val c1 = h.store.allCards().single()
-        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 1000, 1u, 1u)))
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), listOf(CardNetFfi(c1.reserveId, 1000, 1u, 1u)), emptyList(), emptyList())
         h.chain.refuseBroadcast = true
         h.svc.settle(entries(c1.reserveId), "t")
         val d = h.store.card(c1.reserveId)!!
@@ -183,7 +183,7 @@ class PrepaidServiceSettleTest {
         val (c1, c2) = h.store.allCards().sortedBy { it.uid }
         h.chain.cells.remove(c2.currentOutpoint)                                   // the indexer cannot see c2's reserve
         h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED, JournalVerdict.ACCEPTED, JournalVerdict.BAD_MAC),
-            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, 10_000, 3u, 1u)))
+            listOf(CardNetFfi(c1.reserveId, 50_000, 7u, 1u), CardNetFfi(c2.reserveId, 10_000, 3u, 1u)), emptyList(), emptyList())
         val r = h.svc.settle(entries(c1.reserveId, c2.reserveId, c2.reserveId), "t")!!
         assertEquals(listOf("accepted", "retry", "bad_mac"), r.verdicts)
         assertNotNull(r.txHash)

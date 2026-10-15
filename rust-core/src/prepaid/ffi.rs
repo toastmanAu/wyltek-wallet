@@ -1,5 +1,5 @@
 //! uniffi surface for the prepaid demo tier (D3 spec §4). Thin hex/record adapters over the pure modules.
-use super::{record, reserve, verifier};
+use super::{record, reserve, verifier, voucher};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
@@ -31,11 +31,11 @@ pub struct ReservePlan { pub successor_capacity: u64, pub customer_shannons: u64
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct CardStateFfi { pub reserve_id_hex: String, pub balance_units: i32, pub settled_counter: u32, pub revoked: bool }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum JournalVerdict { Accepted, Duplicate, BadMac, UnknownCard, StaleCounter, OverBalance }
+pub enum JournalVerdict { Accepted, Duplicate, BadMac, UnknownCard, StaleCounter, OverBalance, DoubleRedeem, UnknownVoucher, VoucherVoid, UnsupportedKind }
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct CardNetFfi { pub reserve_id_hex: String, pub net_units: i64, pub max_tmc: u32, pub accepted: u32 }
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct BatchResultFfi { pub verdicts: Vec<JournalVerdict>, pub nets: Vec<CardNetFfi> }
+pub struct BatchResultFfi { pub verdicts: Vec<JournalVerdict>, pub nets: Vec<CardNetFfi>, pub redeems: Vec<RedeemFfi>, pub overrides: Vec<OverrideFfi> }
 
 fn info_of(r: &record::DemoCardRecord) -> CardRecordInfo {
     CardRecordInfo { writer_id: r.writer_id, reserve_id_hex: hex::encode(r.reserve_id), balance_units: r.balance_units,
@@ -97,25 +97,95 @@ pub fn prepaid_plan(action: PrepaidAction, balance_units: i32, capacity_shannons
     Ok(ReservePlan { successor_capacity: p.successor_capacity, customer_shannons: p.customer_shannons, balance_after: p.balance_after })
 }
 
+fn hex16b(h: &str) -> Result<[u8; 16], PrepaidError> { fixed::<16>(h, "voucher_id") }
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct VoucherRecordInfo { pub writer_id: u16, pub voucher_id_hex: String, pub product_hash_hex: String, pub issue_price: u32,
+    pub currency: String, pub count: u8, pub counter: u32, pub merchant_id_hex: String }
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct VoucherSlotResult { pub pick: SlotPickFfi, pub record: Option<VoucherRecordInfo>, pub reason: SlotReason, pub merchant_hint_hex: Option<String> }
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SettledRedeemFfi { pub counter: u32, pub entry_hash_hex: String }
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct VoucherStateFfi { pub voucher_id_hex: String, pub count: u8, pub void: bool, pub settled: Vec<SettledRedeemFfi> }
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RedeemFfi { pub index: u32, pub terminal_id: u16, pub voucher_id_hex: String, pub counter: u32, pub entry_hash_hex: String }
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct OverrideFfi { pub index: u32, pub terminal_id: u16, pub product_hash_hex: String, pub old_price: i32, pub new_price: i32,
+    pub currency: String, pub key_id_hex: String, pub entry_hash_hex: String }
+
+fn pick_ffi(p: record::SlotPick) -> SlotPickFfi { match p { record::SlotPick::None => SlotPickFfi::None, record::SlotPick::A => SlotPickFfi::A, record::SlotPick::B => SlotPickFfi::B, record::SlotPick::Ambiguous => SlotPickFfi::Ambiguous } }
+fn reason_ffi(r: record::SlotNoneReason) -> SlotReason { match r { record::SlotNoneReason::NoValidSlot => SlotReason::NoValidSlot, record::SlotNoneReason::BadVersion => SlotReason::BadVersion, record::SlotNoneReason::MacFail => SlotReason::MacFail } }
+fn currency_of(s: &str) -> Result<[u8; 3], PrepaidError> {
+    let b = s.as_bytes();
+    if b.len() != 3 || !b.iter().all(|c| c.is_ascii_uppercase()) { return Err(PrepaidError::InvalidInput("currency must be three letters A-Z".into())); }
+    Ok([b[0], b[1], b[2]])
+}
+const CODE_ERR: &str = "product code must be 1-31 printable characters";
+
 #[uniffi::export]
-pub fn prepaid_verify_batch(k_debit_hex: String, entries_hex: String, cards: Vec<CardStateFfi>) -> Result<BatchResultFfi, PrepaidError> {
+pub fn prepaid_voucher_select_slot(k_debit_hex: String, uid_hex: String, raw128_hex: String) -> Result<VoucherSlotResult, PrepaidError> {
+    let key = hex16(&k_debit_hex)?; let uid = hex7(&uid_hex)?;
+    let raw: [u8; 128] = fixed::<128>(&raw128_hex, "slots")?;
+    let (pick, rec, diag) = voucher::select_slot_diag(&key, &uid, raw[..64].try_into().unwrap(), raw[64..].try_into().unwrap());
+    Ok(VoucherSlotResult { pick: pick_ffi(pick), reason: reason_ffi(diag.reason), merchant_hint_hex: diag.merchant_hint.map(hex::encode),
+        record: rec.map(|r| VoucherRecordInfo { writer_id: r.writer_id, voucher_id_hex: hex::encode(r.voucher_id), product_hash_hex: hex::encode(r.product_hash),
+            issue_price: r.issue_price, currency: String::from_utf8_lossy(&r.currency).into_owned(), count: r.count, counter: r.counter,
+            merchant_id_hex: hex::encode(r.merchant_id) }) })
+}
+
+#[uniffi::export]
+pub fn prepaid_voucher_seal(k_debit_hex: String, uid_hex: String, record: VoucherRecordInfo) -> Result<String, PrepaidError> {
+    let key = hex16(&k_debit_hex)?; let uid = hex7(&uid_hex)?;
+    let mut r = voucher::VoucherRecord { writer_id: record.writer_id, voucher_id: hex16b(&record.voucher_id_hex)?,
+        product_hash: fixed::<8>(&record.product_hash_hex, "product_hash")?, issue_price: record.issue_price, currency: currency_of(&record.currency)?,
+        count: record.count, counter: record.counter, merchant_id: fixed::<8>(&record.merchant_id_hex, "merchant_id")?, mac: [0; 8] };
+    Ok(hex::encode(voucher::seal(&key, &uid, &mut r)))
+}
+
+#[uniffi::export]
+pub fn prepaid_normalise_product_code(code: String) -> Result<String, PrepaidError> {
+    voucher::normalise_product_code(&code).ok_or_else(|| PrepaidError::InvalidInput(CODE_ERR.into()))
+}
+#[uniffi::export]
+pub fn prepaid_product_hash(code: String) -> Result<String, PrepaidError> {
+    voucher::product_hash(&code).map(hex::encode).ok_or_else(|| PrepaidError::InvalidInput(CODE_ERR.into()))
+}
+#[uniffi::export]
+pub fn prepaid_voucher_id(tx_hash_hex: String, index: u32) -> Result<String, PrepaidError> {
+    Ok(hex::encode(voucher::voucher_id(&fixed::<32>(&tx_hash_hex, "tx_hash")?, index)))
+}
+#[uniffi::export]
+pub fn prepaid_staff_key_id(uid_hex: String, sig_hex: String) -> Result<String, PrepaidError> {
+    Ok(hex::encode(voucher::staff_key_id(&hex7(&uid_hex)?, &fixed::<32>(&sig_hex, "signature")?)))
+}
+
+fn verdict_ffi(v: verifier::Verdict) -> JournalVerdict {
+    match v {
+        verifier::Verdict::Accepted => JournalVerdict::Accepted, verifier::Verdict::Duplicate => JournalVerdict::Duplicate,
+        verifier::Verdict::BadMac => JournalVerdict::BadMac, verifier::Verdict::UnknownCard => JournalVerdict::UnknownCard,
+        verifier::Verdict::StaleCounter => JournalVerdict::StaleCounter, verifier::Verdict::OverBalance => JournalVerdict::OverBalance,
+        verifier::Verdict::DoubleRedeem => JournalVerdict::DoubleRedeem, verifier::Verdict::UnknownVoucher => JournalVerdict::UnknownVoucher,
+        verifier::Verdict::VoucherVoid => JournalVerdict::VoucherVoid, verifier::Verdict::UnsupportedKind => JournalVerdict::UnsupportedKind,
+    }
+}
+
+#[uniffi::export]
+pub fn prepaid_verify_batch(k_debit_hex: String, entries_hex: String, cards: Vec<CardStateFfi>, vouchers: Vec<VoucherStateFfi>) -> Result<BatchResultFfi, PrepaidError> {
     let key = hex16(&k_debit_hex)?;
     let entries = hexv(&entries_hex)?;
     let states = cards.iter().map(|c| Ok(verifier::CardState { reserve_id: fixed::<32>(&c.reserve_id_hex, "reserve_id")?,
         balance_units: c.balance_units, settled_counter: c.settled_counter, revoked: c.revoked })).collect::<Result<Vec<_>, PrepaidError>>()?;
-    let r = verifier::verify_batch(&key, &entries, &states, &[]).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
-    // TEMPORARY until Task 5 carries voucher verdicts, redeems and overrides across the FFI. Anything voucher- or
-    // override-related (including an override the verifier Accepted, which needs no state) is answered BadMac so the
-    // terminal never deletes an entry whose effect is not recorded here.
-    let held: std::collections::HashSet<usize> = r.overrides.iter().map(|o| o.index as usize)
-        .chain(r.redeems.iter().map(|d| d.index as usize)).collect();
+    let vstates = vouchers.iter().map(|v| Ok(verifier::VoucherState { voucher_id: hex16b(&v.voucher_id_hex)?, count: v.count, void: v.void,
+        settled: v.settled.iter().map(|s| Ok((s.counter, fixed::<32>(&s.entry_hash_hex, "entry_hash")?))).collect::<Result<Vec<_>, PrepaidError>>()? }))
+        .collect::<Result<Vec<_>, PrepaidError>>()?;
+    let r = verifier::verify_batch(&key, &entries, &states, &vstates).map_err(|_| PrepaidError::InvalidInput("entries length is not a multiple of 96".into()))?;
     Ok(BatchResultFfi {
-        verdicts: r.verdicts.into_iter().enumerate().map(|(i, v)| if held.contains(&i) { JournalVerdict::BadMac } else { match v {
-            verifier::Verdict::Accepted => JournalVerdict::Accepted, verifier::Verdict::Duplicate => JournalVerdict::Duplicate,
-            verifier::Verdict::BadMac => JournalVerdict::BadMac, verifier::Verdict::UnknownCard => JournalVerdict::UnknownCard,
-            verifier::Verdict::StaleCounter => JournalVerdict::StaleCounter, verifier::Verdict::OverBalance => JournalVerdict::OverBalance,
-            _ => JournalVerdict::BadMac } }).collect(),
+        verdicts: r.verdicts.into_iter().map(verdict_ffi).collect(),
         nets: r.nets.into_iter().map(|n| CardNetFfi { reserve_id_hex: hex::encode(n.reserve_id), net_units: n.net_units, max_tmc: n.max_tmc, accepted: n.accepted }).collect(),
+        redeems: r.redeems.into_iter().map(|x| RedeemFfi { index: x.index, terminal_id: x.terminal_id, voucher_id_hex: hex::encode(x.voucher_id), counter: x.counter, entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
+        overrides: r.overrides.into_iter().map(|x| OverrideFfi { index: x.index, terminal_id: x.terminal_id, product_hash_hex: hex::encode(x.product_hash),
+            old_price: x.old_price, new_price: x.new_price, currency: String::from_utf8_lossy(&x.currency).into_owned(), key_id_hex: hex::encode(x.key_id), entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
     })
 }
 
@@ -201,21 +271,42 @@ mod tests {
         assert_eq!(p.successor_capacity, 6_100_000_000 + 1000 * 100_000);
         let e = prepaid_plan(PrepaidAction::Issue, 0, 0, 0).unwrap_err();
         assert!(matches!(e, PrepaidError::Plan(_)));
-        let r = prepaid_verify_batch(K.into(), "".into(), vec![]).unwrap();
+        let r = prepaid_verify_batch(K.into(), "".into(), vec![], vec![]).unwrap();
         assert!(r.verdicts.is_empty());
-        assert!(prepaid_verify_batch(K.into(), "00".repeat(95), vec![]).is_err());
+        assert!(prepaid_verify_batch(K.into(), "00".repeat(95), vec![], vec![]).is_err());
     }
 
     #[test]
-    fn interim_a_valid_price_override_is_not_acked_through_the_ffi() {
-        // Task 5 replaces this: until overrides cross the FFI, answering Accepted would make the terminal drop the entry.
+    fn voucher_seal_select_and_ids_cross_the_boundary() {
+        let rec = VoucherRecordInfo { writer_id: 0, voucher_id_hex: "c0".repeat(16), product_hash_hex: prepaid_product_hash(" cof01".into()).unwrap(),
+            issue_price: 450, currency: "AUD".into(), count: 1, counter: 0, merchant_id_hex: "11".repeat(8) };
+        let raw64 = prepaid_voucher_seal(K.into(), UID.into(), rec.clone()).unwrap();
+        let r = prepaid_voucher_select_slot(K.into(), UID.into(), format!("{}{}", raw64, "00".repeat(64))).unwrap();
+        assert_eq!(r.pick, SlotPickFfi::A); assert_eq!(r.record.unwrap(), rec);
+        assert!(prepaid_select_slot(K.into(), UID.into(), format!("{}{}", raw64, "00".repeat(64))).unwrap().record.is_none(), "a voucher is not a card");
+        assert_eq!(prepaid_normalise_product_code(" cof01".into()).unwrap(), "COF01");
+        assert!(prepaid_product_hash("".into()).is_err());
+        let bad = VoucherRecordInfo { currency: "aud".into(), ..rec };
+        assert!(prepaid_voucher_seal(K.into(), UID.into(), bad).is_err());
+        assert_eq!(prepaid_voucher_id("07".repeat(32), 0).unwrap(), prepaid_reserve_id("07".repeat(32), 0).unwrap()[..32]);
+        assert_eq!(prepaid_staff_key_id(UID.into(), "5a".repeat(32)).unwrap().len(), 16);
+        let r = prepaid_verify_batch(K.into(), "".into(), vec![], vec![]).unwrap();
+        assert!(r.redeems.is_empty() && r.overrides.is_empty());
+    }
+
+    #[test]
+    fn a_price_override_and_a_redeem_surface_through_the_ffi() {
         use crate::prepaid::journal::{attest, JournalEntry, KIND_PRICE_OVERRIDE};
         let mut rid = [0u8; 32]; rid[..8].copy_from_slice(&[0x5A; 8]);
         let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0x77; 8]); pad[8..11].copy_from_slice(b"AUD");
         let mut e = JournalEntry { version: 0x02, kind: KIND_PRICE_OVERRIDE, terminal_id: 4, merchant_id: [0x11; 8], uid: [4, 9, 9, 9, 9, 9, 9],
             reserve_id: rid, tmc: 0, amount_units: 500, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
         let raw = attest(&hex16(K).unwrap(), &mut e);
-        let r = prepaid_verify_batch(K.into(), hex::encode(raw), vec![]).unwrap();
-        assert_eq!(r.verdicts, vec![JournalVerdict::BadMac]);
+        let r = prepaid_verify_batch(K.into(), hex::encode(raw), vec![], vec![]).unwrap();
+        assert_eq!(r.verdicts, vec![JournalVerdict::Accepted]);
+        assert_eq!(r.overrides.len(), 1);
+        assert_eq!(r.overrides[0].old_price, 500);
+        assert_eq!(r.overrides[0].product_hash_hex, "5a".repeat(8));
+        assert_eq!(r.overrides[0].currency, "AUD");
     }
 }

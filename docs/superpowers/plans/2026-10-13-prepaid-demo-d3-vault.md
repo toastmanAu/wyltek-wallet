@@ -755,7 +755,7 @@ cd ~/wyltek-wallet/rust-core
 cargo build --release
 cargo run --bin uniffi-bindgen generate --library target/release/libwyltekwalletcore.so --language kotlin --out-dir /tmp/uniffi-out
 cp /tmp/uniffi-out/com/wyltek/wallet/core/native/wyltekwalletcore.kt ../wallet-core/src/main/java/com/wyltek/wallet/core/native/wyltekwalletcore.kt
-cp /tmp/uniffi-out/com/wyltek/wallet/core/native/wyltekwalletcore.kt ../app/src/main/java/com/wyltek/wallet/core/native/wyltekwalletcore.kt
+# bindings live ONLY in wallet-core (a second copy in :app caused a NoSuchFieldError crash; BindingsSingleSourceTest)
 cargo ndk -t arm64-v8a build --release
 cp target/aarch64-linux-android/release/libwyltekwalletcore.so ../wallet-core/src/main/jniLibs/arm64-v8a/libwyltekwalletcore.so
 cp target/aarch64-linux-android/release/libwyltekwalletcore.so ../app/src/main/jniLibs/arm64-v8a/libwyltekwalletcore.so

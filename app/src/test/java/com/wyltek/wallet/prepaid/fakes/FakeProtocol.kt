@@ -8,7 +8,7 @@ import com.wyltek.wallet.prepaid.Protocol
 // so flows can be tested without the native library. Crypto itself is proven in rust-core.
 class FakeProtocol : Protocol {
     val locks = mutableMapOf<String, LockScript>()    // address -> lock for lockOf
-    var verifyResult: BatchResultFfi = BatchResultFfi(emptyList(), emptyList())
+    var verifyResult: BatchResultFfi = BatchResultFfi(emptyList(), emptyList(), emptyList(), emptyList())
     private fun mac(uidHex: String, raw: ByteArray): ByteArray {
         val d = java.security.MessageDigest.getInstance("SHA-256"); d.update(uidHex.lowercase().toByteArray()); d.update(raw, 0, 56); return d.digest().copyOf(8)
     }
@@ -70,6 +70,58 @@ class FakeProtocol : Protocol {
         }
     }
     var lastCards: List<CardStateFfi> = emptyList()
-    override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>): BatchResultFfi { lastCards = cards; return verifyResult }
+    var lastVouchers: List<VoucherStateFfi> = emptyList()
+    override fun verifyBatch(kHex: String, entriesHex: String, cards: List<CardStateFfi>, vouchers: List<VoucherStateFfi>): BatchResultFfi {
+        lastCards = cards; lastVouchers = vouchers; return verifyResult
+    }
+    private fun decodeV(raw: ByteArray): VoucherRecordInfo? {
+        if (String(raw, 0, 4, Charsets.US_ASCII) != "BBV1" || raw[4] != 0x01.toByte() || raw[5] != 0.toByte()) return null
+        val bb = java.nio.ByteBuffer.wrap(raw).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        return VoucherRecordInfo(writerId = bb.getShort(6).toUShort(), voucherIdHex = hex(raw.copyOfRange(8, 24)), productHashHex = hex(raw.copyOfRange(24, 32)),
+            issuePrice = bb.getInt(32).toUInt(), currency = String(raw, 36, 3, Charsets.US_ASCII), count = raw[39].toUByte(), counter = bb.getInt(40).toUInt(),
+            merchantIdHex = hex(raw.copyOfRange(48, 56)))
+    }
+    private fun validV(uidHex: String, raw: ByteArray) = decodeV(raw)?.takeIf { mac(uidHex, raw).contentEquals(raw.copyOfRange(56, 64)) }
+    override fun voucherSelectSlot(kHex: String, uidHex: String, raw128: ByteArray): VoucherSlotResult {
+        val a = raw128.copyOfRange(0, 64); val b = raw128.copyOfRange(64, 128)
+        val va = validV(uidHex, a); val vb = validV(uidHex, b)
+        val none = VoucherSlotResult(SlotPickFfi.NONE, null, SlotReason.NO_VALID_SLOT, null)
+        return when {
+            va == null && vb == null -> {
+                if (listOf(a, b).any { String(it, 0, 4, Charsets.US_ASCII) == "BBV1" && decodeV(it) == null }) none.copy(reason = SlotReason.BAD_VERSION)
+                else listOf(a, b).firstNotNullOfOrNull { decodeV(it) }?.let { none.copy(reason = SlotReason.MAC_FAIL, merchantHintHex = it.merchantIdHex) } ?: none
+            }
+            va != null && vb == null -> VoucherSlotResult(SlotPickFfi.A, va, SlotReason.NO_VALID_SLOT, null)
+            va == null -> VoucherSlotResult(SlotPickFfi.B, vb, SlotReason.NO_VALID_SLOT, null)
+            va!!.counter > vb!!.counter -> VoucherSlotResult(SlotPickFfi.A, va, SlotReason.NO_VALID_SLOT, null)
+            vb.counter > va.counter -> VoucherSlotResult(SlotPickFfi.B, vb, SlotReason.NO_VALID_SLOT, null)
+            a.contentEquals(b) -> VoucherSlotResult(SlotPickFfi.A, va, SlotReason.NO_VALID_SLOT, null)
+            else -> VoucherSlotResult(SlotPickFfi.AMBIGUOUS, null, SlotReason.NO_VALID_SLOT, null)
+        }
+    }
+    override fun voucherSeal(kHex: String, uidHex: String, rec: VoucherRecordInfo): ByteArray {
+        require(rec.currency.matches(Regex("[A-Z]{3}"))) { "currency" }
+        val raw = ByteArray(64)
+        "BBV1".toByteArray(Charsets.US_ASCII).copyInto(raw, 0); raw[4] = 0x01
+        raw[6] = rec.writerId.toByte(); raw[7] = (rec.writerId.toInt() shr 8).toByte()
+        unhex(rec.voucherIdHex).copyInto(raw, 8); unhex(rec.productHashHex).copyInto(raw, 24)
+        le32(rec.issuePrice.toInt()).copyInto(raw, 32); rec.currency.toByteArray(Charsets.US_ASCII).copyInto(raw, 36)
+        raw[39] = rec.count.toByte(); le32(rec.counter.toInt()).copyInto(raw, 40)
+        unhex(rec.merchantIdHex).copyInto(raw, 48); mac(uidHex, raw).copyInto(raw, 56)
+        return raw
+    }
+    override fun normaliseProductCode(code: String): String {
+        val s = code.trim { it == ' ' || it == '\t' || it == '\n' || it == '\r' || it == '\u000B' || it == '\u000C' }.uppercase(java.util.Locale.ROOT)
+        val b = s.toByteArray(Charsets.UTF_8)
+        if (b.isEmpty() || b.size > 31 || b.any { it in 0..0x1F || it == 0x7F.toByte() }) throw PrepaidException.InvalidInput("product code must be 1-31 printable characters")
+        return s
+    }
+    override fun productHash(code: String): String {
+        val d = java.security.MessageDigest.getInstance("SHA-256"); d.update(normaliseProductCode(code).toByteArray(Charsets.UTF_8)); return hex(d.digest().copyOf(8))
+    }
+    override fun voucherId(txHashHex: String, index: UInt) = reserveId(txHashHex, index).take(32)
+    override fun staffKeyId(uidHex: String, sigHex: String): String {
+        val d = java.security.MessageDigest.getInstance("SHA-256"); d.update((uidHex + sigHex).lowercase().toByteArray()); return hex(d.digest().copyOf(8))
+    }
     override fun lockOf(address: String) = locks[address]
 }
