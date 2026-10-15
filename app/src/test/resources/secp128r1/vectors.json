@@ -1,0 +1,17 @@
+{
+ "pub": "042eb4d8b7d7b6b83de09ac6c022b4143883f7feac5efe433ddda5721d9768b368",
+ "cases": [
+  {
+   "uid": "04958caa5c5e80",
+   "sig": "a8631df79c28981153b2e68d1bbab8e873e36253a573534641fcb2c777aa0156"
+  },
+  {
+   "uid": "04ebbb02cd2a81",
+   "sig": "46990dd2afbd09f5074e77907daef29cd9cc2814a0848145120ca9089a1e54eb"
+  },
+  {
+   "uid": "040c5f825c1391",
+   "sig": "c9981400506c97db965a8a370c8a468599f6beb7cbd84048292cf2a976ccf6a0"
+  }
+ ]
+}

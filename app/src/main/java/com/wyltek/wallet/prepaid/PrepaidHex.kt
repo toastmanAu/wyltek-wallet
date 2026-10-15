@@ -13,3 +13,11 @@ fun normalizeOutpoint(outpoint: String): String {
     val i = outpoint.lastIndexOf(':')
     return if (i < 0) ensure0x(outpoint) else ensure0x(outpoint.substring(0, i)) + outpoint.substring(i)
 }
+
+/** Even-length hex (optional 0x) → bytes. Throws IllegalArgumentException on anything else. */
+fun hexBytes(hex: String): ByteArray {
+    val h = hex.removePrefix("0x").removePrefix("0X")
+    require(h.length % 2 == 0 && h.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) { "not hex" }
+    return ByteArray(h.length / 2) { h.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+}
+fun bytesHex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
