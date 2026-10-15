@@ -26,22 +26,26 @@ interface VoucherStore {
     fun staffKeysFlow(): Flow<List<StaffKeyEntity>>
 }
 
+/** Tag UIDs are lowercase hex everywhere in the app; Room compares case-sensitively, so normalise at the boundary. */
+internal fun VoucherEntity.norm() = copy(uid = uid.lowercase())
+internal fun StaffKeyEntity.norm() = copy(uid = uid.lowercase())
+
 class RoomVoucherStore(db: AgentDatabase) : VoucherStore {
     private val dao = db.voucherDao()
-    override suspend fun insertVoucher(v: VoucherEntity) = dao.insertVoucher(v)
-    override suspend fun updateVoucher(v: VoucherEntity) = dao.updateVoucher(v)
+    override suspend fun insertVoucher(v: VoucherEntity) = dao.insertVoucher(v.norm())
+    override suspend fun updateVoucher(v: VoucherEntity) { check(dao.updateVoucher(v.norm()) == 1) { "voucher row missing" } }
     override suspend fun deleteIssuing(voucherId: String) = dao.deleteIssuing(voucherId)
     override suspend fun voucher(id: String) = dao.voucher(id)
-    override suspend fun voucherByUid(uid: String) = dao.voucherByUid(uid)
+    override suspend fun voucherByUid(uid: String) = dao.voucherByUid(uid.lowercase())
     override suspend fun allVouchers() = dao.allVouchers()
     override suspend fun vouchersWithPending() = dao.vouchersWithPending()
     override fun vouchersFlow() = dao.vouchersFlow()
-    override suspend fun applyRedeems(vouchers: List<VoucherEntity>, seen: List<JournalSeenEntity>) = dao.applyRedeems(vouchers, seen)
+    override suspend fun applyRedeems(vouchers: List<VoucherEntity>, seen: List<JournalSeenEntity>) = dao.applyRedeems(vouchers.map { it.norm() }, seen)
     override suspend fun seenForVoucher(id: String) = dao.seenForVoucher(id)
     override suspend fun seen(hash: String) = dao.seen(hash)
     override suspend fun insertSeen(e: JournalSeenEntity) = dao.insertSeen(e)
-    override suspend fun insertStaffKey(k: StaffKeyEntity) = dao.insertStaffKey(k)
-    override suspend fun updateStaffKey(k: StaffKeyEntity) = dao.updateStaffKey(k)
+    override suspend fun insertStaffKey(k: StaffKeyEntity) = dao.insertStaffKey(k.norm())
+    override suspend fun updateStaffKey(k: StaffKeyEntity) { check(dao.updateStaffKey(k.norm()) == 1) { "staff key row missing" } }
     override suspend fun staffKey(id: String) = dao.staffKey(id)
     override suspend fun activeStaffKeys() = dao.activeStaffKeys()
     override fun staffKeysFlow() = dao.staffKeysFlow()

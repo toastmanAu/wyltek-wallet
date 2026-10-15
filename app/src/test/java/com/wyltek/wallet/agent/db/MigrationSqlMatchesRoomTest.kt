@@ -1,6 +1,7 @@
 package com.wyltek.wallet.agent.db
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -11,7 +12,7 @@ import java.io.File
  */
 class MigrationSqlMatchesRoomTest {
     private val impl = File("build/generated/ksp/debug/java/com/wyltek/wallet/agent/db/AgentDatabase_Impl.java").readText()
-    private val roomSql = Regex("execSQL\\(\"(CREATE (?:TABLE|INDEX) IF NOT EXISTS `(?:index_)?(prepaid_vouchers|prepaid_staff_keys|prepaid_journal_seen)[^\"]*)\"\\)")
+    private val roomSql = Regex("execSQL\\(\"(CREATE (?:UNIQUE )?(?:TABLE|INDEX) IF NOT EXISTS `(?:index_)?(prepaid_vouchers|prepaid_staff_keys|prepaid_journal_seen)[^\"]*)\"\\)")
         .findAll(impl).map { it.groupValues[1].replace("\\\"", "\"") }.toSet()
 
     @Test fun migration_5_6_creates_exactly_what_room_expects() {
@@ -19,6 +20,6 @@ class MigrationSqlMatchesRoomTest {
         assertEquals(roomSql, MIGRATION_5_6_SQL.toSet())
     }
     @Test fun database_is_version_6_and_registers_the_migration() {
-        assertEquals(6, MIGRATION_5_6.endVersion); assertEquals(5, MIGRATION_5_6.startVersion)
+        assertTrue(impl.contains("RoomOpenHelper.Delegate(6)")); assertEquals(6, MIGRATION_5_6.endVersion); assertEquals(5, MIGRATION_5_6.startVersion)
     }
 }
