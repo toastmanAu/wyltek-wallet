@@ -75,6 +75,12 @@ class MifareTagPort(private val tag: Tag) : TagPort {
 
     override suspend fun zeroSlot(slot: SlotPickFfi) = writeSlot(slot, ByteArray(64))
 
+    override suspend fun readSignature(): ByteArray = session { mu ->
+        val sig = mu.transceive(byteArrayOf(0x3C, 0x00))
+        if (sig.size != 32) throw IOException("READ_SIG returned ${sig.size} bytes")
+        sig
+    }
+
     companion object {
         fun accepts(tag: Tag): Boolean {
             val a = NfcA.get(tag) ?: return false

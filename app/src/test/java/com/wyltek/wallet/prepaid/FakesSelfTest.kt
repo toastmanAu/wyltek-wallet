@@ -62,4 +62,11 @@ class FakesSelfTest {
         assertFalse(c.broadcast(tx, "0x" + "dd".repeat(32)))
         assertTrue(c.broadcasts.isEmpty())
     }
+
+    @Test fun fake_tag_reads_its_signature_and_loses_it_when_absent() = kotlinx.coroutines.test.runTest {
+        val t = com.wyltek.wallet.prepaid.fakes.FakeTag("04958caa5c5e80")
+        org.junit.Assert.assertEquals(32, t.readSignature().size)
+        t.present = false
+        org.junit.Assert.assertThrows(com.wyltek.wallet.prepaid.TagLostException::class.java) { kotlinx.coroutines.runBlocking { t.readSignature() } }
+    }
 }

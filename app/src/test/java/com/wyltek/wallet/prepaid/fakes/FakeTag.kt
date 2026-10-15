@@ -27,5 +27,7 @@ class FakeTag(override val uidHex: String) : TagPort {
         }
     }
     override suspend fun zeroSlot(slot: SlotPickFfi) = writeSlot(slot, ByteArray(64))
+    var signature = ByteArray(32) { 0x5A }
+    override suspend fun readSignature(): ByteArray { if (!present) throw TagLostException("gone"); return signature.copyOf() }
     fun slot(slot: SlotPickFfi): ByteArray = (0 until 16).fold(ByteArray(0)) { a, p -> a + pages[first(slot) + p] }
 }

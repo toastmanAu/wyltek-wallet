@@ -53,6 +53,8 @@ interface TagPort {
     /** Writes the 16 pages of one slot in order, MAC pages (14, 15) last. Throws [TagLostException]. */
     suspend fun writeSlot(slot: SlotPickFfi, raw64: ByteArray)
     suspend fun zeroSlot(slot: SlotPickFfi)
+    /** NTAG21x READ_SIG (0x3C 0x00): the 32-byte NXP originality signature. Throws [TagLostException]. */
+    suspend fun readSignature(): ByteArray
 }
 
 enum class Phase { REQUESTED, BROADCAST, COMMITTED, WRITTEN, DONE, FAILED }
