@@ -378,6 +378,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
     /** Called by PrepaidService.launchAfterSettle inside `exclusive`: closeUsedLocked never re-acquires the lock and catches per voucher. */
     override suspend fun afterSettle() { closeUsedLocked() }
     override suspend fun hasClosable() = vouchers.allVouchers().any { closable(it) }
+    override suspend fun liveOutpoints() = vouchers.allVouchers().filter { it.state != VOUCHER_CLOSED && it.state != VOUCHER_VOID }.map { it.outpoint }.toSet()
 }
 
 /** The one place a [PrepaidService] gets its [VoucherService]: the hooks are installed before the service is handed out. */

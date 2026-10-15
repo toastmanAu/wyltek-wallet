@@ -14,6 +14,8 @@ interface VoucherHooks {
     suspend fun afterSettle()
     /** True when [afterSettle] has anything to close; a settlement that leaves nothing closable launches no close. */
     suspend fun hasClosable(): Boolean
+    /** Outpoints of every voucher cell that may still be live (anything not CLOSED or VOID): never a fee input. */
+    suspend fun liveOutpoints(): Set<String>
 }
 
 object NoVoucherHooks : VoucherHooks {
@@ -22,4 +24,5 @@ object NoVoucherHooks : VoucherHooks {
     override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String) = names
     override suspend fun afterSettle() {}
     override suspend fun hasClosable() = false
+    override suspend fun liveOutpoints() = emptySet<String>()
 }

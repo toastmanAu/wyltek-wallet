@@ -92,9 +92,11 @@ class PrepaidService(
     }
 
     /** Every reserve cell in the index, plus the successor reserve of every unconfirmed issue/load/adopt/settle
-     *  (it may commit while the page is open); never a fee input for another card's transaction (C5). */
+     *  (it may commit while the page is open); never a fee input for another card's transaction (C5). Live voucher
+     *  cells too, so a voucher cell is excluded by outpoint even if its data were ever read back empty. */
     internal suspend fun excludedOutpoints(): Set<String> =
-        store.allCards().flatMap { listOfNotNull(it.currentOutpoint, pendingSuccessor(it)) }.map { normalizeOutpoint(it) }.toSet()
+        store.allCards().flatMap { listOfNotNull(it.currentOutpoint, pendingSuccessor(it)) }.map { normalizeOutpoint(it) }.toSet() +
+            voucherHooks.liveOutpoints().map { normalizeOutpoint(it) }
 
     /** The reserve output a pending transaction creates: index 0 for issue/load/adopt, the planned index for settle. */
     private fun pendingSuccessor(c: PrepaidCardEntity): String? {
