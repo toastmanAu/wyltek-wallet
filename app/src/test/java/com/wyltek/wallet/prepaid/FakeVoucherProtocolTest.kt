@@ -23,4 +23,23 @@ class FakeVoucherProtocolTest {
         assertThrows(PrepaidException::class.java) { p.normaliseProductCode("   ") }
         assertThrows(PrepaidException::class.java) { p.normaliseProductCode("a".repeat(32)) }
     }
+    @Test fun records_the_native_decoder_refuses_are_bad_version() {
+        val good = p.voucherSeal("", uid, rec)
+        val reserved = good.copyOf().also { it[44] = 1 }
+        val lower = good.copyOf().also { it[36] = 'a'.code.toByte() }
+        for (bad in listOf(reserved, lower)) {
+            val r = p.voucherSelectSlot("", uid, bad + ByteArray(64))
+            assertEquals(SlotPickFfi.NONE, r.pick); assertEquals(com.wyltek.wallet.core.native.SlotReason.BAD_VERSION, r.reason)
+        }
+    }
+    @Test fun normalisation_matches_rust_ascii_rules() {
+        assertThrows(PrepaidException::class.java) { p.normaliseProductCode("\u000Bcof") }
+        assertEquals("COF", p.normaliseProductCode("\u000Ccof\r\n"))
+        assertEquals("CAFé", p.normaliseProductCode("café"))
+        assertEquals("ß", p.normaliseProductCode("ß"))
+    }
+    @Test fun seal_refuses_malformed_input_as_invalid_input() {
+        assertThrows(PrepaidException::class.java) { p.voucherSeal("", uid, rec.copy(currency = "aud")) }
+        assertThrows(PrepaidException::class.java) { p.voucherSeal("", uid, rec.copy(voucherIdHex = "zz")) }
+    }
 }

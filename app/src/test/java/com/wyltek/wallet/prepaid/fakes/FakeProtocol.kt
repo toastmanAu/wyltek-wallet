@@ -76,6 +76,7 @@ class FakeProtocol : Protocol {
     }
     private fun decodeV(raw: ByteArray): VoucherRecordInfo? {
         if (String(raw, 0, 4, Charsets.US_ASCII) != "BBV1" || raw[4] != 0x01.toByte() || raw[5] != 0.toByte()) return null
+        if ((44 until 48).any { raw[it] != 0.toByte() } || (36 until 39).any { raw[it] !in 'A'.code.toByte()..'Z'.code.toByte() }) return null
         val bb = java.nio.ByteBuffer.wrap(raw).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         return VoucherRecordInfo(writerId = bb.getShort(6).toUShort(), voucherIdHex = hex(raw.copyOfRange(8, 24)), productHashHex = hex(raw.copyOfRange(24, 32)),
             issuePrice = bb.getInt(32).toUInt(), currency = String(raw, 36, 3, Charsets.US_ASCII), count = raw[39].toUByte(), counter = bb.getInt(40).toUInt(),
@@ -100,7 +101,9 @@ class FakeProtocol : Protocol {
         }
     }
     override fun voucherSeal(kHex: String, uidHex: String, rec: VoucherRecordInfo): ByteArray {
-        require(rec.currency.matches(Regex("[A-Z]{3}"))) { "currency" }
+        if (!rec.currency.matches(Regex("[A-Z]{3}"))) throw PrepaidException.InvalidInput("currency must be three letters A-Z")
+        val hexOk = { h: String, n: Int -> h.removePrefix("0x").let { it.length == n * 2 && it.all { c -> c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F' } } }
+        if (!hexOk(rec.voucherIdHex, 16) || !hexOk(rec.productHashHex, 8) || !hexOk(rec.merchantIdHex, 8)) throw PrepaidException.InvalidInput("bad hex field")
         val raw = ByteArray(64)
         "BBV1".toByteArray(Charsets.US_ASCII).copyInto(raw, 0); raw[4] = 0x01
         raw[6] = rec.writerId.toByte(); raw[7] = (rec.writerId.toInt() shr 8).toByte()
@@ -111,11 +114,14 @@ class FakeProtocol : Protocol {
         return raw
     }
     override fun normaliseProductCode(code: String): String {
-        val s = code.trim { it == ' ' || it == '\t' || it == '\n' || it == '\r' || it == '\u000B' || it == '\u000C' }.uppercase(java.util.Locale.ROOT)
+        // Mirrors Rust: trim is_ascii_whitespace (space \t \n \u000C \r, NOT VT); upper-case a-z only; every other char kept.
+        val ws = { c: Char -> c == ' ' || c == '\t' || c == '\n' || c == '\u000C' || c == '\r' }
+        val s = code.trim(ws).map { if (it in 'a'..'z') it - 32 else it }.joinToString("")
         val b = s.toByteArray(Charsets.UTF_8)
         if (b.isEmpty() || b.size > 31 || b.any { it in 0..0x1F || it == 0x7F.toByte() }) throw PrepaidException.InvalidInput("product code must be 1-31 printable characters")
         return s
     }
+    // NOTE: the fake productHash/staffKeyId digests are NOT the native ones (SHA-256, not ckb-blake2b); never pin real vectors against the fake.
     override fun productHash(code: String): String {
         val d = java.security.MessageDigest.getInstance("SHA-256"); d.update(normaliseProductCode(code).toByteArray(Charsets.UTF_8)); return hex(d.digest().copyOf(8))
     }

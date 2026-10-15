@@ -309,4 +309,20 @@ mod tests {
         assert_eq!(r.overrides[0].product_hash_hex, "5a".repeat(8));
         assert_eq!(r.overrides[0].currency, "AUD");
     }
+
+    #[test]
+    fn a_voucher_redeem_surfaces_with_exact_fields_through_the_ffi() {
+        use crate::prepaid::journal::{attest, JournalEntry, KIND_VOUCHER_REDEEM};
+        let mut rid = [0u8; 32]; rid[..16].copy_from_slice(&[0xC0; 16]);
+        let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0x77; 8]);
+        let mut e = JournalEntry { version: 0x02, kind: KIND_VOUCHER_REDEEM, terminal_id: 4, merchant_id: [0x11; 8], uid: [4, 9, 9, 9, 9, 9, 9],
+            reserve_id: rid, tmc: 1, amount_units: 1, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
+        let raw = attest(&hex16(K).unwrap(), &mut e);
+        let want_hash = hex::encode(crate::prepaid::reserve::ckb_blake2b(&raw));
+        let v = VoucherStateFfi { voucher_id_hex: "c0".repeat(16), count: 2, void: false,
+            settled: vec![SettledRedeemFfi { counter: 0, entry_hash_hex: "ee".repeat(32) }] };
+        let r = prepaid_verify_batch(K.into(), hex::encode(raw), vec![], vec![v]).unwrap();
+        assert_eq!(r.verdicts, vec![JournalVerdict::Accepted]);
+        assert_eq!(r.redeems, vec![RedeemFfi { index: 0, terminal_id: 4, voucher_id_hex: "c0".repeat(16), counter: 1, entry_hash_hex: want_hash }]);
+    }
 }
