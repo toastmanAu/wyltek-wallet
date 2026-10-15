@@ -51,4 +51,12 @@ class VoucherClassifierTest {
         val other = v().copy(uid = "04ebbb02cd2a81")
         assertEquals(TapClass.Refused(VoucherClassifier.REASON_MOVED), VoucherClassifier.classify(uid, slot(SlotPickFfi.A, rec()), null, other, me))
     }
+
+    @Test fun foreign_mac_fail_hint_is_refused_even_with_a_live_row_of_ours() =
+        assertEquals(TapClass.Refused(VoucherClassifier.REASON_OTHER_MERCHANT),
+            VoucherClassifier.classify(uid, slot(SlotPickFfi.NONE, reason = SlotReason.MAC_FAIL, hint = "99".repeat(8)), v(), null, me))
+
+    @Test fun foreign_record_is_refused_even_when_both_rows_are_ours() =
+        assertEquals(TapClass.Refused(VoucherClassifier.REASON_OTHER_MERCHANT),
+            VoucherClassifier.classify(uid, slot(SlotPickFfi.A, rec("99".repeat(8))), v(), v(), me))
 }
