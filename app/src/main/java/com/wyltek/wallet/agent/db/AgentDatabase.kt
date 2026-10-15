@@ -6,9 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.wyltek.wallet.prepaid.db.PrepaidCardEntity
-import com.wyltek.wallet.prepaid.db.PrepaidDao
-import com.wyltek.wallet.prepaid.db.PrepaidEventEntity
+import com.wyltek.wallet.prepaid.db.*
 import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 
@@ -58,17 +56,32 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+/** v5 → v6: vouchers, staff keys, settled voucher/override entries (vouchers spec §8). Pinned to Room's own SQL by
+ *  MigrationSqlMatchesRoomTest. */
+val MIGRATION_5_6_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `prepaid_vouchers` (`voucherId` TEXT NOT NULL, `uid` TEXT NOT NULL, `productCode` TEXT NOT NULL, `productName` TEXT NOT NULL, `productHash` TEXT NOT NULL, `issuePriceMinor` INTEGER NOT NULL, `currency` TEXT NOT NULL, `countIssued` INTEGER NOT NULL, `countLeft` INTEGER NOT NULL, `outpoint` TEXT NOT NULL, `state` TEXT NOT NULL, `tagCounter` INTEGER NOT NULL, `pendingKind` TEXT, `pendingTxHash` TEXT, `pendingActionId` TEXT, `pendingCommitted` INTEGER NOT NULL, `pendingSince` INTEGER, `issuedAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`voucherId`))",
+    "CREATE INDEX IF NOT EXISTS `index_prepaid_vouchers_uid` ON `prepaid_vouchers` (`uid`)",
+    "CREATE TABLE IF NOT EXISTS `prepaid_staff_keys` (`keyId` TEXT NOT NULL, `uid` TEXT NOT NULL, `sigHex` TEXT NOT NULL, `label` TEXT NOT NULL, `enrolledAt` INTEGER NOT NULL, `revokedAt` INTEGER, PRIMARY KEY(`keyId`))",
+    "CREATE TABLE IF NOT EXISTS `prepaid_journal_seen` (`entryHash` TEXT NOT NULL, `kind` TEXT NOT NULL, `voucherId` TEXT, `counter` INTEGER, `terminalId` INTEGER NOT NULL, `seenAt` INTEGER NOT NULL, PRIMARY KEY(`entryHash`))",
+    "CREATE INDEX IF NOT EXISTS `index_prepaid_journal_seen_voucherId` ON `prepaid_journal_seen` (`voucherId`)",
+)
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) { MIGRATION_5_6_SQL.forEach(db::execSQL) }
+}
+
 @Database(
     entities = [
         SpendRecordEntity::class, TokenRegistryEntity::class, PendingIntentEntity::class,
         PrepaidCardEntity::class, PrepaidEventEntity::class,
+        VoucherEntity::class, StaffKeyEntity::class, JournalSeenEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AgentDatabase : RoomDatabase() {
     abstract fun agentDao(): AgentDao
     abstract fun prepaidDao(): PrepaidDao
+    abstract fun voucherDao(): VoucherDao
 }
 
 object AgentDatabaseFactory {
@@ -77,7 +90,7 @@ object AgentDatabaseFactory {
         val factory = SupportFactory(passphrase.copyOf(), null, false)
         return Room.databaseBuilder(context.applicationContext, AgentDatabase::class.java, "agent_gateway.db")
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 }
