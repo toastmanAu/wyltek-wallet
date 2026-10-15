@@ -56,7 +56,7 @@ pub fn emit() -> String {
     let mk_e = |kind: u8, tmc: u32, amount: i32, after: i32| journal::JournalEntry {
         version: journal::VERSION_DEMO, kind, terminal_id: 3, merchant_id, uid, reserve_id, tmc,
         amount_units: amount, balance_after: after, ts: 1_791_370_000, tmv: [0; 8],
-        sale_ref: [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04] };
+        sale_ref: [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04], pad: [0; 12] };
     for (i, mut e) in [mk_e(journal::KIND_DEBIT, 6, 1500, 998_500), mk_e(journal::KIND_REFUND, 7, -300, 998_800)].into_iter().enumerate() {
         let raw = journal::attest(&key, &mut e);
         let n = i + 1;

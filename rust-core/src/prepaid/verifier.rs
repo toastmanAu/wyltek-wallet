@@ -69,7 +69,7 @@ mod tests {
     fn entry(rid_b: u8, tmc: u32, amount: i32) -> Vec<u8> {
         let mut e = JournalEntry { version: 0x02, kind: if amount < 0 { KIND_REFUND } else { KIND_DEBIT }, terminal_id: 7,
             merchant_id: [0x11; 8], uid: [4, 1, 2, 3, 4, 5, 6], reserve_id: rid(rid_b), tmc, amount_units: amount,
-            balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8] };
+            balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad: [0; 12] };
         attest(&key(), &mut e).to_vec()
     }
     fn card(b: u8, balance: i32, settled: u32, revoked: bool) -> CardState {
