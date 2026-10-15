@@ -23,11 +23,12 @@ class StaffKeyService(
         if (label.isBlank()) return ActionOutcome.Failed("enter a label")
         val sig = try { tag.readSignature() } catch (e: CancellationException) { throw e } catch (e: Exception) { return ActionOutcome.NeedsTag(tag.uidHex) }
         if (!verifySig(hexBytes(tag.uidHex), sig)) return ActionOutcome.Failed(NOT_GENUINE)
-        val keyId = protocol.staffKeyId(tag.uidHex, bytesHex(sig))
+        val uid = tag.uidHex.lowercase()
+        val keyId = protocol.staffKeyId(uid, bytesHex(sig))
         val existing = vouchers.staffKey(keyId)
         if (existing?.revokedAt == null && existing != null) return ActionOutcome.Failed("this tag is already a staff key (${existing.label})")
         if (vouchers.activeStaffKeys().size >= MAX_ACTIVE) return ActionOutcome.Failed("limit of $MAX_ACTIVE staff keys reached")
-        val row = StaffKeyEntity(keyId, tag.uidHex.lowercase(), bytesHex(sig), label.trim(), clock(), null)
+        val row = StaffKeyEntity(keyId, uid, bytesHex(sig), label.trim(), clock(), null)
         if (existing != null) vouchers.updateStaffKey(row) else vouchers.insertStaffKey(row)
         audit(KIND_STAFF_ENROL, row.uid, keyId, "enrolled \"${row.label}\"")
         return ActionOutcome.Done

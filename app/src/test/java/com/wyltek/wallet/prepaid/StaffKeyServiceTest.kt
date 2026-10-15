@@ -40,4 +40,31 @@ class StaffKeyServiceTest {
         assertEquals(ActionOutcome.Done, svc.enrol(FakeTag("04958caa5c5e80"), "again"))
         assertEquals(1, svc.active().size)
     }
+
+    @Test fun the_sixteen_key_cap_is_enforced_and_a_revoke_frees_a_slot() = runTest {
+        fun uid(i: Int) = "04" + "%012x".format(i)
+        for (i in 1..16) assertEquals(ActionOutcome.Done, svc.enrol(FakeTag(uid(i)), "k$i"))
+        val events = store.events.size
+        assertTrue(svc.enrol(FakeTag(uid(17)), "k17") is ActionOutcome.Failed)
+        assertEquals(16, svc.active().size); assertEquals(events, store.events.size)
+        assertTrue(vstore.keys.values.none { it.uid == uid(17) })
+        svc.revoke(svc.active().first().keyId)
+        assertEquals(ActionOutcome.Done, svc.enrol(FakeTag(uid(17)), "k17"))
+        assertEquals(16, svc.active().size)
+    }
+    @Test fun verify_gets_the_raw_uid_bytes_in_tag_order() = runTest {
+        var seen: ByteArray? = null
+        val s = StaffKeyService(store, vstore, FakeProtocol(), { now++ }, { "s${++ids}" }, verifySig = { u, _ -> seen = u; true })
+        s.enrol(FakeTag("04958caa5c5e80"), "a")
+        assertArrayEquals(byteArrayOf(0x04, 0x95.toByte(), 0x8c.toByte(), 0xaa.toByte(), 0x5c, 0x5e, 0x80.toByte()), seen)
+    }
+    @Test fun re_enrol_reactivates_the_same_key_id() = runTest {
+        svc.enrol(FakeTag("04958caa5c5e80"), "a"); val id = svc.active().single().keyId
+        svc.revoke(id); svc.enrol(FakeTag("04958caa5c5e80"), "again")
+        val k = svc.active().single(); assertEquals(id, k.keyId); assertNull(k.revokedAt); assertEquals("again", k.label)
+    }
+    @Test fun uppercase_tag_uid_is_stored_lowercase_with_the_same_key_id() = runTest {
+        svc.enrol(FakeTag("04958CAA5C5E80"), "a")
+        assertEquals("04958caa5c5e80", svc.active().single().uid)
+    }
 }
