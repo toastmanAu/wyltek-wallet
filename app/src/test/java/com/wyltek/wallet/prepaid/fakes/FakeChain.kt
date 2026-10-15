@@ -28,7 +28,9 @@ class FakeChain : ChainPort {
 
     fun add(u: Utxo) { cells[PrepaidTxPlanner.outpointKey(u)] = u }
     override suspend fun cellsByLock(lock: LockScript) = cells.values.filter { it.lock == lock }
-    override suspend fun cellAt(outpoint: String) = cells[outpoint]
+    /** Outpoints whose cellAt THROWS (an RPC error), as opposed to answering "not found". */
+    val cellAtThrowsFor = mutableSetOf<String>()
+    override suspend fun cellAt(outpoint: String): Utxo? { if (outpoint in cellAtThrowsFor) throw java.io.IOException("rpc down"); return cells[outpoint] }
     private fun requirePrefixed(h: String) { if (!h.startsWith("0x") || h != h.lowercase()) throw java.io.IOException("invalid params: tx hash '$h'") }
     override suspend fun broadcast(txJson: JsonObject, txHash: String): Boolean {
         requirePrefixed(txHash)

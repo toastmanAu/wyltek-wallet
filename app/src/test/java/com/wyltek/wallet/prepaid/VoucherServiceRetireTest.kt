@@ -126,4 +126,62 @@ class VoucherServiceRetireTest {
         assertArrayEquals(other, tag.slot(SlotPickFfi.A))
         assertTrue(h.store.events.any { it.kind == KIND_VOUCHER_VOID && it.phase == PHASE_DONE && it.detail.contains("not wiped") })
     }
+
+    // ---- fix round 1: a query that THROWS is "no answer", never an abort
+
+    @Test fun a_throwing_cell_lookup_fails_the_void_and_leaves_the_row() = runTest {
+        val (h, _) = issued(); val v = h.vstore.voucherByUid(uid)!!
+        h.chain.cellAtThrowsFor += v.outpoint
+        assertTrue(h.svc.void(v, null) is ActionOutcome.Failed)
+        assertEquals(v, h.vstore.voucher(v.voucherId))
+        assertTrue(h.store.events.none { it.kind == KIND_VOUCHER_VOID })
+        assertNotNull(h.chain.cells[v.outpoint])
+    }
+
+    @Test fun one_throwing_close_does_not_stop_the_others() = runTest {
+        val (h, _) = issued(); val first = h.vstore.voucherByUid(uid)!!
+        val uid2 = "04aabbccddeeff"
+        assertEquals(ActionOutcome.Done, h.svc.issue(FakeTag(uid2), form))
+        val second = h.vstore.voucherByUid(uid2)!!
+        val usedFirst = first.copy(state = VOUCHER_USED, countLeft = 0, updatedAt = 9_000_000)   // allVouchers is newest first: this one goes first
+        h.vstore.updateVoucher(usedFirst); h.vstore.updateVoucher(second.copy(state = VOUCHER_USED, countLeft = 0))
+        assertEquals(first.voucherId, h.vstore.allVouchers().first().voucherId)
+        h.chain.cellAtThrowsFor += first.outpoint
+        assertEquals(1, h.svc.closeUsed())
+        assertEquals(usedFirst, h.vstore.voucher(first.voucherId))
+        assertEquals(VOUCHER_CLOSED, h.vstore.voucher(second.voucherId)!!.state)
+        h.chain.cellAtThrowsFor.clear()
+        assertEquals(1, h.svc.closeUsed())                                                       // the RPC is back: the first closes too
+        assertEquals(VOUCHER_CLOSED, h.vstore.voucher(first.voucherId)!!.state)
+    }
+
+    @Test fun a_resumed_void_that_is_rejected_keeps_the_state_and_clears_the_marker() = runTest {
+        val (h, _) = issued(); val v = h.vstore.voucherByUid(uid)!!
+        h.chain.confirmAfterPolls = null
+        assertTrue(h.svc.void(v, null) is ActionOutcome.StillConfirming)
+        val parked = h.vstore.voucher(v.voucherId)!!
+        h.chain.reject(parked.pendingTxHash!!)
+        assertEquals(1, h.svc.recoverPending())
+        val after = h.vstore.voucher(v.voucherId)!!
+        assertEquals(VOUCHER_ACTIVE, after.state); assertEquals(v.countLeft, after.countLeft)
+        assertNull(after.pendingTxHash); assertNull(after.pendingKind); assertNotNull(h.chain.cells[v.outpoint])
+    }
+
+    @Test fun a_close_that_throws_after_its_marker_does_not_stop_the_others() = runTest {
+        // spendCell's own catch covers only the pre-marker reads; this throw comes later, so only closeUsedLocked's
+        // per-voucher catch keeps it from aborting the loop (and from escaping into a settlement holding the lock).
+        val (h, _) = issued(); val first = h.vstore.voucherByUid(uid)!!
+        val uid2 = "04aabbccddeeff"
+        assertEquals(ActionOutcome.Done, h.svc.issue(FakeTag(uid2), form))
+        val second = h.vstore.voucherByUid(uid2)!!
+        h.vstore.updateVoucher(first.copy(state = VOUCHER_USED, countLeft = 0, updatedAt = 9_000_000))
+        h.vstore.updateVoucher(second.copy(state = VOUCHER_USED, countLeft = 0))
+        assertEquals(first.voucherId, h.vstore.allVouchers().first().voucherId)
+        (h.core.signer as FakeSigner).throwWitnessOnce = true
+        assertEquals(1, h.svc.closeUsed())
+        assertEquals(VOUCHER_CLOSED, h.vstore.voucher(second.voucherId)!!.state)
+        val f = h.vstore.voucher(first.voucherId)!!
+        assertEquals(VOUCHER_USED, f.state); assertEquals(KIND_VOUCHER_CLOSE, f.pendingKind)   // parked; resumeSpend settles it
+        assertNotNull(h.chain.cells[first.outpoint])
+    }
 }

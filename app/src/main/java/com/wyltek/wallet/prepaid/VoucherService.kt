@@ -169,12 +169,15 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
      *  close: an RPC outage looks the same (Review Focus 4). The pending marker is written before broadcast, as for card
      *  retires; a refusal or rejection puts the row back exactly as it was. */
     private suspend fun spendCell(v: VoucherEntity, kind: String, endState: String, tag: TagPort?, progress: (Phase) -> Unit): ActionOutcome {
-        val cell = core.chain.cellAt(v.outpoint) ?: return ActionOutcome.Failed("voucher cell not found on chain; check the RPC and try again")
-        val lock = core.signer.lock
-        val planned = try {
-            PrepaidTxPlanner.plan(listOf(cell), core.chain.cellsByLock(lock), core.excludedOutpoints() - normalizeOutpoint(v.outpoint), emptyList(), lock)
-        } catch (e: InsufficientFunds) { return ActionOutcome.Failed(e.message!!) }
-        val built = core.build(planned)
+        // Pre-marker reads: a query that threw is "no answer" (house rule, statusOrNull), so Failed with no row change.
+        val (planned, built) = try {
+            val cell = core.chain.cellAt(v.outpoint) ?: return ActionOutcome.Failed("voucher cell not found on chain; check the RPC and try again")
+            val lock = core.signer.lock
+            val p = PrepaidTxPlanner.plan(listOf(cell), core.chain.cellsByLock(lock), core.excludedOutpoints() - normalizeOutpoint(v.outpoint), emptyList(), lock)
+            p to core.build(p)
+        } catch (e: CancellationException) { throw e }
+        catch (e: InsufficientFunds) { return ActionOutcome.Failed(e.message!!) }
+        catch (e: Exception) { return ActionOutcome.Failed("could not read the voucher cell (${e.message}); check the RPC and try again") }
         val a = PrepaidService.Audit(core.newActionId(), kind, v.uid, v.voucherId, -v.countLeft.toLong(), v.countLeft, v.tagCounter)
         core.log(a, PHASE_REQUESTED, detail = "${v.countLeft} of ${v.countIssued} uses left"); progress(Phase.REQUESTED)
         vouchers.updateVoucher(v.copy(pendingKind = kind, pendingTxHash = built.txHashHex, pendingActionId = a.actionId, pendingCommitted = false,
@@ -223,8 +226,12 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
      *  Called after each settlement (inside its lock) and from [recoverPending]. Returns how many closed now. */
     internal suspend fun closeUsedLocked(): Int {
         var closed = 0
-        for (v in vouchers.allVouchers().filter { it.state == VOUCHER_USED && it.countLeft == 0 && it.pendingTxHash == null })
-            if (spendCell(v, KIND_VOUCHER_CLOSE, VOUCHER_CLOSED, null, {}) == ActionOutcome.Done) closed++
+        for (v in vouchers.allVouchers().filter { it.state == VOUCHER_USED && it.countLeft == 0 && it.pendingTxHash == null }) {
+            // One voucher's failure never stops the rest, and never escapes into a settlement holding the lock.
+            val out = try { spendCell(v, KIND_VOUCHER_CLOSE, VOUCHER_CLOSED, null, {}) }
+                catch (e: CancellationException) { throw e } catch (e: Exception) { ActionOutcome.Failed("close failed: ${e.message}") }
+            if (out == ActionOutcome.Done) closed++
+        }
         return closed
     }
     suspend fun closeUsed(): Int = core.exclusive { closeUsedLocked() } ?: 0

@@ -23,5 +23,10 @@ class FakeSigner(override val lock: LockScript) : SignerPort {
         return BuiltTransaction(rawTransactionHex = "", txHashHex = h, estimatedFee = 0uL,
             totalInputCapacity = inputs.fold(0uL) { a, u -> a + u.capacity }, totalOutputCapacity = outputs.fold(0uL) { a, o -> a + o.capacity })
     }
-    override fun witness0(txHashHex: String, numInputs: Int) = "0x" + "77".repeat(85)
+    /** Throw from the next witness0 only: a failure AFTER the pending marker is written, before broadcast. */
+    var throwWitnessOnce = false
+    override fun witness0(txHashHex: String, numInputs: Int): String {
+        if (throwWitnessOnce) { throwWitnessOnce = false; throw IllegalStateException("signer failed") }
+        return "0x" + "77".repeat(85)
+    }
 }
