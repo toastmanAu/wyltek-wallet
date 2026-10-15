@@ -12,6 +12,8 @@ interface VoucherHooks {
     /** After a settlement has returned, in a separate turn of the lock (PrepaidService.launchAfterSettle): close
      *  vouchers whose last use settled. Must not throw. */
     suspend fun afterSettle()
+    /** True when [afterSettle] has anything to close; a settlement that leaves nothing closable launches no close. */
+    suspend fun hasClosable(): Boolean
 }
 
 object NoVoucherHooks : VoucherHooks {
@@ -19,4 +21,5 @@ object NoVoucherHooks : VoucherHooks {
     override suspend fun voucherStates() = emptyList<VoucherStateFfi>()
     override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String) = names
     override suspend fun afterSettle() {}
+    override suspend fun hasClosable() = false
 }

@@ -1,6 +1,8 @@
 package com.wyltek.wallet.prepaid
 
 import com.wyltek.wallet.core.chain.TxStatus
+import com.wyltek.wallet.core.model.LockScript
+import com.wyltek.wallet.core.model.Utxo
 import com.wyltek.wallet.core.native.*
 import com.wyltek.wallet.prepaid.db.*
 import kotlinx.coroutines.CancellationException
@@ -47,14 +49,25 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         else -> null
     }
 
+    /** LOW-7: a tag whose slots hold a valid card record, or anything voucher-shaped, is never issued over (index row or not). */
+    private fun recordOnTag(uidHex: String, raw: ByteArray): String? {
+        val card = core.protocol.selectSlot(core.kHex, uidHex, raw)
+        if (card.record != null || card.pick == SlotPickFfi.AMBIGUOUS) return "this tag holds a prepaid card record; wipe it first"
+        val v = core.protocol.voucherSelectSlot(core.kHex, uidHex, raw)
+        if (v.record != null || v.pick == SlotPickFfi.AMBIGUOUS || v.reason == SlotReason.BAD_VERSION || v.reason == SlotReason.MAC_FAIL)
+            return "this tag holds a voucher record; wipe it first"
+        return null
+    }
+
     suspend fun issue(tag: TagPort, form: VoucherForm, progress: (Phase) -> Unit = {}): ActionOutcome = core.exclusive {
         formError(form)?.let { return@exclusive ActionOutcome.Failed(it) }
         val code = try { core.protocol.normaliseProductCode(form.productCode) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed("product code must be 1-31 printable characters") }
         // Presence read before any chain work: a tag that left the phone (e.g. during a product-code scan) must not get a
         // committed cell it cannot be written with. Nothing is done; the UI keeps the issue armed for the re-tap.
-        try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) { return@exclusive ActionOutcome.NeedsTag(tag.uidHex) }
+        val raw = try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) { return@exclusive ActionOutcome.NeedsTag(tag.uidHex) }
         core.store.cardByUid(tag.uidHex)?.takeIf { it.state != CARD_CLOSED }?.let { return@exclusive ActionOutcome.Failed("this tag is a prepaid card") }
         vouchers.voucherByUid(tag.uidHex)?.takeIf { it.state in VOUCHER_LIVE }?.let { return@exclusive ActionOutcome.Failed("this tag already holds a voucher") }
+        recordOnTag(tag.uidHex, raw)?.let { return@exclusive ActionOutcome.Failed(it) }
         val lock = core.signer.lock
         val planned = try {
             PrepaidTxPlanner.plan(emptyList(), core.chain.cellsByLock(lock), core.excludedOutpoints(), listOf(PrepaidTxPlanner.output(VOUCHER_CELL_SHANNONS, lock, VOUCHER_CELL_DATA)), lock)
@@ -190,6 +203,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         val (planned, built) = try {
             val cell = core.chain.cellAt(v.outpoint) ?: return ActionOutcome.Failed("voucher cell not found on chain; check the RPC and try again")
             val lock = core.signer.lock
+            notOurVoucherCell(cell, lock)?.let { return ActionOutcome.Failed(it) }
             val p = PrepaidTxPlanner.plan(listOf(cell), core.chain.cellsByLock(lock), core.excludedOutpoints() - normalizeOutpoint(v.outpoint), emptyList(), lock)
             p to core.build(p)
         } catch (e: CancellationException) { throw e }
@@ -205,6 +219,15 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
             is PrepaidService.TxResult.Timeout -> ActionOutcome.StillConfirming(r.txHash)
             is PrepaidService.TxResult.Committed -> finishSpend(vouchers.voucher(v.voucherId)!!, a, endState, tag, r.txHash, progress)
         }
+    }
+
+    /** LOW-3: only a cell that is exactly a voucher cell of this wallet is ever spent (lock, BBV1 data, 69 CKB). */
+    private fun notOurVoucherCell(cell: Utxo, lock: LockScript): String? = when {
+        !(cell.lock.codeHash.equals(lock.codeHash, true) && cell.lock.hashType.equals(lock.hashType, true) && cell.lock.args.equals(lock.args, true)) ->
+            "the cell at the voucher outpoint is not under this wallet's lock; not spent"
+        !VOUCHER_CELL_DATA.equals(cell.data, true) -> "the cell at the voucher outpoint is not a voucher cell (data); not spent"
+        cell.capacity != VOUCHER_CELL_SHANNONS -> "the cell at the voucher outpoint is not a voucher cell (capacity); not spent"
+        else -> null
     }
 
     private fun endStateOf(kind: String?) = if (kind == KIND_VOUCHER_VOID) VOUCHER_VOID else VOUCHER_CLOSED
@@ -311,9 +334,14 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         if (redeems.isEmpty()) return
         fun mark(rs: List<RedeemFfi>, name: String) = rs.forEach { out[it.index.toInt()] = name }
         val now = core.clock()
+        val copies = mutableListOf<RedeemFfi>()
         val (fresh, updated) = try {
             val hashes = mutableSetOf<String>(); val fresh = mutableListOf<RedeemFfi>()
-            for (r in redeems) if (!hashes.add(r.entryHashHex.lowercase()) || vouchers.seen(r.entryHashHex.lowercase()) != null) mark(listOf(r), "duplicate") else fresh += r
+            for (r in redeems) when {
+                !hashes.add(r.entryHashHex.lowercase()) -> { mark(listOf(r), "duplicate"); copies += r }   // a copy of an entry in this batch
+                vouchers.seen(r.entryHashHex.lowercase()) != null -> mark(listOf(r), "duplicate")
+                else -> fresh += r
+            }
             val updated = fresh.groupBy { it.voucherIdHex.lowercase() }.mapNotNull { (id, rs) ->
                 val v = vouchers.voucher(id)
                 if (v == null) { mark(rs, "retry"); null } else v to rs.sortedBy { it.counter } }
@@ -325,7 +353,8 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
                 tagCounter = maxOf(v.tagCounter, rs.maxOf { it.counter.toLong() }), updatedAt = now)
         }
         val seen = updated.flatMap { (v, rs) -> rs.map { JournalSeenEntity(it.entryHashHex.lowercase(), KIND_VOUCHER_REDEEM, v.voucherId, it.counter.toLong(), it.terminalId.toInt(), now) } }
-        try { vouchers.applyRedeems(rows, seen) } catch (e: CancellationException) { throw e } catch (e: Exception) { mark(fresh, "retry"); return }
+        // A failed write retries every entry of the batch it covered, in-batch copies included: one hash, one answer (LOW-6).
+        try { vouchers.applyRedeems(rows, seen) } catch (e: CancellationException) { throw e } catch (e: Exception) { mark(fresh + copies, "retry"); return }
         for ((v, rs) in updated) rs.forEachIndexed { i, r ->
             val before = v.countLeft - i
             try {
@@ -348,6 +377,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
 
     /** Called by PrepaidService.launchAfterSettle inside `exclusive`: closeUsedLocked never re-acquires the lock and catches per voucher. */
     override suspend fun afterSettle() { closeUsedLocked() }
+    override suspend fun hasClosable() = vouchers.allVouchers().any { closable(it) }
 }
 
 /** The one place a [PrepaidService] gets its [VoucherService]: the hooks are installed before the service is handed out. */

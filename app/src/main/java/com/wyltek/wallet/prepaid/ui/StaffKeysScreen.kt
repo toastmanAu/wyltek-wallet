@@ -16,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wyltek.wallet.WyltekWalletApp
 import com.wyltek.wallet.prepaid.ActionOutcome
+import com.wyltek.wallet.prepaid.EnrolArm
 import com.wyltek.wallet.prepaid.db.StaffKeyEntity
 import com.wyltek.wallet.prepaid.nfc.MifareTagPort
 import com.wyltek.wallet.prepaid.nfc.NfcReaderMode
@@ -23,6 +24,8 @@ import com.wyltek.wallet.ui.security.BiometricResult
 import com.wyltek.wallet.ui.security.rememberBiometricAuth
 import com.wyltek.wallet.ui.theme.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -35,18 +38,31 @@ class StaffKeysViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(StaffUi()); val ui: StateFlow<StaffUi> = _ui.asStateFlow()
     val available = svc != null
     val unavailableReason: String? = if (svc == null) gateway.prepaidUnavailableReason ?: "Prepaid is not available" else null
-    fun arm(label: String) { _ui.update { it.copy(armedLabel = label, outcome = null) } }
-    fun disarm() { _ui.update { it.copy(armedLabel = null) } }
+    /** The live arm; [_ui].armedLabel mirrors it for the screen. Expires after [EnrolArm.TTL_MS] (final review LOW-5). */
+    @Volatile private var arm: EnrolArm? = null
+    private var expiry: Job? = null
+    fun arm(label: String) {
+        val a = EnrolArm(label, System.currentTimeMillis()); arm = a
+        _ui.update { it.copy(armedLabel = label, outcome = null) }
+        expiry?.cancel()
+        expiry = viewModelScope.launch { delay(EnrolArm.TTL_MS); if (arm === a && !_ui.value.busy) expire() }
+    }
+    private fun expire() { arm = null; _ui.update { it.copy(armedLabel = null, outcome = ActionOutcome.Failed(EnrolArm.EXPIRED)) } }
+    fun disarm() { arm = null; expiry?.cancel(); _ui.update { it.copy(armedLabel = null) } }
     fun onTag(raw: Tag) {
-        val label = _ui.value.armedLabel ?: return
+        val a = arm ?: return
         val s = svc ?: return
         if (_ui.value.busy) return
+        if (!a.liveAt(System.currentTimeMillis())) { expire(); return }
+        val label = a.label
         if (!MifareTagPort.accepts(raw)) { _ui.update { it.copy(outcome = ActionOutcome.Failed("not an NTAG21x tag")) }; return }
         _ui.update { it.copy(busy = true) }
         viewModelScope.launch {
             val out = try { s.enrol(MifareTagPort(raw), label) } catch (e: CancellationException) { _ui.update { it.copy(busy = false) }; throw e }
                 catch (e: Exception) { ActionOutcome.Failed("enrol failed: ${e.message}") }
-            _ui.update { it.copy(busy = false, outcome = out, armedLabel = if (out is ActionOutcome.NeedsTag) label else null) }
+            val keep = out is ActionOutcome.NeedsTag && a.liveAt(System.currentTimeMillis())
+            if (!keep) arm = null
+            _ui.update { it.copy(busy = false, outcome = out, armedLabel = if (keep) label else null) }
         }
     }
     fun revoke(k: StaffKeyEntity) = viewModelScope.launch {
@@ -85,7 +101,7 @@ fun StaffKeysScreen(onBack: () -> Unit, vm: StaffKeysViewModel = viewModel()) {
                     OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Label, e.g. Phill's ring") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(enabled = label.isNotBlank() && !ui.busy, onClick = { val l = label; gated("Enrol staff key", "Lets this tag approve overrides") { vm.arm(l) } }) { Text("Enrol") }
                 } else {
-                    Text("Hold the staff tag for \"${ui.armedLabel}\" to the phone…", color = NeonCyan)
+                    Text("Hold the staff tag for \"${ui.armedLabel}\" to the phone within 60 s…", color = NeonCyan)
                     if (!ui.busy) OutlinedButton(onClick = vm::disarm) { Text("Cancel") }
                 }
             }

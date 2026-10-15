@@ -32,7 +32,7 @@ pub fn encode(e: &JournalEntry) -> [u8; ENTRY_SIZE] {
     r[60..64].copy_from_slice(&e.balance_after.to_le_bytes());
     r[64..68].copy_from_slice(&e.ts.to_le_bytes());
     r[68..76].copy_from_slice(&e.tmv);
-    r[76..84].copy_from_slice(&e.sale_ref);           
+    r[76..84].copy_from_slice(&e.sale_ref);
     r[84..96].copy_from_slice(&e.pad);
     r
 }

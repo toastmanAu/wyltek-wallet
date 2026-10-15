@@ -678,8 +678,11 @@ class PrepaidService(
      *  terminal's request (a close is a broadcast plus up to [pollBudgetMs] of polling per voucher). Takes the lock
      *  in its own turn; if another action holds it, this run is skipped and the next settle or page open retries.
      *  Every verdict is already computed and persisted, and nothing here can reach the response. */
-    internal fun launchAfterSettle(): Job? {
+    internal suspend fun launchAfterSettle(): Job? {
         if (voucherHooks === NoVoucherHooks) return null
+        // Nothing used up and closable: no background turn of the lock at all. A failed check launches anyway.
+        val any = try { voucherHooks.hasClosable() } catch (e: CancellationException) { throw e } catch (e: Exception) { true }
+        if (!any) return null
         return background.launch {
             try { exclusive { voucherHooks.afterSettle() } } catch (e: CancellationException) { throw e } catch (e: Exception) { /* retried next settle / page open */ }
         }

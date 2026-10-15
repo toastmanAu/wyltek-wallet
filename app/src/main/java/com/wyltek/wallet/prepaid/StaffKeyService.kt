@@ -44,3 +44,12 @@ class StaffKeyService(
 
     suspend fun active(): List<StaffKeyEntity> = vouchers.activeStaffKeys()
 }
+
+/** Final review LOW-5: an enrol arm (label chosen, biometric passed) lasts [TTL_MS]; a tag presented later is not enrolled. */
+data class EnrolArm(val label: String, val armedAtMs: Long) {
+    fun liveAt(nowMs: Long): Boolean = nowMs - armedAtMs < TTL_MS
+    companion object {
+        const val TTL_MS = 60_000L
+        const val EXPIRED = "Enrol timed out after 60 s; tap Enrol again"
+    }
+}
