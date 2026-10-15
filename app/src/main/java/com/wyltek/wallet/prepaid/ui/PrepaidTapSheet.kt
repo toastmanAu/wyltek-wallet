@@ -128,7 +128,8 @@ private fun armedPrompt(armed: Armed, card: PrepaidCardEntity?): String {
 
 private fun headline(t: TapClass?) = when (t) {
     is TapClass.Blank -> "Blank card"; is TapClass.Resume -> "Pending action"; is TapClass.Damaged -> "Damaged card"
-    is TapClass.Known -> t.card.label ?: t.card.uid; is TapClass.Bench -> "Terminal-formatted card"; is TapClass.Refused -> "Refused"; null -> ""
+    is TapClass.Known -> t.card.label ?: t.card.uid; is TapClass.Bench -> "Terminal-formatted card"; is TapClass.Refused -> "Refused"
+    is TapClass.Voucher, is TapClass.VoucherResume, is TapClass.VoucherDamaged -> "Voucher"; null -> ""
 }
 private fun pendingText(c: PrepaidCardEntity): String = when (c.pendingKind) {
     KIND_VOID -> "A void is pending"
@@ -144,5 +145,6 @@ private fun detail(t: TapClass?) = when (t) {
     is TapClass.Known -> "Card ${PrepaidAmount.formatUnits(t.record.balanceUnits.toLong())} (counter ${t.record.counter}) · index ${PrepaidAmount.formatUnits(t.card.balanceUnits.toLong())} (counter ${t.card.counter}) · ${t.card.state}"
     is TapClass.Bench -> "Terminal ${t.record.writerId} wrote ${PrepaidAmount.formatUnits(t.record.balanceUnits.toLong())}. Adopting funds a reserve for it."
     is TapClass.Refused -> t.reason
+    is TapClass.Voucher, is TapClass.VoucherResume, is TapClass.VoucherDamaged -> "Voucher"
     null -> null
 }

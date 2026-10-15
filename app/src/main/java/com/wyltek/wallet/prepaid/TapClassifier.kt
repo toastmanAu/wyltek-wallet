@@ -14,6 +14,9 @@ sealed class TapClass {
     data class Known(val card: PrepaidCardEntity, val record: CardRecordInfo, val slot: SlotResult) : TapClass()
     data class Bench(val record: CardRecordInfo, val slot: SlotResult) : TapClass()
     data class Refused(val reason: String) : TapClass()
+    data class Voucher(val voucher: com.wyltek.wallet.prepaid.db.VoucherEntity, val record: com.wyltek.wallet.core.native.VoucherRecordInfo) : TapClass()
+    data class VoucherResume(val voucher: com.wyltek.wallet.prepaid.db.VoucherEntity) : TapClass()
+    data class VoucherDamaged(val voucher: com.wyltek.wallet.prepaid.db.VoucherEntity, val reason: String) : TapClass()
 }
 
 /** D3 spec §5.1. Pure: the service supplies the two index lookups. Refusals never reach the audit log. */

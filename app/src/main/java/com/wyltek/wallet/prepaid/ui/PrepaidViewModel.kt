@@ -61,6 +61,7 @@ object PrepaidUiReducer {
         is TapClass.Resume -> listOf(TapAction.RESUME)
         is TapClass.Damaged -> listOf(TapAction.REPAIR, TapAction.VOID, TapAction.CASH_OUT)
         is TapClass.Bench -> listOf(TapAction.ADOPT)
+        is TapClass.Voucher, is TapClass.VoucherResume, is TapClass.VoucherDamaged -> emptyList() // Task 15
         is TapClass.Known -> when (tap.card.state) {
             CARD_ACTIVE -> listOf(TapAction.LOAD, TapAction.REVOKE, TapAction.CASH_OUT, TapAction.VOID)
             CARD_REVOKED -> listOf(TapAction.REINSTATE, TapAction.CASH_OUT, TapAction.VOID)
