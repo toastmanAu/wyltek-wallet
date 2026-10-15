@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use wyltekwalletcore::prepaid::vectors;
 
 const FIXTURE: &str = include_str!("fixtures/prepaid_voucher_vectors.txt");
-const PINNED_SHA256: &str = "a02cdea1df464e4459f48abd5aac5a37b6e448769991b9202fe73e6fe8209bbe";
+const PINNED_SHA256: &str = "2ec9f2d0d5495ee6abcbf335711a11199f87d0e216d29422cef377bd48d12a32";
 
 #[test]
 fn emitter_reproduces_committed_voucher_fixture() { assert_eq!(vectors::emit_voucher(), FIXTURE); }

@@ -1,5 +1,5 @@
 //! Golden-vector emitter for the demo tier. Deterministic; the output is the contract with the POS.
-use super::{journal, record, verifier, voucher};
+use super::{journal, record, voucher};
 use std::fmt::Write as _;
 
 fn hx(b: &[u8]) -> String { hex::encode(b) }
@@ -110,13 +110,20 @@ pub fn emit_voucher() -> String {
     let mut flags = raws[0]; flags[5] = 1;
     let card = { let mut c = record::DemoCardRecord { version: record::VERSION_DEMO, scheme: record::SCHEME_CKB_MILLI, writer_id: 0,
         reserve_id: [0xA0; 32], balance_units: 1000, counter: 1, merchant_id, mac: [0; 8] }; record::seal(&key, &uid, &mut c) };
-    let cases: [(&[u8; 64], &[u8; 64], &str); 4] = [(&raws[0], &raws[1], "B"), (&flags, &zeros, "NONE_BAD_VERSION"), (&card, &zeros, "NONE_NO_VALID_SLOT"), (&raws[1], &raws[0], "A")];
+    let resealed = |edit: &dyn Fn(&mut [u8; 64])| { let mut r = raws[0]; edit(&mut r); let m = voucher::compute_mac(&key, &uid, &r); r[56..64].copy_from_slice(&m); r };
+    let reserved_nz = resealed(&|r| r[44] = 1);                // valid MAC, reserved bytes != 0
+    let cur_lower = resealed(&|r| r[36] = b'a');               // valid MAC, currency "aUD"
+    let cur_digit = resealed(&|r| r[38] = b'1');               // valid MAC, currency "AU1"
+    let mut bad_mac = raws[0]; bad_mac[63] ^= 1;               // intact body, MAC wrong
+    let cases: [(&[u8; 64], &[u8; 64], &str); 8] = [(&raws[0], &raws[1], "B"), (&flags, &zeros, "NONE_BAD_VERSION"), (&card, &zeros, "NONE_NO_VALID_SLOT"), (&raws[1], &raws[0], "A"),
+        (&reserved_nz, &zeros, "NONE_BAD_VERSION"), (&cur_lower, &zeros, "NONE_BAD_VERSION"), (&cur_digit, &zeros, "NONE_BAD_VERSION"), (&bad_mac, &zeros, "NONE_MAC_FAIL")];
     for (i, (a, b, want)) in cases.iter().enumerate() {
         let (pick, _, diag) = voucher::select_slot_diag(&key, &uid, a, b);
         let got = match (pick, diag.reason) {
             (record::SlotPick::A, _) => "A", (record::SlotPick::B, _) => "B",
             (record::SlotPick::None, record::SlotNoneReason::BadVersion) => "NONE_BAD_VERSION",
-            (record::SlotPick::None, record::SlotNoneReason::NoValidSlot) => "NONE_NO_VALID_SLOT", _ => "OTHER" };
+            (record::SlotPick::None, record::SlotNoneReason::NoValidSlot) => "NONE_NO_VALID_SLOT",
+            (record::SlotPick::None, record::SlotNoneReason::MacFail) => "NONE_MAC_FAIL", _ => "OTHER" };
         assert_eq!(got, *want, "emitter self-check vslots.case{}", i + 1);
         writeln!(s, "vslots.case{}.a={}", i + 1, hx(*a)).unwrap();
         writeln!(s, "vslots.case{}.b={}", i + 1, hx(*b)).unwrap();
@@ -130,13 +137,27 @@ pub fn emit_voucher() -> String {
     let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&key_id);
     let mut redeem = journal::JournalEntry { version: journal::VERSION_DEMO, kind: journal::KIND_VOUCHER_REDEEM, terminal_id: 3, merchant_id, uid,
         reserve_id: rid, tmc: 1, amount_units: 1, balance_after: 0, ts: 1_791_370_000, tmv: [0; 8], sale_ref: [0xDE, 0xAD, 0xBE, 0xEF, 1, 2, 3, 4], pad };
-    let raw = journal::attest(&key, &mut redeem);
-    writeln!(s, "entry_redeem.raw={}", hx(&raw)).unwrap();
     let mut orid = [0u8; 32]; orid[..8].copy_from_slice(&ph);
     let mut opad = [0u8; 12]; opad[..8].copy_from_slice(&key_id); opad[8..11].copy_from_slice(b"AUD");
     let mut ovr = journal::JournalEntry { kind: journal::KIND_PRICE_OVERRIDE, reserve_id: orid, tmc: 0, amount_units: 500, balance_after: 0, pad: opad, ..redeem.clone() };
-    let raw = journal::attest(&key, &mut ovr);
-    writeln!(s, "entry_override.raw={}", hx(&raw)).unwrap();
-    let _ = verifier::Verdict::Accepted;               // the verdict set is pinned by the verifier tests, not this file
+    // second override: non-zero NEW price (balance_after) so old/new roles are discriminated
+    let mut ovr2 = journal::JournalEntry { amount_units: 450, balance_after: 380, ..ovr.clone() };
+    for (name, e) in [("entry_redeem", &mut redeem), ("entry_override", &mut ovr), ("entry_override2", &mut ovr2)] {
+        let raw = journal::attest(&key, e);
+        assert!(journal::verify(&key, &raw) && journal::decode(&raw) == Some(e.clone()), "emitter self-check {name}");
+        writeln!(s, "{name}.raw={}", hx(&raw)).unwrap();
+        writeln!(s, "{name}.kind={}", e.kind).unwrap();
+        writeln!(s, "{name}.terminal_id={}", e.terminal_id).unwrap();
+        writeln!(s, "{name}.merchant_id={}", hx(&e.merchant_id)).unwrap();
+        writeln!(s, "{name}.uid={}", hx(&e.uid)).unwrap();
+        writeln!(s, "{name}.reserve_id={}", hx(&e.reserve_id)).unwrap();
+        writeln!(s, "{name}.tmc={}", e.tmc).unwrap();
+        writeln!(s, "{name}.amount_units={}", e.amount_units).unwrap();
+        writeln!(s, "{name}.balance_after={}", e.balance_after).unwrap();
+        writeln!(s, "{name}.ts={}", e.ts).unwrap();
+        writeln!(s, "{name}.sale_ref={}", hx(&e.sale_ref)).unwrap();
+        writeln!(s, "{name}.pad={}", hx(&e.pad)).unwrap();
+        writeln!(s, "{name}.tmv={}", hx(&e.tmv)).unwrap();
+    }
     s
 }
