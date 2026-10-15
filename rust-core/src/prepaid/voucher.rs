@@ -158,7 +158,7 @@ mod tests {
         let mut r = sample();
         let raw = seal(&key(), &uid(), &mut r);
         assert!(verify(&key(), &uid(), &raw));
-        for i in [24usize, 31, 32, 36, 39, 40, 8] { let mut t = raw; t[i] ^= 1; assert!(!verify(&key(), &uid(), &t), "byte {i}"); }
+        for i in 0..56usize { let mut t = raw; t[i] ^= 1; assert!(!verify(&key(), &uid(), &t), "byte {i}"); }
         assert!(!verify(&key(), &[0x04, 0xEB, 0xBB, 0x02, 0xCD, 0x2A, 0x81], &raw));
     }
 
@@ -180,6 +180,47 @@ mod tests {
         let mut ro = sample(); let other = seal(&k, &[0x04, 0xEB, 0xBB, 0x02, 0xCD, 0x2A, 0x81], &mut ro);
         let d = select_slot_diag(&k, &u, &other, &zero);
         assert_eq!(d.2.reason, SlotNoneReason::MacFail); assert_eq!(d.2.merchant_hint, Some(sample().merchant_id));
+    }
+
+    #[test]
+    fn slot_selection_matches_the_card_record() {
+        use crate::prepaid::record::DemoCardRecord;
+        let (k, u) = (key(), uid());
+        let other_uid = [0x04, 0xEB, 0xBB, 0x02, 0xCD, 0x2A, 0x81];
+        let card = |counter: u32, bal: i32, uid: &[u8; 7]| {
+            let mut c = DemoCardRecord { version: record::VERSION_DEMO, scheme: record::SCHEME_CKB_MILLI, writer_id: 0,
+                reserve_id: [0xA0; 32], balance_units: bal, counter, merchant_id: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88], mac: [0; 8] };
+            record::seal(&k, uid, &mut c)
+        };
+        let vouch = |counter: u32, price: u32, uid: &[u8; 7]| {
+            let mut v = sample(); v.counter = counter; v.issue_price = price;
+            seal(&k, uid, &mut v)
+        };
+        let zero = [0u8; 64];
+        let mut card_bad = card(0, 1000, &u); card_bad[4] = 0x09;
+        let mut vouch_bad = vouch(0, 450, &u); vouch_bad[4] = 0x09;
+        let mut card_garbage = [0xFFu8; 64]; card_garbage[0] = 0;
+        let mut vouch_garbage = [0xFFu8; 64]; vouch_garbage[0] = 0;
+        // (name, card a, card b, voucher a, voucher b)
+        let cases: Vec<(&str, [u8; 64], [u8; 64], [u8; 64], [u8; 64])> = vec![
+            ("A newer", card(1, 1, &u), card(0, 1, &u), vouch(1, 1, &u), vouch(0, 1, &u)),
+            ("B newer", card(0, 1, &u), card(1, 1, &u), vouch(0, 1, &u), vouch(1, 1, &u)),
+            ("equal identical", card(0, 1, &u), card(0, 1, &u), vouch(0, 1, &u), vouch(0, 1, &u)),
+            ("same counter different bytes", card(0, 1, &u), card(0, 2, &u), vouch(0, 1, &u), vouch(0, 2, &u)),
+            ("both zero", zero, zero, zero, zero),
+            ("bad version", card_bad, zero, vouch_bad, zero),
+            ("foreign uid mac fail", card(0, 1, &other_uid), zero, vouch(0, 1, &other_uid), zero),
+            ("valid + garbage (A valid)", card(0, 1, &u), card_garbage, vouch(0, 1, &u), vouch_garbage),
+            ("valid + garbage (B valid)", card_garbage, card(0, 1, &u), vouch_garbage, vouch(0, 1, &u)),
+        ];
+        for (name, ca, cb, va, vb) in cases {
+            let c = record::select_slot_diag(&k, &u, &ca, &cb);
+            let v = select_slot_diag(&k, &u, &va, &vb);
+            assert_eq!(v.0, c.0, "{name}: pick");
+            assert_eq!(v.2.reason, c.2.reason, "{name}: reason");
+            assert_eq!(v.2.merchant_hint, c.2.merchant_hint, "{name}: merchant hint");
+            assert_eq!(v.1.is_some(), c.1.is_some(), "{name}: record presence");
+        }
     }
 
     #[test]
