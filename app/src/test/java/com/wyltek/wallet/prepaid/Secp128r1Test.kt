@@ -29,4 +29,42 @@ class Secp128r1Test {
         assertNull(Secp128r1.pointOf(bad))
         assertNull(Secp128r1.pointOf(ByteArray(33)))
     }
+
+    private val n = java.math.BigInteger("FFFFFFFE0000000075A30D1B9038A115", 16)
+    private fun b16(x: java.math.BigInteger): ByteArray {
+        val raw = x.toByteArray().dropWhile { it == 0.toByte() }.toByteArray()
+        require(raw.size <= 16); return ByteArray(16 - raw.size) + raw
+    }
+    private fun check(r: ByteArray, s: ByteArray) = Secp128r1.verify(pub, hexBytes(cases[0].first), r + s)
+
+    @Test fun scalar_range_guard_each_disjunct() {
+        val sig = hexBytes(cases[0].second); val r = sig.copyOfRange(0, 16); val s = sig.copyOfRange(16, 32)
+        assertTrue(check(r, s))
+        assertFalse("s=0", check(r, ByteArray(16)))
+        assertFalse("r=0", check(ByteArray(16), s))
+        assertFalse("r=N", check(b16(n), s))
+        assertFalse("s=N", check(r, b16(n)))
+        assertFalse("r=N+1", check(b16(n.add(java.math.BigInteger.ONE)), s))
+        assertFalse("s=N+1", check(r, b16(n.add(java.math.BigInteger.ONE))))
+        assertFalse("r=2^128-1", check(ByteArray(16) { -1 }, s))
+        assertFalse("s=2^128-1", check(r, ByteArray(16) { -1 }))
+        // malleability: s+N is the same scalar mod N; only encodable in 16 bytes when s < 2^128 - N
+        val sBig = java.math.BigInteger(1, s)
+        if (sBig.add(n).bitLength() <= 128) assertFalse("s+N", check(r, b16(sBig.add(n))))
+    }
+    @Test fun off_curve_public_point_is_refused() {
+        val (uid, sig) = cases[0]
+        assertFalse(Secp128r1.verify(Secp128r1.Pt(pub.x, pub.y.add(java.math.BigInteger.ONE)), hexBytes(uid), hexBytes(sig)))
+    }
+    @Test fun hex_helpers() {
+        val b = byteArrayOf(0, 1, -1, 0x7f, -128)
+        assertEquals("0001ff7f80", bytesHex(b))
+        assertArrayEquals(b, hexBytes("0001ff7f80"))
+        assertArrayEquals(b, hexBytes("0x0001FF7F80"))
+        assertArrayEquals(b, hexBytes("0X0001ff7f80"))
+        assertEquals(0, hexBytes("").size)
+        assertThrows(IllegalArgumentException::class.java) { hexBytes("abc") }
+        assertThrows(IllegalArgumentException::class.java) { hexBytes("zz") }
+        assertThrows(IllegalArgumentException::class.java) { hexBytes("0x0g") }
+    }
 }

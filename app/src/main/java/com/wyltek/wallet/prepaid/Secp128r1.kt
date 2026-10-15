@@ -47,7 +47,7 @@ object Secp128r1 {
 
     /** [sig] = r(16) ‖ s(16). [msg] is used whole when shorter than the order (a 7-byte UID always is). */
     fun verify(pub: Pt, msg: ByteArray, sig: ByteArray): Boolean {
-        if (sig.size != 32) return false
+        if (sig.size != 32 || !onCurve(pub)) return false
         val r = BigInteger(1, sig.copyOfRange(0, 16)); val s = BigInteger(1, sig.copyOfRange(16, 32))
         if (r.signum() == 0 || s.signum() == 0 || r >= N || s >= N) return false
         val excess = msg.size * 8 - N.bitLength()

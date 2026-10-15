@@ -1,4 +1,7 @@
-"""Independent secp128r1 vectors for Secp128r1Test. Regenerate: python3 -I gen_vectors.py > vectors.json"""
+"""Independent secp128r1 vectors for Secp128r1Test. Regenerate (output is deterministic).
+`python3 -I` drops user site-packages, where python-ecdsa usually lives, so a plain
+`python3 -I gen_vectors.py` can fail with ModuleNotFoundError. Working form (adjust the site path):
+  python3 -I -c "import sys; sys.path.append('$HOME/.local/lib/python3.10/site-packages'); exec(compile(open('gen_vectors.py').read(),'gen_vectors.py','exec'))" > vectors.json"""
 import hashlib, json
 from ecdsa import SigningKey
 from ecdsa.curves import SECP128r1
