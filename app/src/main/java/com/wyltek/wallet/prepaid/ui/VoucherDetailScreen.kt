@@ -29,6 +29,7 @@ fun VoucherDetailScreen(voucherId: String, onBack: () -> Unit, viewModel: Prepai
     var loaded by remember { mutableStateOf(false) }
     var events by remember { mutableStateOf<List<PrepaidEventEntity>>(emptyList()) }
     var confirmVoid by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
     LaunchedEffect(voucherId, ui.outcome) {
         v = viewModel.voucher(voucherId); events = viewModel.eventsFor(voucherId).sortedByDescending { it.id }; loaded = true
@@ -48,6 +49,7 @@ fun VoucherDetailScreen(voucherId: String, onBack: () -> Unit, viewModel: Prepai
             if (voidable) item {
                 OutlinedButton(colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed), enabled = !ui.busy, onClick = { confirmVoid = true }) { Text("Void") }
             }
+            authError?.let { item { Text(it, color = ErrorRed) } }
             if (ui.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             (ui.outcome as? ActionOutcome.Failed)?.let { item { Text(it.reason, color = ErrorRed) } }
             if (ui.outcome == ActionOutcome.Done) item { Text("Done", color = SuccessGreen) }
@@ -61,9 +63,13 @@ fun VoucherDetailScreen(voucherId: String, onBack: () -> Unit, viewModel: Prepai
         }
         if (confirmVoid) AlertDialog(onDismissRequest = { confirmVoid = false }, title = { Text("Void ${x.productName}?") },
             text = { Text("Cancels ${x.countLeft} of ${x.countIssued} uses; the voucher cell returns to you. The tag is not needed; a redemption a terminal takes later is refused at settlement.", color = ErrorRed) },
-            confirmButton = { TextButton(onClick = { confirmVoid = false
+            confirmButton = { TextButton(onClick = { confirmVoid = false; authError = null
                 biometric.authenticate(title = "Void voucher", subtitle = "Spends the voucher cell back to you") { r ->
-                    if (r is BiometricResult.Success || r is BiometricResult.Unavailable) viewModel.voidVoucher(x, null) } }) { Text("Void", color = ErrorRed) } },
+                    when (r) {
+                        is BiometricResult.Success, is BiometricResult.Unavailable -> viewModel.voidVoucher(x, null)
+                        is BiometricResult.Cancelled -> {}
+                        is BiometricResult.Error -> authError = r.message
+                    } } }) { Text("Void", color = ErrorRed) } },
             dismissButton = { TextButton(onClick = { confirmVoid = false }) { Text("Cancel") } })
     }
 }

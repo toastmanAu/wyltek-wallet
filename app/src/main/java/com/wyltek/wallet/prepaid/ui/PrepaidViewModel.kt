@@ -22,13 +22,15 @@ sealed class Armed {
     abstract val reserveId: String; abstract val uid: String
     data class CashOut(override val reserveId: String, override val uid: String, val address: String) : Armed()
     data class Wipe(override val reserveId: String, override val uid: String) : Armed()
+    /** A validated voucher issue waiting for its tag: nothing is planned on chain until that tag is read on the phone. */
+    data class IssueVoucher(override val uid: String, val form: VoucherForm) : Armed() { override val reserveId: String get() = "" }
 }
 
 object PrepaidUiReducer {
     /** What stays armed after an attempt: a missing card keeps it; a cash-out whose wipe missed the card becomes a wipe. */
     fun armAfter(armed: Armed, out: ActionOutcome): Armed? = when (out) {
         is ActionOutcome.NeedsTag -> armed
-        is ActionOutcome.WipePending -> Armed.Wipe(armed.reserveId, armed.uid)
+        is ActionOutcome.WipePending -> if (armed is Armed.IssueVoucher) null else Armed.Wipe(armed.reserveId, armed.uid)
         is ActionOutcome.Failed -> armed.takeIf { out.reason == "busy" }    // another action held the lock; nothing ran
         else -> null
     }
@@ -50,6 +52,14 @@ object PrepaidUiReducer {
     fun tapActions(tap: TapClass?, tagPresent: Boolean): List<TapAction> =
         if (tagPresent) tapActionsWithTag(tap) else if (tap is TapClass.Resume) listOf(TapAction.RESUME)
         else if (tap is TapClass.VoucherResume) listOf(TapAction.RESUME_VOUCHER) else emptyList()
+
+    /** A QR scan fills the voucher product code only while issuing a voucher on a blank tag; otherwise it is a cash-out
+     *  address (or nothing) and must be left for that flow. */
+    fun scanFillsVoucherCode(tap: TapClass?, issueKind: String, cashOutOpen: Boolean, scanned: String?): Boolean =
+        scanned != null && issueKind == "voucher" && tap is TapClass.Blank && !cashOutOpen
+
+    /** The issue form's Card/Voucher choice survives only while the tap stays Blank. */
+    fun issueKindFor(tap: TapClass?, current: String): String = if (tap is TapClass.Blank) current else "card"
 
     /** Stores a freshly scanned customer address in state; null leaves the state untouched. */
     fun consumeScannedAddress(state: PrepaidUiState, address: String?): PrepaidUiState =
@@ -224,12 +234,19 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun runArmed(s: PrepaidService, armed: Armed, tag: TagPort) {
+        if (armed is Armed.IssueVoucher) {
+            val v = vsvc
+            val out = if (v == null) ActionOutcome.Failed("vouchers unavailable") else run("issue voucher") { v.issue(tag, armed.form, ::phase) }
+            _ui.update { it.copy(busy = false, armed = PrepaidUiReducer.settleArm(it.armed, armed, out)) }
+            return
+        }
         val card = gateway.prepaidStore().card(armed.reserveId)
         if (card == null) { _ui.update { it.copy(busy = false, armed = null, outcome = ActionOutcome.Failed("card not in the index")) }; return }
         val out = run(if (armed is Armed.CashOut) "cash-out" else "wipe") {
             when (armed) {
                 is Armed.CashOut -> s.cashOut(tag, card, armed.address, ::phase)
                 is Armed.Wipe -> s.wipeClosedTag(tag, card)
+                is Armed.IssueVoucher -> error("handled above")
             }
         }
         _ui.update { it.copy(armed = PrepaidUiReducer.settleArm(it.armed, armed, out)) }
@@ -241,13 +258,19 @@ class PrepaidViewModel(application: Application) : AndroidViewModel(application)
         svc?.let { s -> run("void") { s.void(card, c?.tag?.takeIf { it.uidHex.equals(card.uid, true) }, ::phase) } } }
     suspend fun preview(card: PrepaidCardEntity): CashOutPreview? = svc?.inspectForRetire(ctx?.tag, card)
 
-    fun issueVoucher(c: TapContext?, code: String, name: String, priceText: String, currency: String, countText: String) = act(c) { _, t ->
-        val v = vsvc ?: return@act ActionOutcome.Failed("vouchers unavailable")
+    /** Validates the form, then ARMS the issue for this tag (as cash-out does). It runs at once if the tag is in hand;
+     *  the service reads the tag before any chain work, so a tag that left (e.g. during a product-code scan) comes back
+     *  NeedsTag with nothing done and the arm waits for the re-tap of the same UID. Dismissing the sheet disarms. */
+    fun issueVoucher(c: TapContext?, code: String, name: String, priceText: String, currency: String, countText: String) {
+        fun fail(reason: String) = _ui.update { it.copy(outcome = ActionOutcome.Failed(reason)) }
+        if (vsvc == null) return fail("vouchers unavailable")
+        if (c == null) return _ui.update { it.copy(outcome = noTap) }
         val cur = currency.trim().uppercase()
-        if (name.trim().length > VOUCHER_NAME_MAX) return@act ActionOutcome.Failed("product name is limited to $VOUCHER_NAME_MAX characters")
-        val price = VoucherMoney.parse(priceText, cur) ?: return@act ActionOutcome.Failed("enter the price, e.g. 4.50")
-        val count = countText.trim().toIntOrNull() ?: return@act ActionOutcome.Failed("enter how many uses (1-255)")
-        v.issue(t.tag, VoucherForm(code, name, price, cur, count), ::phase)
+        if (name.trim().length > VOUCHER_NAME_MAX) return fail("product name is limited to $VOUCHER_NAME_MAX characters")
+        val price = VoucherMoney.parse(priceText, cur) ?: return fail("enter the price, e.g. 4.50")
+        val count = countText.trim().toIntOrNull() ?: return fail("enter how many uses (1-255)")
+        _ui.update { it.copy(armed = Armed.IssueVoucher(c.tag.uidHex, VoucherForm(code, name, price, cur, count)), outcome = null, phases = emptyList()) }
+        if (_ui.value.tagPresent && !_ui.value.busy) runArmed(c.tag)
     }
     fun resumeVoucher(c: TapContext?) = act(c) { _, t ->
         val voucher = (t.tap as? TapClass.VoucherResume)?.voucher ?: return@act ActionOutcome.Failed("no voucher")

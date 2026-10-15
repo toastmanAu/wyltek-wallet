@@ -41,6 +41,14 @@ class VoucherServiceIssueTest {
         assertNull(h.vstore.voucher(v.voucherId)!!.pendingTxHash)
     }
 
+    @Test fun an_absent_tag_needs_the_tag_and_nothing_is_done() = runTest {
+        val h = H(); val tag = FakeTag(uid); tag.present = false
+        assertEquals(ActionOutcome.NeedsTag(uid), h.svc.issue(tag, form))
+        assertTrue(h.chain.broadcasts.isEmpty()); assertNull(h.vstore.voucherByUid(uid)); assertTrue(h.store.events.isEmpty())
+        tag.present = true
+        assertEquals(ActionOutcome.Done, h.svc.issue(tag, form))                     // the re-tap runs it
+    }
+
     @Test fun bad_form_inputs_are_refused_before_any_chain_work() = runTest {
         val h = H()
         for (f in listOf(form.copy(productCode = "  "), form.copy(count = 0), form.copy(count = 256), form.copy(currency = "aud"), form.copy(issuePriceMinor = -1), form.copy(issuePriceMinor = 4_294_967_296))) {

@@ -36,9 +36,11 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
     var vCount by rememberSaveable { mutableStateOf("1") }
     var confirmVoidVoucher by remember { mutableStateOf<VoucherEntity?>(null) }
     var confirmWipeVoucher by remember { mutableStateOf(false) }
+    // A leftover "voucher" choice must not survive onto a card tap (it would swallow the cash-out address scan).
+    LaunchedEffect(ui.tap) { issueKind = PrepaidUiReducer.issueKindFor(ui.tap, issueKind) }
     LaunchedEffect(ui.scannedAddress) {
         val scanned = ui.scannedAddress
-        if (issueKind == "voucher" && scanned != null) { vCode = scanned; viewModel.clearScannedAddress() }
+        if (PrepaidUiReducer.scanFillsVoucherCode(ui.tap, issueKind, cashOutOpen, scanned) && scanned != null) { vCode = scanned; viewModel.clearScannedAddress() }
     }
     val actions = PrepaidUiReducer.tapActions(ui.tap, ui.tagPresent)
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
@@ -61,8 +63,8 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
         Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row { Text(headline(ui.tap), style = MaterialTheme.typography.titleMedium, color = TextPrimary); Spacer(Modifier.width(8.dp)); DemoBadge() }
             detail(ui.tap)?.let { Text(it, color = TextSecondary) }
-            val voucherForm = TapAction.ISSUE_VOUCHER in actions && issueKind == "voucher"
-            if (TapAction.ISSUE_VOUCHER in actions) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val voucherForm = ui.armed == null && TapAction.ISSUE_VOUCHER in actions && issueKind == "voucher"
+            if (ui.armed == null && TapAction.ISSUE_VOUCHER in actions) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = issueKind == "card", onClick = { issueKind = "card" }, label = { Text("Card") })
                 FilterChip(selected = issueKind == "voucher", onClick = { issueKind = "voucher" }, label = { Text("Voucher") })
             }
@@ -82,7 +84,7 @@ fun PrepaidTapSheet(ui: PrepaidUiState, viewModel: PrepaidViewModel, onDismiss: 
             }
             ui.armed?.let { armed ->
                 Text(armedPrompt(armed, ui.cards.firstOrNull { it.reserveId == armed.reserveId }), color = WarningOrange)
-                if (!ui.busy) OutlinedButton(onClick = viewModel::disarm) { Text(if (armed is Armed.Wipe) "Not now" else "Cancel cash-out") }
+                if (!ui.busy) OutlinedButton(onClick = viewModel::disarm) { Text(when (armed) { is Armed.Wipe -> "Not now"; is Armed.IssueVoucher -> "Cancel issue"; else -> "Cancel cash-out" }) }
             }
             if (ui.armed == null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (a in actions) when (a) {
@@ -171,6 +173,7 @@ private fun armedPrompt(armed: Armed, card: PrepaidCardEntity?): String {
     return when (armed) {
         is Armed.CashOut -> "Hold $name to the phone to pay out to ${armed.address.take(14)}…${armed.address.takeLast(6)}. You can lift it once Done shows."
         is Armed.Wipe -> "Hold $name to the phone to wipe it."
+        is Armed.IssueVoucher -> "Tap the tag to issue ${armed.form.count} × ${armed.form.productName.trim()}. Nothing is spent until the tag is read."
     }
 }
 

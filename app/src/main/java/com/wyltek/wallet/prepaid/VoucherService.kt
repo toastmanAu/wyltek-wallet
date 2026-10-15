@@ -48,6 +48,9 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
     suspend fun issue(tag: TagPort, form: VoucherForm, progress: (Phase) -> Unit = {}): ActionOutcome = core.exclusive {
         formError(form)?.let { return@exclusive ActionOutcome.Failed(it) }
         val code = try { core.protocol.normaliseProductCode(form.productCode) } catch (e: PrepaidException) { return@exclusive ActionOutcome.Failed("product code must be 1-31 printable characters") }
+        // Presence read before any chain work: a tag that left the phone (e.g. during a product-code scan) must not get a
+        // committed cell it cannot be written with. Nothing is done; the UI keeps the issue armed for the re-tap.
+        try { tag.readSlots() } catch (e: CancellationException) { throw e } catch (e: Exception) { return@exclusive ActionOutcome.NeedsTag(tag.uidHex) }
         core.store.cardByUid(tag.uidHex)?.takeIf { it.state != CARD_CLOSED }?.let { return@exclusive ActionOutcome.Failed("this tag is a prepaid card") }
         vouchers.voucherByUid(tag.uidHex)?.takeIf { it.state in VOUCHER_LIVE }?.let { return@exclusive ActionOutcome.Failed("this tag already holds a voucher") }
         val lock = core.signer.lock

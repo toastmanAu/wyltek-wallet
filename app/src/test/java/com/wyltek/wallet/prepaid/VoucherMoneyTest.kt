@@ -14,4 +14,11 @@ class VoucherMoneyTest {
         assertEquals(500L, VoucherMoney.parse("500", "JPY")); assertNull(VoucherMoney.parse("500.5", "JPY"))
         assertEquals("500 JPY", VoucherMoney.format(500, "JPY"))
     }
+    @Test fun trailing_zeros_exponents_and_extremes() {
+        assertEquals(450L, VoucherMoney.parse("4.500", "AUD")); assertEquals(450L, VoucherMoney.parse(" 4.50 ", "AUD")); assertEquals(500L, VoucherMoney.parse("500.00", "JPY"))
+        assertNull(VoucherMoney.parse("4.501", "AUD"))
+        for (t in listOf("1e2", "1E2", "4.5e1", "1E-400", "1e999999999", "+4", ".5", "4.", "4,50", "99999999999999999999999999"))
+            assertNull(t, VoucherMoney.parse(t, "AUD"))
+        assertEquals(4_294_967_295L, VoucherMoney.parse("42949672.95", "AUD"))
+    }
 }

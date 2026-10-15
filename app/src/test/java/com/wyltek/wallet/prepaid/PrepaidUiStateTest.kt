@@ -40,6 +40,30 @@ class PrepaidUiStateTest {
         assertEquals(listOf(TapAction.VOID_VOUCHER), PrepaidUiReducer.tapActions(TapClass.VoucherDamaged(voucher(VOUCHER_ACTIVE), "x"), true))
     }
 
+    @Test fun an_armed_voucher_issue_waits_for_its_tag_and_never_rearms_after_it_ran_or_was_dismissed() {
+        val iv = Armed.IssueVoucher("u", VoucherForm("COF01", "Flat white", 450, "AUD", 1))
+        assertEquals(iv, PrepaidUiReducer.armAfter(iv, ActionOutcome.NeedsTag("u")))
+        assertEquals(iv, PrepaidUiReducer.armAfter(iv, ActionOutcome.Failed("busy")))
+        assertNull(PrepaidUiReducer.armAfter(iv, ActionOutcome.Done))
+        assertNull(PrepaidUiReducer.armAfter(iv, ActionOutcome.AwaitingTag("v")))          // committed: the pending marker takes over
+        assertNull(PrepaidUiReducer.armAfter(iv, ActionOutcome.StillConfirming("0xh")))
+        assertNull(PrepaidUiReducer.armAfter(iv, ActionOutcome.Failed("this tag already holds a voucher")))
+        assertNull(PrepaidUiReducer.armAfter(iv, ActionOutcome.WipePending("u")))           // never becomes a card wipe
+        assertNull(PrepaidUiReducer.settleArm(current = null, ran = iv, out = ActionOutcome.NeedsTag("u")))
+        assertTrue(PrepaidUiReducer.armedFor(iv, "U")); assertFalse(PrepaidUiReducer.armedFor(iv, "other"))
+    }
+
+    @Test fun a_scan_fills_the_voucher_code_only_on_a_blank_tag_in_voucher_mode_with_no_cash_out_open() {
+        assertTrue(PrepaidUiReducer.scanFillsVoucherCode(TapClass.Blank("u"), "voucher", cashOutOpen = false, scanned = "COF01"))
+        assertFalse(PrepaidUiReducer.scanFillsVoucherCode(TapClass.Blank("u"), "voucher", cashOutOpen = false, scanned = null))
+        assertFalse(PrepaidUiReducer.scanFillsVoucherCode(TapClass.Blank("u"), "card", cashOutOpen = false, scanned = "COF01"))
+        assertFalse(PrepaidUiReducer.scanFillsVoucherCode(TapClass.Blank("u"), "voucher", cashOutOpen = true, scanned = "ckt1x"))
+        assertFalse(PrepaidUiReducer.scanFillsVoucherCode(TapClass.Known(card(CARD_ACTIVE), rec, slot), "voucher", cashOutOpen = false, scanned = "ckt1x"))
+        assertEquals("voucher", PrepaidUiReducer.issueKindFor(TapClass.Blank("u"), "voucher"))
+        assertEquals("card", PrepaidUiReducer.issueKindFor(TapClass.Known(card(CARD_ACTIVE), rec, slot), "voucher"))
+        assertEquals("card", PrepaidUiReducer.issueKindFor(null, "voucher"))
+    }
+
     @Test fun without_a_tag_only_resume_remains() {
         assertEquals(listOf(TapAction.RESUME), PrepaidUiReducer.tapActions(TapClass.Resume(card(CARD_ACTIVE), slot), false))
         assertEquals(emptyList<TapAction>(), PrepaidUiReducer.tapActions(TapClass.Known(card(CARD_ACTIVE), rec, slot), false))
