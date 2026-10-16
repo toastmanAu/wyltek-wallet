@@ -18,7 +18,23 @@ import androidx.compose.ui.platform.LocalContext
 private const val CAMERA_RELEASE_SETTLE_MS = 500L
 
 /**
- * Reader mode while [enabled] (D3 spec §5): NfcA only, NDEF check skipped, no platform sound. Disabled on dispose.
+ * Which screen currently owns the activity's reader mode. Reader mode belongs to the activity, and navigation disposes
+ * the old screen AFTER the new one has enabled (device checkpoint 2026-10-16: Prepaid → Staff keys left the reader off,
+ * so Android's own tag screen took the tap). Only the latest claimant may disable or re-enable. Main thread only.
+ */
+class ReaderModeOwner {
+    private var holder: Any? = null
+    fun claim(who: Any) { holder = who }
+    fun holds(who: Any): Boolean = holder === who
+    /** True when [who] held it and should now disable reader mode; false when another screen has since claimed it. */
+    fun release(who: Any): Boolean = (holder === who).also { if (it) holder = null }
+}
+
+private val readerModeOwner = ReaderModeOwner()
+
+/**
+ * Reader mode while [enabled] (D3 spec §5): NfcA only, NDEF check skipped, no platform sound. Disabled on dispose
+ * unless a newer screen has claimed it ([ReaderModeOwner]).
  *
  * The system suspends NFC polling while a camera is open. Coming back from the QR scanner, our enable can land while
  * the camera is still closing ("active polling is forced to disable now"), and the system's release then leaves the
@@ -30,10 +46,13 @@ fun NfcReaderMode(enabled: Boolean, onTag: (Tag) -> Unit) {
     val adapter = NfcAdapter.getDefaultAdapter(activity) ?: return
     val latest by rememberUpdatedState(onTag)
     DisposableEffect(enabled) {
-        if (!enabled) return@DisposableEffect onDispose { adapter.disableReaderMode(activity) }
+        if (!enabled) return@DisposableEffect onDispose { }
+        val me = Any()
+        readerModeOwner.claim(me)
         val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
         val extras = Bundle().apply { putInt(NfcAdapter.EXTRA_READER_PRESENCE_CHECK_DELAY, 250) }
         val enable = Runnable {
+            if (!readerModeOwner.holds(me)) return@Runnable   // a newer screen owns the reader; don't install our handler
             try { adapter.enableReaderMode(activity, { tag -> latest(tag) }, flags, extras) }
             catch (e: IllegalStateException) { Log.w("NfcReaderMode", "reader mode not enabled: ${e.message}") }   // not in the foreground
         }
@@ -49,7 +68,7 @@ fun NfcReaderMode(enabled: Boolean, onTag: (Tag) -> Unit) {
         onDispose {
             cameras?.unregisterAvailabilityCallback(onCameraFree)
             handler.removeCallbacks(enable)
-            adapter.disableReaderMode(activity)
+            if (readerModeOwner.release(me)) adapter.disableReaderMode(activity)
         }
     }
 }
