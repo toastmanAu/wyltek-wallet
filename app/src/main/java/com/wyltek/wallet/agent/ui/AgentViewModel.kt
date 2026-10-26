@@ -48,6 +48,8 @@ data class AgentUiState(
     val relayPaired: Boolean = false,
     val relayUrl: String? = null,
     val deviceId: String? = null,
+    /** TLS public-key pin (64 lowercase hex) carried in the provisioning QR; null until populated. */
+    val tlsPinHex: String? = null,
     val prepaidKDebit: String? = null,
     val prepaidMerchantId: String? = null,
     /** True only when [lastMintedToken] carries Scope.PREPAID_SETTLE: K_debit goes into that token's QR only (I5). */

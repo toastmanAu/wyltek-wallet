@@ -7,34 +7,45 @@ fun serviceNameFor(deviceId: String): String =
 /**
  * The prepaid fields for one token's QR (I5): K_debit is a secret that lets a terminal write card records,
  * so it travels only with a token that was minted with Scope.PREPAID_SETTLE. Otherwise both are null and
- * [buildProvisioningBundle] emits the three-field bundle.
+ * [buildProvisioningBundle] omits them.
  */
 fun prepaidBundleFields(mintedWithPrepaid: Boolean, kDebitHex: String?, merchantIdHex: String?): Pair<String?, String?> =
     if (mintedWithPrepaid) kDebitHex to merchantIdHex else null to null
+
+/** SHA-256 of the TLS cert's SubjectPublicKeyInfo, as 64 lowercase hex chars (see AgentTls.pinHex). */
+private val TLS_PIN_HEX = Regex("[0-9a-f]{64}")
+
+/** First eight hex chars of the TLS pin: what the Agent screen and the POS both display. */
+fun pinPrefix(pinHex: String): String = pinHex.take(8)
 
 /**
  * Compact provisioning bundle for the BlackBox POS, or null if the device is not
  * yet paired to the relay (deviceId null/blank).
  *
  * Format (compact, no spaces — the POS matches the literal substrings
- * `"device_id":"`, `"token":"`, `"service_name":"`, `"k_debit":"` and `"merchant_id":"`
+ * `"device_id":"`, `"token":"`, `"service_name":"`, `"tls_pin":"`, `"k_debit":"` and `"merchant_id":"`
  * with strstr, NOT a JSON parser):
- *   {"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>"}
- *   {"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>","k_debit":"<32 hex>","merchant_id":"<16 hex>"}
+ *   {"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>","tls_pin":"<64 hex>"}
+ *   {"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>","tls_pin":"<64 hex>","k_debit":"<32 hex>","merchant_id":"<16 hex>"}
  *
- * The prepaid fields k_debit and merchant_id are appended only when BOTH are non-null;
- * otherwise the output is byte-identical to the three-field bundle.
+ * tls_pin is required and must be 64 lowercase hex (SHA-256 of the Vault TLS cert's SPKI);
+ * anything else throws IllegalArgumentException. It sits immediately after service_name and
+ * before the prepaid fields.
+ *
+ * The prepaid fields k_debit and merchant_id are appended only when BOTH are non-null.
  *
  * Built as a manual string, not org.json.JSONObject: org.json is stubbed in JVM
- * unit tests. All values are quote-free by construction (UUID + URL-safe base64 + mDNS name),
+ * unit tests. All values are quote-free by construction (UUID + URL-safe base64 + mDNS name + hex),
  * so no escaping is required.
  */
 fun buildProvisioningBundle(
     deviceId: String?,
     token: String,
+    tlsPinHex: String,
     kDebitHex: String? = null,
     merchantIdHex: String? = null,
 ): String? {
+    require(TLS_PIN_HEX.matches(tlsPinHex)) { "tls_pin must be 64 lowercase hex" }
     val id = deviceId?.ifBlank { null } ?: return null
     val svc = serviceNameFor(id)
     val prepaid = if (kDebitHex != null && merchantIdHex != null) {
@@ -42,5 +53,5 @@ fun buildProvisioningBundle(
     } else {
         ""
     }
-    return """{"device_id":"$id","token":"$token","service_name":"$svc"$prepaid}"""
+    return """{"device_id":"$id","token":"$token","service_name":"$svc","tls_pin":"$tlsPinHex"$prepaid}"""
 }

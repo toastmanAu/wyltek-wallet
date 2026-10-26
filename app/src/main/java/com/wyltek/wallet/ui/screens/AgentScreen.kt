@@ -261,7 +261,8 @@ fun AgentScreen(
                             // ({device_id, token, service_name}) is buildable without pairing,
                             // and the same QR serves node tier too. Render whenever it's buildable.
                             val (kDebit, merchantId) = prepaidBundleFields(uiState.mintedWithPrepaid, uiState.prepaidKDebit, uiState.prepaidMerchantId)
-                            val bundle = buildProvisioningBundle(uiState.deviceId, token, kDebit, merchantId)
+                            val pin = uiState.tlsPinHex
+                            val bundle = if (pin == null) null else buildProvisioningBundle(uiState.deviceId, token, pin, kDebit, merchantId)
                             if (bundle != null) {
                                 QrCodeImage(
                                     content = bundle,
