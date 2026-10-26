@@ -260,7 +260,13 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     @Volatile var prepaidWarning: String? = null; private set
     fun dismissPrepaidWarning() { prepaidWarning = null }
 
-    /** The one place the TLS keystore is loaded for the app: raises the notice on regeneration. */
+    /** The one place the TLS keystore is loaded for the app: raises the notice on regeneration.
+     *
+     *  Known limitation: if this regenerates while the service is already running (a healthy key
+     *  crossing the under-a-year line mid-run, loaded by the ViewModel), the server stays bound to
+     *  the old key until it next rebinds (Wi-Fi change or service restart), so the pin shown under
+     *  the QR can briefly differ from the key served. The service's rebind is private to
+     *  AgentGatewayService and re-sending ACTION_START would duplicate relay/network state. */
     fun loadTls(): AgentTls.Loaded = AgentTls.load(app).also {
         if (it.regenerated) {
             Log.w(TAG, "TLS keystore regenerated (weak or expiring): every terminal must re-provision")

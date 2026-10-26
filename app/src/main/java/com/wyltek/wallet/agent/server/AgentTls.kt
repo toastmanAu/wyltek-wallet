@@ -32,18 +32,22 @@ object AgentTls {
      *  validity still do not matter to the POS, so a fixed cert survives IP changes. */
     @Synchronized
     fun load(context: Context): Loaded =
-        loadOrCreate(File(context.filesDir, FILE), regenMarker(context), System.currentTimeMillis()) {
-            Log.w("AgentTls", "could not persist the regeneration marker", it)
-        }
+        loadOrCreate(
+            File(context.filesDir, FILE), regenMarker(context), System.currentTimeMillis(),
+            onMarkerError = { Log.w("AgentTls", "could not persist the regeneration marker", it) },
+            onCorrupt = { Log.e("AgentTls", "unreadable TLS keystore moved aside; regenerating", it) },
+        )
 
-    /** Context-free: as [loadOrCreate], and on regeneration also drops [marker]. A marker I/O
-     *  failure is reported to [onMarkerError] and never stops the gateway from starting. */
-    internal fun loadOrCreate(f: File, marker: File, nowMs: Long, onMarkerError: (IOException) -> Unit = {}): Loaded {
-        val loaded = loadOrCreate(f, nowMs)
-        if (loaded.regenerated) {
-            try { marker.createNewFile() } catch (e: IOException) { onMarkerError(e) }
-        }
-        return loaded
+    /** Context-free: as [loadOrCreate], and drops [marker] BEFORE any existing store is replaced,
+     *  so a crash between the two steps can never lose the notice. A marker I/O failure is
+     *  reported to [onMarkerError] and never stops the gateway from starting.
+     *  Not synchronised: callers hold the AgentTls lock via [load]. */
+    internal fun loadOrCreate(
+        f: File, marker: File, nowMs: Long,
+        onMarkerError: (IOException) -> Unit = {},
+        onCorrupt: (Exception) -> Unit = {},
+    ): Loaded = loadOrCreate(f, nowMs, onCorrupt) {
+        try { marker.createNewFile() } catch (e: IOException) { onMarkerError(e) }
     }
 
     /** Empty file beside the keystore, present from a regeneration until the user dismisses the
@@ -54,18 +58,33 @@ object AgentTls {
      *  [KeyStore.getDefaultType] — the SAME type [buildKeyStore] persists in (BKS on Android,
      *  PKCS12 on host JVM) — never a hardcoded "JKS", which has no provider on Android and would
      *  throw on every reuse of an existing file. */
-    internal fun loadOrCreate(f: File, nowMs: Long = System.currentTimeMillis()): Loaded {
-        if (f.exists()) {
-            val existing = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+    internal fun loadOrCreate(
+        f: File,
+        nowMs: Long = System.currentTimeMillis(),
+        onCorrupt: (Exception) -> Unit = {},
+        beforeReplace: () -> Unit = {},
+    ): Loaded {
+        if (!f.exists()) return Loaded(create(f), regenerated = false)
+        val existing = try {
+            KeyStore.getInstance(KeyStore.getDefaultType()).apply {
                 f.inputStream().use { load(it, PASS.toCharArray()) }
             }
-            if (!needsRegeneration(existing, nowMs)) return Loaded(existing, regenerated = false)
-            f.delete()
+        } catch (e: Exception) {
+            // Truncated/garbage file: never leave the gateway unable to start. Keep the bad file
+            // for forensics and treat it as a key change (the pin terminals hold is gone).
+            onCorrupt(e)
+            beforeReplace()
+            val aside = File(f.path + ".corrupt")
+            aside.delete()
+            if (!f.renameTo(aside)) f.delete()
             return Loaded(create(f), regenerated = true)
         }
-        return Loaded(create(f), regenerated = false)
+        if (!needsRegeneration(existing, nowMs)) return Loaded(existing, regenerated = false)
+        beforeReplace()
+        return Loaded(create(f), regenerated = true)
     }
 
+    /** Writes to a temp file then renames over [f], so a crash mid-write never leaves a truncated store. */
     private fun create(f: File): KeyStore {
         val ks = buildKeyStore {
             certificate(ALIAS) {
@@ -75,7 +94,12 @@ object AgentTls {
                 daysValid = 3650
             }
         }
-        f.outputStream().use { ks.store(it, PASS.toCharArray()) }
+        val tmp = File(f.path + ".tmp")
+        tmp.outputStream().use { ks.store(it, PASS.toCharArray()) }
+        if (!tmp.renameTo(f)) {
+            tmp.delete()
+            throw IOException("could not move new TLS keystore into place")
+        }
         return ks
     }
 

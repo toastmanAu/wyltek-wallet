@@ -89,11 +89,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         val tlsPin = withContext(Dispatchers.IO) {
             try { AgentTls.pinHex(gateway.loadTls().keyStore) } catch (e: Exception) { Log.w("AgentViewModel", "TLS pin unavailable", e); null }
         }
-        val tlsNotice = gateway.notices.tlsNotice
         _uiState.update { st ->
             st.copy(
                 tlsPinHex = tlsPin,
-                tlsNotice = tlsNotice,
+                // read inside the lambda: a dismiss that lands mid-refresh must not be overwritten by a stale value
+                tlsNotice = gateway.notices.tlsNotice,
                 prepaidKDebit = prepaidFields?.first,
                 prepaidMerchantId = prepaidFields?.second,
                 tokens = tokenRows,

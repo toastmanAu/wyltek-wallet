@@ -26,8 +26,8 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Foreground service that hosts the NanoHTTPD HTTPS server on the device's LAN (Wi-Fi) address.
- * TLS uses a persisted self-signed cert (see [AgentTls]) — trust comes from the biscuit token,
- * not the cert.
+ * TLS uses a persisted self-signed cert (see [AgentTls]). The POS pins this keystore's public
+ * key via the pairing QR; the biscuit token authorises only after that pin matches.
  *
  * NanoHTTPD binds a single host — this deliberately drops the old Ktor CIO Tailnet co-connector
  * simplification; Tier-1 is LAN, so LAN wins when both a LAN and a Tailnet address are present.

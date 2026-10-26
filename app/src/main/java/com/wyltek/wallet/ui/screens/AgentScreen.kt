@@ -267,23 +267,25 @@ fun AgentScreen(
                             val (kDebit, merchantId) = prepaidBundleFields(uiState.mintedWithPrepaid, uiState.prepaidKDebit, uiState.prepaidMerchantId)
                             val pin = uiState.tlsPinHex
                             val bundle = if (pin == null) null else buildProvisioningBundle(uiState.deviceId, token, pin, kDebit, merchantId)
-                            if (bundle != null) {
+                            if (pin != null && bundle != null) {
                                 QrCodeImage(
                                     content = bundle,
                                     modifier = Modifier.size(220.dp)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                pin?.let {
-                                    Text(
-                                        text = "Pin ${pinPrefix(it)}",
-                                        fontFamily = FontFamily.Monospace,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = TextSecondary
-                                    )
-                                }
+                                Text(
+                                    text = "Pin ${pinPrefix(pin)}",
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
                             } else {
                                 Text(
-                                    text = "No device ID or TLS key yet — start the Agent Gateway once to initialise, then re-mint",
+                                    text = if (pin == null && !uiState.deviceId.isNullOrBlank()) {
+                                        "TLS key unavailable: restart the app (see logs)"
+                                    } else {
+                                        "No device ID yet — start the Agent Gateway once to initialise, then re-mint"
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = WarningOrange,
                                     textAlign = TextAlign.Center

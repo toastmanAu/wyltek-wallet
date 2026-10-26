@@ -134,6 +134,20 @@ class AgentTlsTest {
         assertTrue(m.exists())
     }
 
+    @Test fun `a corrupt keystore file is replaced, flagged regenerated and marked`() {
+        val f = File(tmp.root, "agent_tls.ks")
+        f.writeBytes(ByteArray(40) { 0x5a })
+        val m = File(tmp.root, "agent_tls.regen")
+
+        val loaded = AgentTls.loadOrCreate(f, m, System.currentTimeMillis())
+
+        assertTrue(loaded.regenerated)
+        assertTrue("marker must be present", m.exists())
+        assertTrue("bad file kept aside", File(tmp.root, "agent_tls.ks.corrupt").exists())
+        assertFalse("no temp file left behind", File(tmp.root, "agent_tls.ks.tmp").exists())
+        assertFalse(AgentTls.needsRegeneration(readStore(f), System.currentTimeMillis())) // new file usable
+    }
+
     @Test fun `healthy and first-time stores leave no marker`() {
         val m = File(tmp.root, "agent_tls.regen")
         val f = File(tmp.root, "ok.ks")

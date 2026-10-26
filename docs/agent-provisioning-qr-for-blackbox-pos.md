@@ -12,11 +12,20 @@ The POS needs BOTH the biscuit **token** AND the paired device's **`device_id`**
 
 ## The exact contract the POS parses (do not deviate)
 
-The QR payload must be this JSON, **compact — no spaces**:
+The QR payload must be this JSON, **compact — no spaces** (current shape; the original two-field bundle grew `service_name` and `tls_pin`, plus optional prepaid fields):
 
 ```json
-{"device_id":"<relay device id>","token":"<biscuit base64>"}
+{"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>","tls_pin":"<64 hex>"}
+{"device_id":"<uuid>","token":"<biscuit base64>","service_name":"<mDNS name>","tls_pin":"<64 hex>","k_debit":"<32 hex>","merchant_id":"<16 hex>"}
 ```
+
+`k_debit` and `merchant_id` are appended only together. Builder: `buildProvisioningBundle` in `agent/provisioning/AgentProvisioning.kt`.
+
+`tls_pin` is 64 lowercase hex: the SHA-256 of the Agent Gateway certificate's SubjectPublicKeyInfo. The POS compares it against the live connection's peer public key BEFORE sending the token; a mismatch must abort the connection without sending anything.
+
+### TLS pin (2026-10-26)
+
+The Agent screen shows the first 8 hex of the pin under the QR. The keystore is RSA-2048, valid 10 years, and is regenerated on load when the key is under 2048 bits, under a year of validity remains, or the file is unreadable (the bad file is kept as `agent_tls.ks.corrupt`). The first launch after this build shows the regeneration notice once (persisted via a marker file until dismissed), and every POS must re-scan a pairing QR, because the POS pins the public key. The CN, SAN and expiry of the certificate are irrelevant to the POS, so only a regenerated key forces re-provisioning.
 
 Hard constraints (the POS parser is a tiny hand-rolled `strstr` matcher on a memory-constrained MCU, NOT a real JSON parser):
 - **Compact only.** The POS matches the literal substring `"device_id":"` and `"token":"` — a space after the colon (`"device_id": "…"`) breaks it. Kotlin `org.json.JSONObject(...).toString()` emits compact (no spaces) by default — use it, or build the string manually. Do **not** pretty-print.
