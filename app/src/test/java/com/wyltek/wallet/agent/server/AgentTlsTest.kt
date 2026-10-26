@@ -126,4 +126,27 @@ class AgentTlsTest {
         writeStore(f, 2048, 366)
         assertFalse(AgentTls.loadOrCreate(f, System.currentTimeMillis()).regenerated)
     }
+
+    @Test fun `regeneration creates the marker file`() {
+        val f = File(tmp.root, "weak.ks"); val m = File(tmp.root, "agent_tls.regen")
+        writeStore(f, 1024, 3650)
+        assertTrue(AgentTls.loadOrCreate(f, m, System.currentTimeMillis()).regenerated)
+        assertTrue(m.exists())
+    }
+
+    @Test fun `healthy and first-time stores leave no marker`() {
+        val m = File(tmp.root, "agent_tls.regen")
+        val f = File(tmp.root, "ok.ks")
+        AgentTls.loadOrCreate(f, m, System.currentTimeMillis())   // first creation
+        AgentTls.loadOrCreate(f, m, System.currentTimeMillis())   // healthy reload
+        assertFalse(m.exists())
+    }
+
+    @Test fun `an unwritable marker does not fail the load`() {
+        val f = File(tmp.root, "weak2.ks")
+        writeStore(f, 1024, 3650)
+        val m = File(File(tmp.root, "missing-dir"), "agent_tls.regen")   // parent absent: createNewFile throws
+        assertTrue(AgentTls.loadOrCreate(f, m, System.currentTimeMillis()).regenerated)
+        assertFalse(m.exists())
+    }
 }

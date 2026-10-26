@@ -22,6 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wyltek.wallet.agent.provisioning.buildProvisioningBundle
 import com.wyltek.wallet.agent.provisioning.prepaidBundleFields
 import com.wyltek.wallet.agent.provisioning.pinPrefix
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import com.wyltek.wallet.agent.ui.AgentViewModel
 import com.wyltek.wallet.core.native.CapInfo
@@ -272,12 +273,14 @@ fun AgentScreen(
                                     modifier = Modifier.size(220.dp)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Pin ${pinPrefix(pin!!)}",
-                                    fontFamily = FontFamily.Monospace,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary
-                                )
+                                pin?.let {
+                                    Text(
+                                        text = "Pin ${pinPrefix(it)}",
+                                        fontFamily = FontFamily.Monospace,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary
+                                    )
+                                }
                             } else {
                                 Text(
                                     text = "No device ID or TLS key yet — start the Agent Gateway once to initialise, then re-mint",
@@ -308,50 +311,12 @@ fun AgentScreen(
 
             // ── Error card ───────────────────────────────────────────────────
             uiState.error?.let { error ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.1f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = error,
-                            modifier = Modifier.weight(1f),
-                            color = ErrorRed,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        TextButton(onClick = { agentViewModel.clearError() }) {
-                            Text("Dismiss", color = TextSecondary)
-                        }
-                    }
-                }
+                DismissibleBanner(error, ErrorRed) { agentViewModel.clearError() }
             }
 
             // ── TLS key regenerated notice ───────────────────────────────────
             uiState.tlsNotice?.let { notice ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = WarningOrange.copy(alpha = 0.1f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = notice,
-                            modifier = Modifier.weight(1f),
-                            color = WarningOrange,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        TextButton(onClick = { agentViewModel.dismissTlsNotice() }) {
-                            Text("Dismiss", color = TextSecondary)
-                        }
-                    }
-                }
+                DismissibleBanner(notice, WarningOrange) { agentViewModel.dismissTlsNotice() }
             }
 
             // ── Mint token form ──────────────────────────────────────────────
@@ -683,3 +648,27 @@ private fun AgentSettingsSection(
 private fun Modifier.clickableListItem(onClick: () -> Unit): Modifier =
     this.clickable(onClick = onClick)
 
+/** Tinted card with a message and a Dismiss button; shared by the error and notice banners. */
+@Composable
+private fun DismissibleBanner(text: String, color: Color, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.weight(1f),
+                color = color,
+                style = MaterialTheme.typography.bodySmall
+            )
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss", color = TextSecondary)
+            }
+        }
+    }
+}

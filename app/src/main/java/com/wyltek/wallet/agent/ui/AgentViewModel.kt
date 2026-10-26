@@ -1,6 +1,7 @@
 package com.wyltek.wallet.agent.ui
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wyltek.wallet.WyltekWalletApp
@@ -86,7 +87,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         val prepaidFields = withContext(Dispatchers.IO) { try { gateway.prepaidBundleFields() } catch (e: Exception) { null } }
         // Keystore load can create the key (disk + keygen): off the main thread; a failure just hides the QR.
         val tlsPin = withContext(Dispatchers.IO) {
-            try { AgentTls.pinHex(AgentTls.load(getApplication()).keyStore) } catch (e: Exception) { null }
+            try { AgentTls.pinHex(gateway.loadTls().keyStore) } catch (e: Exception) { Log.w("AgentViewModel", "TLS pin unavailable", e); null }
         }
         val tlsNotice = gateway.notices.tlsNotice
         _uiState.update { st ->

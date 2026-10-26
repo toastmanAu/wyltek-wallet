@@ -260,6 +260,14 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     @Volatile var prepaidWarning: String? = null; private set
     fun dismissPrepaidWarning() { prepaidWarning = null }
 
+    /** The one place the TLS keystore is loaded for the app: raises the notice on regeneration. */
+    fun loadTls(): AgentTls.Loaded = AgentTls.load(app).also {
+        if (it.regenerated) {
+            Log.w(TAG, "TLS keystore regenerated (weak or expiring): every terminal must re-provision")
+            notices.noteTlsRegenerated()
+        }
+    }
+
     /** TLS-key regeneration notice (persisted via a marker file so it survives process death). */
     val notices = AgentGatewayNotices(
         markerExists = { AgentTls.regenMarker(app).exists() },

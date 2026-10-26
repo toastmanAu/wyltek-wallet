@@ -1,8 +1,10 @@
 package com.wyltek.wallet.agent.server
 
 import android.content.Context
+import android.util.Log
 import io.ktor.network.tls.certificates.buildKeyStore
 import java.io.File
+import java.io.IOException
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
@@ -28,9 +30,19 @@ object AgentTls {
     /** Load the persisted self-signed keystore, generating + persisting it on first use.
      *  The POS pins this certificate's public key (see [pinHex]); the cert's CN/SAN and
      *  validity still do not matter to the POS, so a fixed cert survives IP changes. */
-    fun load(context: Context): Loaded {
-        val loaded = loadOrCreate(File(context.filesDir, FILE))
-        if (loaded.regenerated) regenMarker(context).createNewFile()
+    @Synchronized
+    fun load(context: Context): Loaded =
+        loadOrCreate(File(context.filesDir, FILE), regenMarker(context), System.currentTimeMillis()) {
+            Log.w("AgentTls", "could not persist the regeneration marker", it)
+        }
+
+    /** Context-free: as [loadOrCreate], and on regeneration also drops [marker]. A marker I/O
+     *  failure is reported to [onMarkerError] and never stops the gateway from starting. */
+    internal fun loadOrCreate(f: File, marker: File, nowMs: Long, onMarkerError: (IOException) -> Unit = {}): Loaded {
+        val loaded = loadOrCreate(f, nowMs)
+        if (loaded.regenerated) {
+            try { marker.createNewFile() } catch (e: IOException) { onMarkerError(e) }
+        }
         return loaded
     }
 
