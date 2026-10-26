@@ -13,6 +13,7 @@ object AgentTls {
     private const val PASS = "agentpass"           // local file password; trust is the biscuit, not this
     internal const val PASS_FOR_TESTS = PASS       // not secret (see above); lets tests build stores
     private const val FILE = "agent_tls.ks"
+    private const val REGEN_MARKER = "agent_tls.regen"
     private const val MIN_KEY_BITS = 2048
     private const val DAY_MS = 86_400_000L
     private const val MIN_REMAINING_MS = 365L * DAY_MS
@@ -27,7 +28,15 @@ object AgentTls {
     /** Load the persisted self-signed keystore, generating + persisting it on first use.
      *  The POS pins this certificate's public key (see [pinHex]); the cert's CN/SAN and
      *  validity still do not matter to the POS, so a fixed cert survives IP changes. */
-    fun load(context: Context): Loaded = loadOrCreate(File(context.filesDir, FILE))
+    fun load(context: Context): Loaded {
+        val loaded = loadOrCreate(File(context.filesDir, FILE))
+        if (loaded.regenerated) regenMarker(context).createNewFile()
+        return loaded
+    }
+
+    /** Empty file beside the keystore, present from a regeneration until the user dismisses the
+     *  notice, so the warning survives a process death before the Agent screen showed it. */
+    fun regenMarker(context: Context): File = File(context.filesDir, REGEN_MARKER)
 
     fun keyStore(context: Context): KeyStore = load(context).keyStore
 

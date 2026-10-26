@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.util.Log
 import com.wyltek.wallet.agent.relay.RelayPairing
+import com.wyltek.wallet.agent.server.AgentTls
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -258,6 +259,12 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     /** Shown once on the Cards page (dismissable): K_debit was generated, so every terminal needs re-provisioning (I6). */
     @Volatile var prepaidWarning: String? = null; private set
     fun dismissPrepaidWarning() { prepaidWarning = null }
+
+    /** TLS-key regeneration notice (persisted via a marker file so it survives process death). */
+    val notices = AgentGatewayNotices(
+        markerExists = { AgentTls.regenMarker(app).exists() },
+        clearMarker = { AgentTls.regenMarker(app).delete() },
+    )
     @Volatile private var prepaidHolder: PrepaidService? = null
     /** Built on demand; a null/failed build is never cached, so adding a testnet account later works without restart. */
     val prepaid: PrepaidService?

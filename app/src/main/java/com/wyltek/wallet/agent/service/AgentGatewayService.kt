@@ -142,7 +142,12 @@ class AgentGatewayService : Service() {
         // port already bound, etc). Neither should crash this foreground service — log, notify,
         // leave `server = null`, and let the caller (handleStart) decide whether to stopSelf().
         try {
-            val ks = AgentTls.keyStore(this)
+            val loaded = AgentTls.load(this)
+            if (loaded.regenerated) {
+                Log.w(TAG, "TLS keystore regenerated (weak or expiring): every terminal must re-provision")
+                androidApp.agentGateway.notices.noteTlsRegenerated()
+            }
+            val ks = loaded.keyStore
             val srv = AgentHttpServer(lan ?: tailnet!!, SERVER_PORT, dispatchPort)
             srv.secure(ks, AgentTls.password())
             srv.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)

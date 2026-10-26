@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wyltek.wallet.agent.provisioning.buildProvisioningBundle
 import com.wyltek.wallet.agent.provisioning.prepaidBundleFields
+import com.wyltek.wallet.agent.provisioning.pinPrefix
+import androidx.compose.ui.text.font.FontFamily
 import com.wyltek.wallet.agent.ui.AgentViewModel
 import com.wyltek.wallet.core.native.CapInfo
 import com.wyltek.wallet.core.native.Scope
@@ -258,8 +260,9 @@ fun AgentScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             // NOTE: buildProvisioningBundle assumes quote-free inputs (UUID device_id, URL-safe base64 token) and does not enforce it.
                             // Tier-1 companion-direct provisioning needs NO relay — the bundle
-                            // ({device_id, token, service_name}) is buildable without pairing,
-                            // and the same QR serves node tier too. Render whenever it's buildable.
+                            // (device_id, token, service_name, tls_pin, plus the optional prepaid
+                            // k_debit/merchant_id pair) is buildable without pairing, and the same
+                            // QR serves node tier too. Render whenever it's buildable.
                             val (kDebit, merchantId) = prepaidBundleFields(uiState.mintedWithPrepaid, uiState.prepaidKDebit, uiState.prepaidMerchantId)
                             val pin = uiState.tlsPinHex
                             val bundle = if (pin == null) null else buildProvisioningBundle(uiState.deviceId, token, pin, kDebit, merchantId)
@@ -268,9 +271,16 @@ fun AgentScreen(
                                     content = bundle,
                                     modifier = Modifier.size(220.dp)
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Pin ${pinPrefix(pin!!)}",
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
                             } else {
                                 Text(
-                                    text = "No device ID yet — start the Agent Gateway once to initialise, then re-mint",
+                                    text = "No device ID or TLS key yet — start the Agent Gateway once to initialise, then re-mint",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = WarningOrange,
                                     textAlign = TextAlign.Center
@@ -314,6 +324,30 @@ fun AgentScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                         TextButton(onClick = { agentViewModel.clearError() }) {
+                            Text("Dismiss", color = TextSecondary)
+                        }
+                    }
+                }
+            }
+
+            // ── TLS key regenerated notice ───────────────────────────────────
+            uiState.tlsNotice?.let { notice ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = WarningOrange.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = notice,
+                            modifier = Modifier.weight(1f),
+                            color = WarningOrange,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(onClick = { agentViewModel.dismissTlsNotice() }) {
                             Text("Dismiss", color = TextSecondary)
                         }
                     }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.wyltek.wallet.WyltekWalletApp
 import com.wyltek.wallet.agent.DispatchResult
 import com.wyltek.wallet.agent.service.AgentGatewayService
+import com.wyltek.wallet.agent.server.AgentTls
 import com.wyltek.wallet.agent.server.Tailnet
 import com.wyltek.wallet.agent.db.PENDING_APPROVAL
 import com.wyltek.wallet.agent.db.PENDING_DENIED
@@ -50,6 +51,8 @@ data class AgentUiState(
     val deviceId: String? = null,
     /** TLS public-key pin (64 lowercase hex) carried in the provisioning QR; null until populated. */
     val tlsPinHex: String? = null,
+    /** One-time warning that the TLS key was regenerated (terminals must re-provision); null once dismissed. */
+    val tlsNotice: String? = null,
     val prepaidKDebit: String? = null,
     val prepaidMerchantId: String? = null,
     /** True only when [lastMintedToken] carries Scope.PREPAID_SETTLE: K_debit goes into that token's QR only (I5). */
@@ -81,8 +84,15 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         val devId      = RelayPairing.ensureDeviceId(gateway.secure)
         // prepaid is a lazy that does DB + seed + keystore I/O: keep it off the main thread.
         val prepaidFields = withContext(Dispatchers.IO) { try { gateway.prepaidBundleFields() } catch (e: Exception) { null } }
+        // Keystore load can create the key (disk + keygen): off the main thread; a failure just hides the QR.
+        val tlsPin = withContext(Dispatchers.IO) {
+            try { AgentTls.pinHex(AgentTls.load(getApplication()).keyStore) } catch (e: Exception) { null }
+        }
+        val tlsNotice = gateway.notices.tlsNotice
         _uiState.update { st ->
             st.copy(
+                tlsPinHex = tlsPin,
+                tlsNotice = tlsNotice,
                 prepaidKDebit = prepaidFields?.first,
                 prepaidMerchantId = prepaidFields?.second,
                 tokens = tokenRows,
@@ -147,6 +157,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun dismissTlsNotice() {
+        gateway.notices.dismissTlsNotice()
+        _uiState.update { it.copy(tlsNotice = null) }
     }
 
     fun clearLastMintedToken() {
