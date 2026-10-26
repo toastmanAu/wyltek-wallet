@@ -17,7 +17,7 @@ import java.util.Collections
 
 /** Pure host-JVM test — no Android runtime required.
  *
- *  Regression coverage for the JKS/BKS keystore-type mismatch: [AgentTls.keyStore] persists
+ *  Regression coverage for the JKS/BKS keystore-type mismatch: [AgentTls.loadOrCreate] persists
  *  via ktor's `buildKeyStore`, which writes in the platform default keystore type (BKS on
  *  Android, PKCS12 on host JVM here) — never "JKS". A hardcoded `KeyStore.getInstance("JKS")`
  *  reload would throw on this host JVM too (no "JKS" entry was ever written), which is exactly

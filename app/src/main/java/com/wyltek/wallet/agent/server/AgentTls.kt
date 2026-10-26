@@ -50,8 +50,6 @@ object AgentTls {
      *  notice, so the warning survives a process death before the Agent screen showed it. */
     fun regenMarker(context: Context): File = File(context.filesDir, REGEN_MARKER)
 
-    fun keyStore(context: Context): KeyStore = load(context).keyStore
-
     /** Context-free core so this is testable on a host JVM (see AgentTlsTest). Loads with
      *  [KeyStore.getDefaultType] — the SAME type [buildKeyStore] persists in (BKS on Android,
      *  PKCS12 on host JVM) — never a hardcoded "JKS", which has no provider on Android and would
