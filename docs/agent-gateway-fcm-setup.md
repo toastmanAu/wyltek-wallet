@@ -73,3 +73,13 @@ nudge), drains the intent, and posts the result back.
 
 Until this is enabled, the relay uses ONLY the persistent connection — the phone must
 have tailnet connectivity for the relay path to reach it.
+
+## TLS pin (2026-10-26)
+
+The pairing QR now carries `"tls_pin"`, the SHA-256 of the Agent Gateway certificate's
+public key (64 hex chars); the Agent screen shows its first 8 hex under the QR. The
+keystore is RSA-2048, valid 10 years, and is regenerated on load when the key is under
+2048 bits or under a year of validity remains. The first launch after this build shows
+the regeneration notice once (persisted via a marker file until dismissed), and every POS
+must re-scan a pairing QR, because the POS pins the public key. The CN, SAN and expiry of
+the certificate are irrelevant to the POS, so only a regenerated key forces re-provisioning.
