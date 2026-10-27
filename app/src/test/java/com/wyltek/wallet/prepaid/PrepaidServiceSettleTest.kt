@@ -192,4 +192,14 @@ class PrepaidServiceSettleTest {
         assertEquals(300_000, d2.balanceUnits); assertEquals(0L, d2.settledCounter); assertEquals(c2.currentOutpoint, d2.currentOutpoint); assertNull(d2.pendingTxHash)
         assertTrue(h.store.events.any { it.kind == KIND_SETTLE && it.reserveId == c2.reserveId && it.phase == PHASE_FAILED })
     }
+
+    @Test fun an_accepted_0x05_that_the_voucher_hook_fails_to_finalise_answers_retry() = runTest {
+        val h = h()
+        h.svc.voucherHooks = object : VoucherHooks by NoVoucherHooks {
+            override suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String): List<String> = throw IllegalStateException("boom")
+        }
+        h.protocol.verifyResult = BatchResultFfi(listOf(JournalVerdict.ACCEPTED), emptyList(), emptyList(), emptyList())
+        val r = h.svc.settle("00" + "05" + "00".repeat(94), "t")!!
+        assertEquals(listOf("retry"), r.verdicts)
+    }
 }

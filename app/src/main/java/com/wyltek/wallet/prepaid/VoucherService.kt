@@ -317,7 +317,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
             vouchers.seenForVoucher(v.voucherId).mapNotNull { s -> s.counter?.let { SettledRedeemFfi(it.toUInt(), s.entryHash) } })
     }
 
-    /** Finalises this batch's redeem (0x03) and override (0x04) verdicts. An entry stays `accepted` only once its record
+    /** Finalises this batch's redeem (0x03), override (0x04) and staff lockout (0x05) verdicts. An entry stays `accepted` only once its record
      *  is written: seen entry + count (redeems, one transaction) and audit row. A failed write answers `retry` so the
      *  terminal keeps the entry; an entry already seen (earlier batch or earlier in this one) is `duplicate`, with no
      *  second count-down and no second audit row (Review Focus 5). */
@@ -327,6 +327,7 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         fun accepted(i: UInt) = out.getOrNull(i.toInt()) == "accepted"
         settleRedeems(res.redeems.filter { accepted(it.index) }, out, terminalLabel)
         for (o in res.overrides) if (accepted(o.index)) out[o.index.toInt()] = settleOverride(o, terminalLabel)
+        for (l in res.lockouts) if (accepted(l.index)) out[l.index.toInt()] = settleLockout(l, terminalLabel)
         return out
     }
 
@@ -371,6 +372,19 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
             vouchers.insertSeen(JournalSeenEntity(hash, KIND_PRICE_OVERRIDE, null, null, o.terminalId.toInt(), core.clock()))
             core.log(PrepaidService.Audit(core.newActionId(), KIND_PRICE_OVERRIDE, "", null, o.newPrice.toLong(), o.oldPrice, 0), PHASE_DONE,
                 balanceAfter = o.newPrice, detail = "terminal ${o.terminalId}; product ${o.productHashHex}; ${o.oldPrice} -> ${o.newPrice} ${o.currency} (minor units); ${staffNote(o.keyIdHex)}; $terminalLabel")
+            "accepted"
+        }
+    } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }
+
+    /** Same order as [settleOverride]: seen marker first, then the audit row. The detail names only terminal, pin_ver,
+     *  attempt count, staff key status and terminal label. */
+    private suspend fun settleLockout(l: LockoutFfi, terminalLabel: String): String = try {
+        val hash = l.entryHashHex.lowercase()
+        if (vouchers.seen(hash) != null) "duplicate" else {
+            vouchers.insertSeen(JournalSeenEntity(hash, KIND_STAFF_LOCKOUT, null, null, l.terminalId.toInt(), core.clock()))
+            core.log(PrepaidService.Audit(core.newActionId(), KIND_STAFF_LOCKOUT, l.uidHex.lowercase(), l.keyIdHex.lowercase(), l.attempts.toLong(), 0, 0), PHASE_DONE,
+                balanceAfter = l.terminalId.toInt(), counterAfter = l.pinVer.toLong(),
+                detail = "terminal ${l.terminalId}; pin_ver ${l.pinVer}; ${l.attempts} wrong PINs; ${staffNote(l.keyIdHex)}; $terminalLabel")
             "accepted"
         }
     } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }

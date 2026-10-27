@@ -40,8 +40,8 @@ class PrepaidService(
         const val MAX_ACTIVE_CARDS = 64
         const val UNIT_SHANNONS = 100_000L
         const val PENDING_UNKNOWN_GIVE_UP_MS = 30L * 60 * 1000
-        /** Journal kinds settled by [VoucherHooks.apply] (0x03 voucher redeem, 0x04 price override), not by the card batch. */
-        internal val VOUCHER_ENTRY_KINDS = setOf(0x03, 0x04)
+        /** Journal kinds settled by [VoucherHooks.apply] (0x03 voucher redeem, 0x04 price override, 0x05 staff lockout), not by the card batch. */
+        internal val VOUCHER_ENTRY_KINDS = setOf(0x03, 0x04, 0x05)
         private const val TAG_WIPED = "tag wiped"
     }
 

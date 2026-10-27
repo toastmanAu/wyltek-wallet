@@ -7,7 +7,7 @@ import com.wyltek.wallet.core.native.VoucherStateFfi
 interface VoucherHooks {
     suspend fun uidHoldsVoucher(uidHex: String): Boolean
     suspend fun voucherStates(): List<VoucherStateFfi>
-    /** Applies accepted redeems and overrides; returns [names] with this hook's own entries finalised. Runs inside the settle lock. */
+    /** Applies accepted redeems, overrides and staff lockouts; returns [names] with this hook's own entries finalised. Runs inside the settle lock. */
     suspend fun apply(res: BatchResultFfi, names: List<String>, terminalLabel: String): List<String>
     /** After a settlement has returned, in a separate turn of the lock (PrepaidService.launchAfterSettle): close
      *  vouchers whose last use settled. Must not throw. */
