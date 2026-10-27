@@ -40,6 +40,8 @@ interface Protocol {
     fun productHash(code: String): String
     fun voucherId(txHashHex: String, index: UInt): String
     fun staffKeyId(uidHex: String, sigHex: String): String
+    /** 16-byte PIN check value as 32 hex; throws for a PIN that is not 4 to 8 digits or a pinVer outside 1..65535. */
+    fun staffPinCheck(kHex: String, keyIdHex: String, pinVer: Int, pin: String): String
     fun lockOf(address: String): LockScript?
 }
 

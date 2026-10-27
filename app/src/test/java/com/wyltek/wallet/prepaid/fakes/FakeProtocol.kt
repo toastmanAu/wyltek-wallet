@@ -122,13 +122,16 @@ class FakeProtocol : Protocol {
         if (b.isEmpty() || b.size > 31 || b.any { it in 0..0x1F || it == 0x7F.toByte() }) throw PrepaidException.InvalidInput("product code must be 1-31 printable characters")
         return s
     }
-    // NOTE: the fake productHash/staffKeyId digests are NOT the native ones (SHA-256, not ckb-blake2b); never pin real vectors against the fake.
+    // NOTE: the fake productHash/staffKeyId/staffPinCheck digests are NOT the native ones (SHA-256, not ckb-blake2b); never pin real vectors against the fake.
     override fun productHash(code: String): String {
         val d = java.security.MessageDigest.getInstance("SHA-256"); d.update(normaliseProductCode(code).toByteArray(Charsets.UTF_8)); return hex(d.digest().copyOf(8))
     }
     override fun voucherId(txHashHex: String, index: UInt) = reserveId(txHashHex, index).take(32)
     override fun staffKeyId(uidHex: String, sigHex: String): String {
         val d = java.security.MessageDigest.getInstance("SHA-256"); d.update((uidHex + sigHex).lowercase().toByteArray()); return hex(d.digest().copyOf(8))
+    }
+    override fun staffPinCheck(kHex: String, keyIdHex: String, pinVer: Int, pin: String): String {
+        val d = java.security.MessageDigest.getInstance("SHA-256"); d.update("$kHex|$keyIdHex|$pinVer|$pin".toByteArray()); return hex(d.digest().copyOf(16))
     }
     override fun lockOf(address: String) = locks[address]
 }

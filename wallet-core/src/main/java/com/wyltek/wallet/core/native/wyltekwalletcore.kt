@@ -725,6 +725,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_staff_key_id(
     ): Int
+    external fun uniffi_wyltekwalletcore_checksum_func_prepaid_staff_pin_check(
+    ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch(
     ): Int
     external fun uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_id(
@@ -853,6 +855,8 @@ external fun uniffi_wyltekwalletcore_fn_func_prepaid_seal_record(`kDebitHex`: Ru
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_select_slot(`kDebitHex`: RustBuffer.ByValue,`uidHex`: RustBuffer.ByValue,`raw128Hex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_staff_key_id(`uidHex`: RustBuffer.ByValue,`sigHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_wyltekwalletcore_fn_func_prepaid_staff_pin_check(`kDebitHex`: RustBuffer.ByValue,`keyIdHex`: RustBuffer.ByValue,`pinVer`: Short,`pin`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_wyltekwalletcore_fn_func_prepaid_verify_batch(`kDebitHex`: RustBuffer.ByValue,`merchantIdHex`: RustBuffer.ByValue,`entriesHex`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,`vouchers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1134,7 +1138,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_staff_key_id() != 54180) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 21867) {
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_staff_pin_check() != 13787) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_verify_batch() != 64141) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_wyltekwalletcore_checksum_func_prepaid_voucher_id() != 62559) {
@@ -1598,6 +1605,8 @@ data class BatchResultFfi (
     var `redeems`: List<RedeemFfi>
     , 
     var `overrides`: List<OverrideFfi>
+    , 
+    var `lockouts`: List<LockoutFfi> = listOf() 
     
 ){
     
@@ -1618,6 +1627,7 @@ public object FfiConverterTypeBatchResultFfi: FfiConverterRustBuffer<BatchResult
             FfiConverterSequenceTypeCardNetFfi.read(buf),
             FfiConverterSequenceTypeRedeemFfi.read(buf),
             FfiConverterSequenceTypeOverrideFfi.read(buf),
+            FfiConverterSequenceTypeLockoutFfi.read(buf),
         )
     }
 
@@ -1625,7 +1635,8 @@ public object FfiConverterTypeBatchResultFfi: FfiConverterRustBuffer<BatchResult
             FfiConverterSequenceTypeJournalVerdict.allocationSize(value.`verdicts`) +
             FfiConverterSequenceTypeCardNetFfi.allocationSize(value.`nets`) +
             FfiConverterSequenceTypeRedeemFfi.allocationSize(value.`redeems`) +
-            FfiConverterSequenceTypeOverrideFfi.allocationSize(value.`overrides`)
+            FfiConverterSequenceTypeOverrideFfi.allocationSize(value.`overrides`) +
+            FfiConverterSequenceTypeLockoutFfi.allocationSize(value.`lockouts`)
     )
 
     override fun write(value: BatchResultFfi, buf: ByteBuffer) {
@@ -1633,6 +1644,7 @@ public object FfiConverterTypeBatchResultFfi: FfiConverterRustBuffer<BatchResult
             FfiConverterSequenceTypeCardNetFfi.write(value.`nets`, buf)
             FfiConverterSequenceTypeRedeemFfi.write(value.`redeems`, buf)
             FfiConverterSequenceTypeOverrideFfi.write(value.`overrides`, buf)
+            FfiConverterSequenceTypeLockoutFfi.write(value.`lockouts`, buf)
     }
 }
 
@@ -2105,6 +2117,69 @@ public object FfiConverterTypeLedgerView: FfiConverterRustBuffer<LedgerView> {
             FfiConverterLong.write(value.`cumulativeSpent`, buf)
             FfiConverterLong.write(value.`windowSpent`, buf)
             FfiConverterBoolean.write(value.`nonceSeen`, buf)
+    }
+}
+
+
+
+data class LockoutFfi (
+    var `index`: kotlin.UInt
+    , 
+    var `terminalId`: kotlin.UShort
+    , 
+    var `uidHex`: kotlin.String
+    , 
+    var `keyIdHex`: kotlin.String
+    , 
+    var `pinVer`: kotlin.UShort
+    , 
+    var `attempts`: kotlin.Int
+    , 
+    var `entryHashHex`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLockoutFfi: FfiConverterRustBuffer<LockoutFfi> {
+    override fun read(buf: ByteBuffer): LockoutFfi {
+        return LockoutFfi(
+            FfiConverterUInt.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LockoutFfi) = (
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterUShort.allocationSize(value.`terminalId`) +
+            FfiConverterString.allocationSize(value.`uidHex`) +
+            FfiConverterString.allocationSize(value.`keyIdHex`) +
+            FfiConverterUShort.allocationSize(value.`pinVer`) +
+            FfiConverterInt.allocationSize(value.`attempts`) +
+            FfiConverterString.allocationSize(value.`entryHashHex`)
+    )
+
+    override fun write(value: LockoutFfi, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterUShort.write(value.`terminalId`, buf)
+            FfiConverterString.write(value.`uidHex`, buf)
+            FfiConverterString.write(value.`keyIdHex`, buf)
+            FfiConverterUShort.write(value.`pinVer`, buf)
+            FfiConverterInt.write(value.`attempts`, buf)
+            FfiConverterString.write(value.`entryHashHex`, buf)
     }
 }
 
@@ -3833,6 +3908,34 @@ public object FfiConverterSequenceTypeCardStateFfi: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeLockoutFfi: FfiConverterRustBuffer<List<LockoutFfi>> {
+    override fun read(buf: ByteBuffer): List<LockoutFfi> {
+        val len = buf.getInt()
+        return List<LockoutFfi>(len) {
+            FfiConverterTypeLockoutFfi.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LockoutFfi>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLockoutFfi.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LockoutFfi>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLockoutFfi.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeMldsaInputCell: FfiConverterRustBuffer<List<MldsaInputCell>> {
     override fun read(buf: ByteBuffer): List<MldsaInputCell> {
         val len = buf.getInt()
@@ -4676,7 +4779,21 @@ public object FfiConverterSequenceTypeScope: FfiConverterRustBuffer<List<Scope>>
     
 
         /**
-         * `merchant_id_hex` = this Vault's merchant_id (8 bytes): voucher redeems and price overrides of any other merchant answer `bad_mac`.
+         * Derives `K_staff` from `K_debit` and returns the 16-byte PIN check value as 32 hex. A PIN is 4 to 8 ASCII digits.
+         */
+    @Throws(PrepaidException::class) fun `prepaidStaffPinCheck`(`kDebitHex`: kotlin.String, `keyIdHex`: kotlin.String, `pinVer`: kotlin.UShort, `pin`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PrepaidException) { _status ->
+    UniffiLib.uniffi_wyltekwalletcore_fn_func_prepaid_staff_pin_check(
+    
+        FfiConverterString.lower(`kDebitHex`),FfiConverterString.lower(`keyIdHex`),FfiConverterUShort.lower(`pinVer`),FfiConverterString.lower(`pin`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * `merchant_id_hex` = this Vault's merchant_id (8 bytes): voucher redeems, price overrides and staff lockouts of any other merchant answer `bad_mac`.
          */
     @Throws(PrepaidException::class) fun `prepaidVerifyBatch`(`kDebitHex`: kotlin.String, `merchantIdHex`: kotlin.String, `entriesHex`: kotlin.String, `cards`: List<CardStateFfi>, `vouchers`: List<VoucherStateFfi>): BatchResultFfi {
             return FfiConverterTypeBatchResultFfi.lift(

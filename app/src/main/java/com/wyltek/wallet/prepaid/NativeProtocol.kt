@@ -3,6 +3,9 @@ package com.wyltek.wallet.prepaid
 import com.wyltek.wallet.core.model.LockScript
 import com.wyltek.wallet.core.native.*
 
+/** pin_ver is a u16 on the wire and 0 is reserved for "no PIN set". */
+internal fun pinVerInRange(pinVer: Int): Boolean = pinVer in 1..65535
+
 class NativeProtocol : Protocol {
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
     private fun unhex(s: String) = s.removePrefix("0x").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -19,6 +22,10 @@ class NativeProtocol : Protocol {
     override fun productHash(code: String) = prepaidProductHash(code)
     override fun voucherId(txHashHex: String, index: UInt) = prepaidVoucherId(txHashHex, index)
     override fun staffKeyId(uidHex: String, sigHex: String) = prepaidStaffKeyId(uidHex, sigHex)
+    override fun staffPinCheck(kHex: String, keyIdHex: String, pinVer: Int, pin: String): String {
+        require(pinVerInRange(pinVer)) { "pin_ver out of range" }
+        return prepaidStaffPinCheck(kHex, keyIdHex, pinVer.toUShort(), pin)
+    }
     /** Null for hash types rust-core's build_transaction cannot serialise (it writes every non-"type" as 0) (I8). */
     override fun lockOf(address: String): LockScript? = try {
         val i = decodeAddress(address)

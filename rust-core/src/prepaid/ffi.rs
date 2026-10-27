@@ -1,5 +1,5 @@
 //! uniffi surface for the prepaid demo tier (D3 spec §4). Thin hex/record adapters over the pure modules.
-use super::{record, reserve, verifier, voucher};
+use super::{record, reserve, staff, verifier, voucher};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
@@ -35,7 +35,10 @@ pub enum JournalVerdict { Accepted, Duplicate, BadMac, UnknownCard, StaleCounter
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct CardNetFfi { pub reserve_id_hex: String, pub net_units: i64, pub max_tmc: u32, pub accepted: u32 }
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct BatchResultFfi { pub verdicts: Vec<JournalVerdict>, pub nets: Vec<CardNetFfi>, pub redeems: Vec<RedeemFfi>, pub overrides: Vec<OverrideFfi> }
+pub struct LockoutFfi { pub index: u32, pub terminal_id: u16, pub uid_hex: String, pub key_id_hex: String, pub pin_ver: u16, pub attempts: i32, pub entry_hash_hex: String }
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BatchResultFfi { pub verdicts: Vec<JournalVerdict>, pub nets: Vec<CardNetFfi>, pub redeems: Vec<RedeemFfi>, pub overrides: Vec<OverrideFfi>,
+    #[uniffi(default = [])] pub lockouts: Vec<LockoutFfi> }
 
 fn info_of(r: &record::DemoCardRecord) -> CardRecordInfo {
     CardRecordInfo { writer_id: r.writer_id, reserve_id_hex: hex::encode(r.reserve_id), balance_units: r.balance_units,
@@ -160,6 +163,15 @@ pub fn prepaid_staff_key_id(uid_hex: String, sig_hex: String) -> Result<String, 
     Ok(hex::encode(voucher::staff_key_id(&hex7(&uid_hex)?, &fixed::<32>(&sig_hex, "signature")?)))
 }
 
+/// Derives `K_staff` from `K_debit` and returns the 16-byte PIN check value as 32 hex. A PIN is 4 to 8 ASCII digits.
+#[uniffi::export]
+pub fn prepaid_staff_pin_check(k_debit_hex: String, key_id_hex: String, pin_ver: u16, pin: String) -> Result<String, PrepaidError> {
+    let k = staff::k_staff(&hex16(&k_debit_hex)?);
+    let key_id = fixed::<8>(&key_id_hex, "key_id")?;
+    staff::pin_check(&k, &key_id, pin_ver, pin.as_bytes()).map(hex::encode)
+        .ok_or_else(|| PrepaidError::InvalidInput("PIN must be 4 to 8 digits".into()))
+}
+
 fn verdict_ffi(v: verifier::Verdict) -> JournalVerdict {
     match v {
         verifier::Verdict::Accepted => JournalVerdict::Accepted, verifier::Verdict::Duplicate => JournalVerdict::Duplicate,
@@ -170,7 +182,7 @@ fn verdict_ffi(v: verifier::Verdict) -> JournalVerdict {
     }
 }
 
-/// `merchant_id_hex` = this Vault's merchant_id (8 bytes): voucher redeems and price overrides of any other merchant answer `bad_mac`.
+/// `merchant_id_hex` = this Vault's merchant_id (8 bytes): voucher redeems, price overrides and staff lockouts of any other merchant answer `bad_mac`.
 #[uniffi::export]
 pub fn prepaid_verify_batch(k_debit_hex: String, merchant_id_hex: String, entries_hex: String, cards: Vec<CardStateFfi>, vouchers: Vec<VoucherStateFfi>) -> Result<BatchResultFfi, PrepaidError> {
     let key = hex16(&k_debit_hex)?;
@@ -188,6 +200,8 @@ pub fn prepaid_verify_batch(k_debit_hex: String, merchant_id_hex: String, entrie
         redeems: r.redeems.into_iter().map(|x| RedeemFfi { index: x.index, terminal_id: x.terminal_id, voucher_id_hex: hex::encode(x.voucher_id), counter: x.counter, key_id_hex: hex::encode(x.key_id), entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
         overrides: r.overrides.into_iter().map(|x| OverrideFfi { index: x.index, terminal_id: x.terminal_id, product_hash_hex: hex::encode(x.product_hash),
             old_price: x.old_price, new_price: x.new_price, currency: String::from_utf8_lossy(&x.currency).into_owned(), key_id_hex: hex::encode(x.key_id), entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
+        lockouts: r.lockouts.into_iter().map(|x| LockoutFfi { index: x.index, terminal_id: x.terminal_id, uid_hex: hex::encode(x.uid), key_id_hex: hex::encode(x.key_id),
+            pin_ver: x.pin_ver, attempts: x.attempts, entry_hash_hex: hex::encode(x.entry_hash) }).collect(),
     })
 }
 
@@ -327,6 +341,33 @@ mod tests {
         let r = prepaid_verify_batch(K.into(), M.into(), hex::encode(raw), vec![], vec![v]).unwrap();
         assert_eq!(r.verdicts, vec![JournalVerdict::Accepted]);
         assert_eq!(r.redeems, vec![RedeemFfi { index: 0, terminal_id: 4, voucher_id_hex: "c0".repeat(16), counter: 1, key_id_hex: "77".repeat(8), entry_hash_hex: want_hash }]);
+    }
+
+    #[test]
+    fn staff_pin_check_matches_the_pure_derivation_and_rejects_bad_pins() {
+        use crate::prepaid::staff;
+        let k = String::from("101112131415161718191a1b1c1d1e1f"); let kid = "c0ffee0102030405";
+        let want = hex::encode(staff::pin_check(&staff::k_staff(&hex16(&k).unwrap()), &fixed::<8>(kid, "k").unwrap(), 2, b"0042").unwrap());
+        assert_eq!(prepaid_staff_pin_check(k.clone(), kid.into(), 2, "0042".into()).unwrap(), want);
+        assert!(matches!(prepaid_staff_pin_check(k.clone(), kid.into(), 1, "123".into()), Err(PrepaidError::InvalidInput(_))));
+        assert!(matches!(prepaid_staff_pin_check(k.clone(), "c0ff".into(), 1, "1234".into()), Err(PrepaidError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn verify_batch_maps_lockouts() {
+        use crate::prepaid::journal::{attest, JournalEntry, KIND_STAFF_LOCKOUT};
+        let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0xC0, 0xFF, 0xEE, 1, 2, 3, 4, 5]); pad[8..10].copy_from_slice(&7u16.to_le_bytes());
+        let mut e = JournalEntry { version: 0x02, kind: KIND_STAFF_LOCKOUT, terminal_id: 9, merchant_id: [0x11; 8], uid: [4, 1, 2, 3, 4, 5, 6],
+            reserve_id: [0; 32], tmc: 0, amount_units: 3, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
+        let raw = attest(&hex16(K).unwrap(), &mut e);
+        let r = prepaid_verify_batch(K.into(), M.into(), hex::encode(raw), vec![], vec![]).unwrap();
+        assert_eq!(r.verdicts, vec![JournalVerdict::Accepted]);
+        assert_eq!(r.lockouts.len(), 1);
+        let l = &r.lockouts[0];
+        assert_eq!((l.index, l.terminal_id, l.pin_ver, l.attempts), (0, 9, 7, 3));
+        assert_eq!(l.key_id_hex, "c0ffee0102030405");
+        assert_eq!(l.uid_hex, "04010203040506");
+        assert_eq!(l.entry_hash_hex.len(), 64);
     }
 
     #[test]
