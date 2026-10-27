@@ -4,11 +4,12 @@
 //! For a live settlement --merchant MUST be the Vault's real merchant_id: the verifier answers bad_mac to a redeem or
 //! override carrying any other merchant_id (vouchers spec §8.3), including the all-zero default.
 //!                          --ts <u32> (default 0) --sale-ref <8B hex> (default 0000000000000000)
-use wyltekwalletcore::prepaid::journal::{self, attest, JournalEntry, KIND_PRICE_OVERRIDE, KIND_VOUCHER_REDEEM, VERSION_DEMO};
+use wyltekwalletcore::prepaid::journal::{self, attest, JournalEntry, KIND_PRICE_OVERRIDE, KIND_STAFF_LOCKOUT, KIND_VOUCHER_REDEEM, VERSION_DEMO};
 
 pub const USAGE: &str = "usage:
   prepaid_journal_entry <k_debit16> redeem <voucher_id16> <product_hash8> <counter u32> <count_after 0..254> <terminal_id u16> <key_id8 non-zero> [flags]
   prepaid_journal_entry <k_debit16> override <product_hash8> <old_minor >=0> <new_minor >=0> <currency AAA> <terminal_id u16> <key_id8 non-zero> [flags]
+  prepaid_journal_entry <k_debit16> lockout <terminal_id u16> <key_id8 non-zero> <pin_ver u16> [flags]
 flags: --uid <7B hex> (default 04000000000001)  --merchant <8B hex> (default 0000000000000000)
        --merchant MUST be the Vault's real merchant_id for a live settlement; any other value (the default too) answers bad_mac.
        --ts <u32> (default 0)  --sale-ref <8B hex> (default 0000000000000000)
@@ -34,7 +35,7 @@ fn key_id(s: &str) -> Result<[u8; 8], String> {
 pub fn build(args: &[String]) -> Result<String, String> {
     if args.len() < 2 { return Err("missing arguments".into()); }
     let key: [u8; 16] = hexn("k_debit", &args[0])?;
-    let (npos, sub) = match args[1].as_str() { "redeem" => (8, "redeem"), "override" => (8, "override"), o => return Err(format!("unknown subcommand '{o}'")) };
+    let (npos, sub) = match args[1].as_str() { "redeem" => (8, "redeem"), "override" => (8, "override"), "lockout" => (5, "lockout"), o => return Err(format!("unknown subcommand '{o}'")) };
     let mut pos: Vec<&String> = Vec::new();
     let mut flags: Vec<(&str, &String)> = Vec::new();
     let mut it = args[2..].iter();
@@ -63,6 +64,13 @@ pub fn build(args: &[String]) -> Result<String, String> {
         e.amount_units = 1; e.balance_after = after as i32;
         e.terminal_id = num("terminal_id", pos[4])?;
         e.pad[..8].copy_from_slice(&key_id(pos[5])?);
+    } else if sub == "lockout" {
+        e.kind = KIND_STAFF_LOCKOUT;
+        e.terminal_id = num("terminal_id", pos[0])?;
+        e.pad[..8].copy_from_slice(&key_id(pos[1])?);
+        let ver: u16 = num("pin_ver", pos[2])?;
+        e.pad[8..10].copy_from_slice(&ver.to_le_bytes());
+        e.amount_units = 3;
     } else {
         e.kind = KIND_PRICE_OVERRIDE;
         e.reserve_id[..8].copy_from_slice(&hexn::<8>("product_hash", pos[0])?);
@@ -117,5 +125,27 @@ mod tests {
             format!("{K} redeem {VID} 5a5a5a5a5a5a5a5a 1 0 3 7777777777777777 --bogus 1"),
             format!("{K} nope"),
         ] { assert!(build(&v(&bad)).is_err(), "should refuse: {bad}"); }
+    }
+    #[test] fn lockout_builds_a_verifying_0x05_entry() {
+        let h = build(&v(&format!("{K} lockout 3 7777777777777777 258"))).unwrap();
+        let raw: [u8; 96] = hex::decode(&h).unwrap().try_into().unwrap();
+        let key: [u8; 16] = hex::decode(K).unwrap().try_into().unwrap();
+        assert!(journal::verify(&key, &raw));
+        let e = journal::decode(&raw).unwrap();
+        assert_eq!(e.kind, 5);
+        assert_eq!(e.amount_units, 3);
+        assert_eq!(e.terminal_id, 3);
+        assert_eq!(&e.pad[..8], &[0x77u8; 8]);
+        assert_eq!(u16::from_le_bytes([e.pad[8], e.pad[9]]), 258);
+        assert_eq!(&e.pad[10..], &[0, 0]);
+    }
+    #[test] fn lockout_refuses_a_zero_key_id() {
+        assert!(build(&v(&format!("{K} lockout 3 0000000000000000 1"))).is_err());
+    }
+    #[test] fn lockout_refuses_malformed_inputs() {
+        for bad in [format!("{K} lockout 3 7777777777777777"), format!("{K} lockout 3 7777777777777777 70000"),
+            format!("{K} lockout 70000 7777777777777777 1"), format!("{K} lockout 3 7777777777777777 1 extra")] {
+            assert!(build(&v(&bad)).is_err(), "should refuse: {bad}");
+        }
     }
 }
