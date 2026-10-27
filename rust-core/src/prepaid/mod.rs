@@ -10,3 +10,4 @@ pub mod reserve;
 pub mod verifier;
 pub mod ffi;
 pub mod voucher;
+pub mod staff;
