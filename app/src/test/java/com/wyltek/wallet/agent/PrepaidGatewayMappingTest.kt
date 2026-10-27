@@ -56,12 +56,12 @@ class PrepaidGatewayMappingTest {
     }
 
     @Test fun staff_dto_carries_the_key_id_only_lower_case() {
-        val d = PrepaidGatewayMapping.staffDtoOf(com.wyltek.wallet.prepaid.db.StaffKeyEntity("7A".repeat(8), "04958CAA5C5E80", "5A".repeat(32), "ring", 1, null))
-        assertEquals(StaffKeyDto("7a".repeat(8)), d)
+        val d = PrepaidGatewayMapping.staffDtoOf(com.wyltek.wallet.prepaid.db.StaffKeyEntity("7A".repeat(8), "04958CAA5C5E80", "5A".repeat(32), "ring", 1, null, pinVer = 3, pinCheckHex = "AB".repeat(16), pinSetAt = 1))
+        assertEquals(StaffKeyDto("7a".repeat(8), 3, "ab".repeat(16)), d)
     }
 
     @Test fun staff_list_is_capped_at_16_and_skips_revoked() {
-        fun k(i: Int, revoked: Long? = null) = StaffKeyEntity("%016x".format(i), "04aa", "5a".repeat(32), "n$i", 1, revoked)
+        fun k(i: Int, revoked: Long? = null) = StaffKeyEntity("%016x".format(i), "04aa", "5a".repeat(32), "n$i", 1, revoked, pinVer = 1, pinCheckHex = "ab".repeat(16), pinSetAt = 1)
         val keys = (1..20).map { k(it) } + k(99, revoked = 5)
         val out = PrepaidGatewayMapping.staffDtosOf(keys)
         assertEquals(16, out.size)

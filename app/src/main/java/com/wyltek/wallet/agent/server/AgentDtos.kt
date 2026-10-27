@@ -62,9 +62,9 @@ sealed class PrepaidJournalResult {
     data class BadRequest(val reason: String) : PrepaidJournalResult()
     data class Ok(val results: List<JournalVerdictDto>) : PrepaidJournalResult()
 }
-/** Final review MEDIUM-1: the key id only. The uid and originality signature are the whole clone material of a staff tag,
- *  so they never leave the Vault; a terminal computes key_id = blake2b(uid ‖ READ_SIG)[..8] on tap and compares. */
-@Serializable data class StaffKeyDto(@SerialName("key_id") val keyId: String)
+/** Final review MEDIUM-1: key id, PIN version and PIN check only. The uid and originality signature are the whole clone material
+ *  of a staff tag, so they never leave the Vault; a terminal computes key_id = blake2b(uid ‖ READ_SIG)[..8] on tap and compares. */
+@Serializable data class StaffKeyDto(@SerialName("key_id") val keyId: String, @SerialName("pin_ver") val pinVer: Int, @SerialName("pin_check") val pinCheck: String)
 @Serializable data class StaffKeysResponse(val staff: List<StaffKeyDto>)
 sealed class PrepaidStaffResult {
     data object BadToken : PrepaidStaffResult()

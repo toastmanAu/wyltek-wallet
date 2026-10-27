@@ -62,19 +62,35 @@ class PrepaidRoutesTest {
     }
 
     @Test fun staff_ok_lists_keys_and_needs_a_token() = runBlocking {
-        val p = port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken, PrepaidStaffResult.Ok(listOf(StaffKeyDto("77".repeat(8)))))
+        val p = port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken, PrepaidStaffResult.Ok(listOf(StaffKeyDto("77".repeat(8), 1, "ab".repeat(16)))))
         val r = routeAgentRequest("GET", "/v1/prepaid/staff", hdr, "", p)
         assertEquals(200, r.status)
-        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}"}]}""", r.body)
+        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}","pin_ver":1,"pin_check":"${"ab".repeat(16)}"}]}""", r.body)
         assertEquals(401, routeAgentRequest("GET", "/v1/prepaid/staff", noHdr, "", p).status)
         assertEquals(401, routeAgentRequest("GET", "/v1/prepaid/staff", hdr, "", port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken)).status)
     }
 
     @Test fun staff_wire_never_carries_the_uid_or_the_signature() = runBlocking {
-        val k = com.wyltek.wallet.prepaid.db.StaffKeyEntity("77".repeat(8), "04958caa5c5e80", "5a".repeat(32), "ring", 1, null)
+        val k = com.wyltek.wallet.prepaid.db.StaffKeyEntity("77".repeat(8), "04958caa5c5e80", "5a".repeat(32), "ring", 1, null, pinVer = 1, pinCheckHex = "ab".repeat(16), pinSetAt = 1)
         val p = port(PrepaidJournalResult.BadToken, PrepaidCardsResult.BadToken, PrepaidStaffResult.Ok(com.wyltek.wallet.agent.PrepaidGatewayMapping.staffDtosOf(listOf(k))))
         val body = routeAgentRequest("GET", "/v1/prepaid/staff", hdr, "", p).body
-        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}"}]}""", body)
+        assertEquals("""{"staff":[{"key_id":"${"77".repeat(8)}","pin_ver":1,"pin_check":"${"ab".repeat(16)}"}]}""", body)
         assertFalse(body.contains("04958caa5c5e80")); assertFalse(body.contains("5a".repeat(32)))
+    }
+
+    @Test fun staff_omits_a_key_without_a_pin_and_a_pinless_key_does_not_use_a_slot() {
+        fun k(i: Int, pin: Boolean) = com.wyltek.wallet.prepaid.db.StaffKeyEntity("%016x".format(i), "04" + "%012x".format(i), "5a".repeat(32), "k$i", i.toLong(), null,
+            pinVer = if (pin) 1 else 0, pinCheckHex = if (pin) "ab".repeat(16) else null, pinSetAt = if (pin) 1 else null)
+        val keys = listOf(k(0, false)) + (1..16).map { k(it, true) } + listOf(k(17, true))
+        val dtos = com.wyltek.wallet.agent.PrepaidGatewayMapping.staffDtosOf(keys)
+        assertEquals(16, dtos.size); assertEquals((1..16).map { "%016x".format(it) }, dtos.map { it.keyId })
+        assertTrue(dtos.all { it.pinVer == 1 && it.pinCheck == "ab".repeat(16) })
+        assertTrue(com.wyltek.wallet.agent.PrepaidGatewayMapping.staffDtosOf(listOf(k(1, true).copy(revokedAt = 2))).isEmpty())
+    }
+
+    @Test fun staff_wire_carries_lowercase_hex() {
+        val k = com.wyltek.wallet.prepaid.db.StaffKeyEntity("AB".repeat(8), "04958caa5c5e80", "5a".repeat(32), "ring", 1, null, pinVer = 2, pinCheckHex = "AB".repeat(16), pinSetAt = 1)
+        val d = com.wyltek.wallet.agent.PrepaidGatewayMapping.staffDtoOf(k)!!
+        assertEquals("ab".repeat(8), d.keyId); assertEquals("ab".repeat(16), d.pinCheck); assertEquals(2, d.pinVer)
     }
 }

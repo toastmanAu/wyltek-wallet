@@ -37,11 +37,14 @@ object PrepaidGatewayMapping {
 
     data class Candidate(val id: String, val testnet: Boolean, val firstAddressCodeHash: String?)
 
-    fun staffDtoOf(k: com.wyltek.wallet.prepaid.db.StaffKeyEntity) = com.wyltek.wallet.agent.server.StaffKeyDto(k.keyId.lowercase())
+    /** Null when the key has no PIN set; hex fields are lower-cased on the wire. */
+    fun staffDtoOf(k: com.wyltek.wallet.prepaid.db.StaffKeyEntity): com.wyltek.wallet.agent.server.StaffKeyDto? =
+        k.pinCheckHex?.let { com.wyltek.wallet.agent.server.StaffKeyDto(k.keyId.lowercase(), k.pinVer, it.lowercase()) }
 
-    /** Active (non-revoked) keys only, capped at [com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE]; key_id only (never uid or sig). */
+    /** Active (non-revoked) keys that have a PIN, capped at [com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE]; filter BEFORE the
+     *  cap so a PIN-less key never uses a slot. Never uid or sig. */
     fun staffDtosOf(keys: List<com.wyltek.wallet.prepaid.db.StaffKeyEntity>) =
-        keys.filter { it.revokedAt == null }.take(com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE).map(::staffDtoOf)
+        keys.filter { it.revokedAt == null && it.pinCheckHex != null }.take(com.wyltek.wallet.prepaid.StaffKeyService.MAX_ACTIVE).mapNotNull(::staffDtoOf)
 
     sealed class FundingChoice {
         /** [persist] = this is a first selection that must be written to [KEY_FUNDING_ACCOUNT]. */
