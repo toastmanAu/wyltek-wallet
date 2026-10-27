@@ -202,4 +202,25 @@ class PrepaidServiceSettleTest {
         val r = h.svc.settle("00" + "05" + "00".repeat(94), "t")!!
         assertEquals(listOf("retry"), r.verdicts)
     }
+
+    private fun voucherEntry(kind: Int) = "00" + "%02x".format(kind) + "00".repeat(94)
+    private fun hookless(kind: Int, extraCard: Boolean = false) = runTest {
+        val h = h()
+        val i = if (extraCard) 1u else 0u
+        val res = when (kind) {
+            3 -> BatchResultFfi(emptyList(), emptyList(), listOf(RedeemFfi(i, 3u, "11".repeat(8), 1u, "77".repeat(8), "ee".repeat(32))), emptyList())
+            4 -> BatchResultFfi(emptyList(), emptyList(), emptyList(), listOf(OverrideFfi(i, 4u, "5a".repeat(8), 500, 0, "AUD", "77".repeat(8), "dd".repeat(32))))
+            else -> BatchResultFfi(emptyList(), emptyList(), emptyList(), emptyList(), listOf(LockoutFfi(i, 9.toUShort(), "04010203040506", "71".repeat(8), 7.toUShort(), 3, "ab".repeat(32))))
+        }
+        val n = if (extraCard) 2 else 1
+        h.protocol.verifyResult = res.copy(verdicts = List(n) { JournalVerdict.ACCEPTED })
+        val body = (if (extraCard) "00" + "01" + "00".repeat(94) else "") + voucherEntry(kind)
+        val r = h.svc.settle(body, "t")!!
+        assertEquals(if (extraCard) listOf("accepted", "retry") else listOf("retry"), r.verdicts)
+        assertEquals(0, h.store.events.size)
+    }
+
+    @Test fun an_accepted_0x03_with_no_voucher_hook_answers_retry() = hookless(3)
+    @Test fun an_accepted_0x04_with_no_voucher_hook_answers_retry() = hookless(4)
+    @Test fun an_accepted_0x05_with_no_voucher_hook_answers_retry_and_leaves_card_entries_alone() = hookless(5, extraCard = true)
 }
