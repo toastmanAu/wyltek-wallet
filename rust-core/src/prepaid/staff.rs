@@ -5,9 +5,9 @@
 //! pin_check = AES-CMAC(K_staff, key_id || pin_ver.to_le_bytes() || pin)   (full 16 bytes)
 //! ```
 //!
-//! The first 8 bytes of `pin_check` are the MACt the card stores for PIN verification; the
-//! full 16 bytes are kept as the staff-side verification value. The Vault and the POS derive
-//! `K_staff` from `K_debit` and never store it.
+//! Nothing PIN-related is stored on any card. The Vault serves all 16 bytes of `pin_check` to
+//! terminals, and the POS compares all 16 bytes in constant time (spec §5.5 step 3). The Vault
+//! and the POS derive `K_staff` from `K_debit` and never store it.
 use super::cmac::aes_cmac;
 
 pub const PIN_MIN: usize = 4;

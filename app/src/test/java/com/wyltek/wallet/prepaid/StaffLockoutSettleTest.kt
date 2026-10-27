@@ -49,6 +49,19 @@ class StaffLockoutSettleTest {
         assertTrue(h2.store.events.single { it.kind == KIND_STAFF_LOCKOUT }.detail.contains("(revoked)"))
     }
 
+    /** Code review F3: the audit row is a lockout's only effect. If its write fails the terminal gets retry and resends;
+     *  the resend must record the row, not answer duplicate off a seen marker written before the failure. */
+    @Test fun a_lockout_whose_audit_write_fails_once_is_recorded_on_resend() = runTest {
+        val h = vh(); enrol(h)
+        h.store.failNextEvent = true
+        h.protocol.verifyResult = result(JournalVerdict.ACCEPTED)
+        assertEquals(listOf("retry"), h.core.settle(entry(5), "t")!!.verdicts)
+        assertNull(h.vstore.seen(hash)); assertEquals(0, h.store.events.count { it.kind == KIND_STAFF_LOCKOUT })
+        h.protocol.verifyResult = result(JournalVerdict.ACCEPTED)
+        assertEquals(listOf("accepted"), h.core.settle(entry(5), "t")!!.verdicts)
+        assertEquals(1, h.store.events.count { it.kind == KIND_STAFF_LOCKOUT }); assertEquals(KIND_STAFF_LOCKOUT, h.vstore.seen(hash)!!.kind)
+    }
+
     @Test fun a_lockout_whose_verdict_was_not_accepted_is_left_alone() = runTest {
         val h = vh()
         h.protocol.verifyResult = result(JournalVerdict.BAD_MAC)

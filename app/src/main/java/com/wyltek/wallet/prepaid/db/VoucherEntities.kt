@@ -49,8 +49,8 @@ data class StaffKeyEntity(
     val pinSetAt: Long? = null,
 )
 
-/** Every settled voucher-redeem and price-override entry, by blake2b of its 96 bytes: the settled set the verifier
- *  needs for `duplicate` vs `double_redeem`, and the dedupe for override audit rows. */
+/** Every settled voucher-redeem, price-override and staff-lockout entry, by blake2b of its 96 bytes: the settled set the
+ *  verifier needs for `duplicate` vs `double_redeem`, and the dedupe for override and lockout audit rows. */
 @Entity(tableName = "prepaid_journal_seen", indices = [Index(value = ["voucherId"])])
 data class JournalSeenEntity(
     @PrimaryKey val entryHash: String,

@@ -2,7 +2,11 @@ package com.wyltek.wallet.prepaid
 
 import com.wyltek.wallet.prepaid.db.*
 import com.wyltek.wallet.prepaid.fakes.*
+import com.wyltek.wallet.prepaid.VoucherStore
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -112,6 +116,41 @@ class StaffKeyServiceTest {
         svc.revoke(k.keyId)
         assertEquals(ActionOutcome.Failed(StaffKeyService.PIN_VER_EXHAUSTED), svc.enrol(FakeTag("04958caa5c5e80"), "b", "1234"))
         assertEquals(65535, vstore.keys[k.keyId]!!.pinVer)
+    }
+    @Test fun pin_ver_65534_may_still_be_set_to_65535() = runTest {
+        svc.enrol(FakeTag("04958caa5c5e80"), "a", "1234"); val k = svc.active().single()
+        vstore.updateStaffKey(k.copy(pinVer = 65534))
+        assertEquals(ActionOutcome.Done, svc.setPin(k.keyId, "1234"))
+        assertEquals(65535, vstore.keys[k.keyId]!!.pinVer)
+        assertEquals(ActionOutcome.Failed(StaffKeyService.PIN_VER_EXHAUSTED), svc.setPin(k.keyId, "1234"))
+        assertEquals(65535, vstore.keys[k.keyId]!!.pinVer)
+    }
+
+    /** Security review F2. setPin reads the row, then writes the whole row back. Without the process-wide mutex the revoke
+     *  launched here runs inside setPin's read window (between its staffKey() read and its updateStaffKey() write) and is
+     *  overwritten with revokedAt = null, resurrecting a revoked key that /staff then serves. With the mutex the revoke
+     *  waits until setPin has written, then revokes the row setPin wrote. A fresh service per call mirrors AgentGateway,
+     *  which builds a new StaffKeyService per access, so the lock must not be per instance. */
+    @Test fun set_pin_cannot_resurrect_a_key_revoked_during_its_read() = runTest {
+        svc.enrol(FakeTag("04958caa5c5e80"), "a", "1234"); val id = svc.active().single().keyId
+        val revokeDone = CompletableDeferred<ActionOutcome>()
+        var armed = true
+        fun service(vs: VoucherStore) = StaffKeyService(store, vs, FakeProtocol(), { "10".repeat(16) }, { now++ }, { "s${++ids}" }, verifySig = { _, _ -> true })
+        val racing = object : VoucherStore by vstore {
+            override suspend fun staffKey(id: String): StaffKeyEntity? {
+                val k = vstore.staffKey(id)
+                if (armed) {
+                    armed = false
+                    launch { revokeDone.complete(service(vstore).revoke(id)) }
+                    repeat(5) { yield() }   // give the revoke every chance to run inside this read window
+                }
+                return k
+            }
+        }
+        assertEquals(ActionOutcome.Done, service(racing).setPin(id, "5678"))
+        assertEquals(ActionOutcome.Done, revokeDone.await())
+        assertNotNull("the revoke must survive setPin", vstore.keys[id]!!.revokedAt)
+        assertTrue(svc.active().none { it.keyId == id })
     }
     @Test fun no_audit_row_ever_contains_the_pin() = runTest {
         val pin = "97315084"

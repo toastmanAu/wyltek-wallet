@@ -2,10 +2,12 @@ package com.wyltek.wallet.prepaid
 
 import com.wyltek.wallet.prepaid.db.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Vouchers spec §5.1. A staff key is any genuine NXP NTAG21x tag, identified by (UID, originality signature).
- *  Nothing is written to the tag. The ECC check happens here, once; terminals get only key_id (GET /v1/prepaid/staff)
- *  and recompute it from (uid, READ_SIG) on tap. */
+ *  Nothing is written to the tag. The ECC check happens here, once; terminals get key_id, pin_ver and pin_check
+ *  (GET /v1/prepaid/staff), recompute key_id from (uid, READ_SIG) on tap and check the PIN against pin_check. */
 class StaffKeyService(
     private val store: PrepaidStore,
     private val vouchers: VoucherStore,
@@ -22,13 +24,17 @@ class StaffKeyService(
         private const val PIN_VER_MAX = 65535
         /** null when [pin] is 4 to 8 ASCII digits. ASCII only: isDigit() would accept Unicode digits. */
         fun pinError(pin: String): String? = if (pin.length in 4..8 && pin.all { it in '0'..'9' }) null else PIN_RULE
+        /** enrol, setPin and revoke read a row and write the whole row back; serialise them so one cannot overwrite
+         *  another's write (a setPin racing a revoke would write revokedAt = null back). Process-wide because AgentGateway
+         *  builds a new StaffKeyService per access (security review F2). */
+        private val lock = Mutex()
     }
 
     private suspend fun audit(kind: String, uid: String, keyId: String, detail: String) = store.event(PrepaidEventEntity(atMs = clock(),
         actionId = newActionId(), kind = kind, phase = PHASE_DONE, reserveId = keyId, uid = uid, amountUnits = 0, balanceBefore = 0,
         balanceAfter = 0, counterBefore = 0, counterAfter = 0, txHash = null, detail = detail))
 
-    suspend fun enrol(tag: TagPort, label: String, pin: String): ActionOutcome {
+    suspend fun enrol(tag: TagPort, label: String, pin: String): ActionOutcome = lock.withLock {
         if (label.isBlank()) return ActionOutcome.Failed("enter a label")
         if (pinError(pin) != null) return ActionOutcome.Failed(PIN_RULE)
         val sig = try { tag.readSignature() } catch (e: CancellationException) { throw e } catch (e: Exception) { return ActionOutcome.NeedsTag(tag.uidHex) }
@@ -44,28 +50,28 @@ class StaffKeyService(
         if (existing != null) vouchers.updateStaffKey(row) else vouchers.insertStaffKey(row)
         audit(KIND_STAFF_ENROL, row.uid, keyId, "enrolled \"${row.label}\"")
         audit(KIND_STAFF_PIN_SET, row.uid, keyId, "pin_ver $pinVer")
-        return ActionOutcome.Done
+        ActionOutcome.Done
     }
 
-    suspend fun setPin(keyId: String, pin: String): ActionOutcome {
+    suspend fun setPin(keyId: String, pin: String): ActionOutcome = lock.withLock {
         val k = vouchers.staffKey(keyId)?.takeIf { it.revokedAt == null } ?: return ActionOutcome.Failed("no active staff key $keyId")
         if (pinError(pin) != null) return ActionOutcome.Failed(PIN_RULE)
         val pinVer = k.pinVer + 1
         if (pinVer > PIN_VER_MAX) return ActionOutcome.Failed(PIN_VER_EXHAUSTED)
         vouchers.updateStaffKey(k.withPin(pinVer, pin))
         audit(KIND_STAFF_PIN_SET, k.uid, keyId, "pin_ver $pinVer")
-        return ActionOutcome.Done
+        ActionOutcome.Done
     }
 
     /** The only place [pin] is used: the argument to the derivation. It is never stored, logged or put in a message. */
     private fun StaffKeyEntity.withPin(pinVer: Int, pin: String) =
         copy(pinVer = pinVer, pinCheckHex = protocol.staffPinCheck(kHex(), keyId, pinVer, pin), pinSetAt = clock())
 
-    suspend fun revoke(keyId: String): ActionOutcome {
+    suspend fun revoke(keyId: String): ActionOutcome = lock.withLock {
         val k = vouchers.staffKey(keyId)?.takeIf { it.revokedAt == null } ?: return ActionOutcome.Failed("no active staff key $keyId")
         vouchers.updateStaffKey(k.copy(revokedAt = clock()))
         audit(KIND_STAFF_REVOKE, k.uid, keyId, "revoked \"${k.label}\"")
-        return ActionOutcome.Done
+        ActionOutcome.Done
     }
 
     suspend fun active(): List<StaffKeyEntity> = vouchers.activeStaffKeys()

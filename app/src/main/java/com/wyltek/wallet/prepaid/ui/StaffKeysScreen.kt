@@ -24,7 +24,7 @@ import com.wyltek.wallet.prepaid.StaffKeyService
 import com.wyltek.wallet.prepaid.StaffKeyStatus
 import com.wyltek.wallet.prepaid.db.PrepaidEventEntity
 import com.wyltek.wallet.prepaid.db.StaffKeyEntity
-import com.wyltek.wallet.prepaid.latestLockouts
+import com.wyltek.wallet.prepaid.lockoutsByKey
 import com.wyltek.wallet.prepaid.staffKeyStatus
 import com.wyltek.wallet.prepaid.nfc.MifareTagPort
 import com.wyltek.wallet.prepaid.nfc.NfcReaderMode
@@ -48,8 +48,8 @@ class StaffKeysViewModel(app: Application) : AndroidViewModel(app) {
     private val svc = gateway.staffKeys
     val keys: StateFlow<List<StaffKeyEntity>> = gateway.voucherStore().staffKeysFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     /** Newest staff_lockout audit row per key id, for the Locked state. */
-    val lockouts: StateFlow<Map<String, PrepaidEventEntity>> =
-        gateway.prepaidStore().eventsFlow().map(::latestLockouts).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    val lockouts: StateFlow<Map<String, List<PrepaidEventEntity>>> =
+        gateway.prepaidStore().eventsFlow().map(::lockoutsByKey).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     private val _ui = MutableStateFlow(StaffUi()); val ui: StateFlow<StaffUi> = _ui.asStateFlow()
     val available = svc != null
     val unavailableReason: String? = if (svc == null) gateway.prepaidUnavailableReason ?: "Prepaid is not available" else null
@@ -144,8 +144,8 @@ fun StaffKeysScreen(onBack: () -> Unit, vm: StaffKeysViewModel = viewModel()) {
                     PinField(pin, { pin = it }, "PIN (4–8 digits)", StaffKeyService.pinError(pin))
                     PinField(repeat, { repeat = it }, "Repeat PIN", PIN_MISMATCH.takeIf { repeat != pin })
                     Button(enabled = label.isNotBlank() && pinPairValid(pin, repeat) && !ui.busy, onClick = {
-                        val l = label; val p = pin
-                        gated("Enrol staff key", "Lets this tag approve overrides") { vm.arm(l, p); pin = ""; repeat = "" }
+                        val l = label; val p = pin; pin = ""; repeat = ""   // cleared before the biometric, so a cancel leaves no PIN in the form
+                        gated("Enrol staff key", "Lets this tag approve overrides") { vm.arm(l, p) }
                     }) { Text("Enrol") }
                 } else {
                     Text("Hold the staff tag for \"${ui.armedLabel}\" to the phone within 60 s…", color = NeonCyan)
@@ -167,7 +167,7 @@ fun StaffKeysScreen(onBack: () -> Unit, vm: StaffKeysViewModel = viewModel()) {
                         supportingContent = {
                             Column {
                                 Text("${k.uid} · key ${k.keyId}" + (k.revokedAt?.let { " · revoked" } ?: ""), color = TextSecondary)
-                                when (val st = staffKeyStatus(k, lockouts[k.keyId])) {
+                                when (val st = staffKeyStatus(k, lockouts[k.keyId].orEmpty())) {
                                     StaffKeyStatus.NoPin -> Text("No PIN: not sent to terminals", color = WarningOrange)
                                     is StaffKeyStatus.Locked -> Text("Locked on terminal ${st.terminalId} at ${lockTime(st.atMs)}; set a new PIN to unlock", color = ErrorRed)
                                     is StaffKeyStatus.Served -> Text("PIN set (v${st.pinVer})", color = TextSecondary)

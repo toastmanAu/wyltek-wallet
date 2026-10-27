@@ -32,7 +32,12 @@ class InMemoryPrepaidStore : PrepaidStore {
     override suspend fun allCards() = cards.values.toList()
     override suspend fun cardsWithPending() = cards.values.filter { it.pendingTxHash != null }
     override suspend fun activeCount() = cards.values.count { it.state in setOf(CARD_ISSUING, CARD_ACTIVE, CARD_REVOKED) }
-    override suspend fun event(e: PrepaidEventEntity) { events += e.copy(id = events.size + 1L); emit() }
+    /** Set to make the next [event] throw once (a failed audit write), then behave normally. */
+    var failNextEvent = false
+    override suspend fun event(e: PrepaidEventEntity) {
+        if (failNextEvent) { failNextEvent = false; error("audit write failed") }
+        events += e.copy(id = events.size + 1L); emit()
+    }
     override suspend fun allEvents() = events.toList()
     override suspend fun eventsForCard(reserveId: String) = events.filter { it.reserveId == reserveId }.reversed()
     override fun cardsFlow() = cardsState

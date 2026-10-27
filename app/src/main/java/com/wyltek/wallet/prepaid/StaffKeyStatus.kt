@@ -14,20 +14,25 @@ sealed class StaffKeyStatus {
     data class Served(val pinVer: Int) : StaffKeyStatus()
 }
 
-/** Newest staff_lockout event per key_id (events arrive newest first from eventsFlow). Lockout rows carry the
+/** staff_lockout events per key_id, newest first (events arrive newest first from eventsFlow). Lockout rows carry the
  *  key id in `reserveId`, the terminal id in `balanceAfter` and the locked pin_ver in `counterAfter`. */
-fun latestLockouts(events: List<PrepaidEventEntity>): Map<String, PrepaidEventEntity> {
-    val out = LinkedHashMap<String, PrepaidEventEntity>()
+fun lockoutsByKey(events: List<PrepaidEventEntity>): Map<String, List<PrepaidEventEntity>> {
+    val out = LinkedHashMap<String, MutableList<PrepaidEventEntity>>()
     for (e in events) {
         val keyId = e.reserveId ?: continue
-        if (e.kind == KIND_STAFF_LOCKOUT && keyId !in out) out[keyId] = e
+        if (e.kind == KIND_STAFF_LOCKOUT) out.getOrPut(keyId) { mutableListOf() } += e
     }
     return out
 }
 
-fun staffKeyStatus(k: StaffKeyEntity, latestLockout: PrepaidEventEntity?): StaffKeyStatus = when {
-    k.revokedAt != null -> StaffKeyStatus.Revoked
-    k.pinCheckHex == null -> StaffKeyStatus.NoPin
-    latestLockout != null && latestLockout.counterAfter == k.pinVer.toLong() -> StaffKeyStatus.Locked(latestLockout.balanceAfter, latestLockout.atMs)
-    else -> StaffKeyStatus.Served(k.pinVer)
+/** [lockoutsForKey] newest first. Locked uses the newest lockout AT THE KEY'S CURRENT pin_ver: a lockout at another
+ *  pin_ver (a terminal that had not synced the latest PIN) settling later must not hide a live one (security review F1). */
+fun staffKeyStatus(k: StaffKeyEntity, lockoutsForKey: List<PrepaidEventEntity>): StaffKeyStatus {
+    val live = lockoutsForKey.firstOrNull { it.counterAfter == k.pinVer.toLong() }
+    return when {
+        k.revokedAt != null -> StaffKeyStatus.Revoked
+        k.pinCheckHex == null -> StaffKeyStatus.NoPin
+        live != null -> StaffKeyStatus.Locked(live.balanceAfter, live.atMs)
+        else -> StaffKeyStatus.Served(k.pinVer)
+    }
 }

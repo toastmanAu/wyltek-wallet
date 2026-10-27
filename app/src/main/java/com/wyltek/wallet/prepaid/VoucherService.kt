@@ -376,15 +376,20 @@ class VoucherService(private val core: PrepaidService, private val vouchers: Vou
         }
     } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }
 
-    /** Same order as [settleOverride]: seen marker first, then the audit row. The detail names only terminal, pin_ver,
-     *  attempt count, staff key status and terminal label. */
+    /** The OPPOSITE order to [settleOverride]: audit row first, then the seen marker. For a lockout the audit row is the
+     *  only effect (it is what shows the key Locked on the Staff keys screen), so it must not be lost: with the marker
+     *  first, a failed audit write answers retry, the resend answers duplicate, and the lockout is never recorded while the
+     *  key stays locked on the terminal. A failure between the two writes here costs one extra audit row on the resend,
+     *  which is harmless (the screen reads the newest lockout per key and pin_ver); every happy-path resend still answers
+     *  duplicate. [settleOverride] keeps marker-first because there a lost row is cheaper than a doubled one. The detail
+     *  names only terminal, pin_ver, attempt count, staff key status and terminal label. */
     private suspend fun settleLockout(l: LockoutFfi, terminalLabel: String): String = try {
         val hash = l.entryHashHex.lowercase()
         if (vouchers.seen(hash) != null) "duplicate" else {
-            vouchers.insertSeen(JournalSeenEntity(hash, KIND_STAFF_LOCKOUT, null, null, l.terminalId.toInt(), core.clock()))
             core.log(PrepaidService.Audit(core.newActionId(), KIND_STAFF_LOCKOUT, l.uidHex.lowercase(), l.keyIdHex.lowercase(), l.attempts.toLong(), 0, 0), PHASE_DONE,
                 balanceAfter = l.terminalId.toInt(), counterAfter = l.pinVer.toLong(),
                 detail = "terminal ${l.terminalId}; pin_ver ${l.pinVer}; ${l.attempts} wrong PINs; ${staffNote(l.keyIdHex)}; $terminalLabel")
+            vouchers.insertSeen(JournalSeenEntity(hash, KIND_STAFF_LOCKOUT, null, null, l.terminalId.toInt(), core.clock()))
             "accepted"
         }
     } catch (e: CancellationException) { throw e } catch (e: Exception) { "retry" }
