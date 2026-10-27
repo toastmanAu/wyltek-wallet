@@ -9,6 +9,7 @@ pub const KIND_DEBIT: u8 = 0x01;
 pub const KIND_REFUND: u8 = 0x02;
 pub const KIND_VOUCHER_REDEEM: u8 = 0x03;
 pub const KIND_PRICE_OVERRIDE: u8 = 0x04;
+pub const KIND_STAFF_LOCKOUT: u8 = 0x05;
 const TMV_OFF: usize = 68;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,7 +19,7 @@ pub struct JournalEntry {
     pub tmv: [u8; 8], pub sale_ref: [u8; 8], pub pad: [u8; 12],
 }
 
-pub fn is_known_kind(kind: u8) -> bool { (KIND_DEBIT..=KIND_PRICE_OVERRIDE).contains(&kind) }
+pub fn is_known_kind(kind: u8) -> bool { (KIND_DEBIT..=KIND_STAFF_LOCKOUT).contains(&kind) }
 
 pub fn encode(e: &JournalEntry) -> [u8; ENTRY_SIZE] {
     let mut r = [0u8; ENTRY_SIZE];
@@ -61,6 +62,9 @@ fn shape_ok(e: &JournalEntry) -> bool {
         KIND_VOUCHER_REDEEM => e.reserve_id[24..].iter().all(|&b| b == 0) && key_id_set && e.pad[8..].iter().all(|&b| b == 0),
         KIND_PRICE_OVERRIDE => e.reserve_id[8..].iter().all(|&b| b == 0) && e.tmc == 0 && key_id_set
             && e.pad[8..11].iter().all(|b| b.is_ascii_uppercase()) && e.pad[11] == 0,
+        // pin_ver (pad 8..10) is unconstrained: the terminal reports what it holds. amount_units = failed attempts.
+        KIND_STAFF_LOCKOUT => e.reserve_id == [0; 32] && e.tmc == 0 && e.balance_after == 0 && e.amount_units > 0
+            && key_id_set && e.pad[10..12] == [0, 0],
         _ => false,
     }
 }
@@ -91,6 +95,7 @@ pub fn verify(key: &[u8; 16], raw: &[u8; ENTRY_SIZE]) -> bool {
         KIND_REFUND => e.amount_units < 0,
         KIND_VOUCHER_REDEEM => e.amount_units == 1 && (0..=254).contains(&e.balance_after),
         KIND_PRICE_OVERRIDE => e.amount_units >= 0 && e.balance_after >= 0,
+        KIND_STAFF_LOCKOUT => e.amount_units > 0,
         _ => false,
     };
     mac_ok(key, raw) & amounts_ok
@@ -179,7 +184,7 @@ mod tests {
     fn decode_rejects_bad_version_kind_pad() {
         let mut raw = encode(&sample()); raw[0] = 0x01; assert!(decode(&raw).is_none());
         let mut raw = encode(&sample()); raw[1] = 0x03; assert!(decode(&raw).is_none());
-        let mut raw = encode(&sample()); raw[1] = 0x05; assert!(decode(&raw).is_none());
+        let mut raw = encode(&sample()); raw[1] = 0x06; assert!(decode(&raw).is_none());
         let mut raw = encode(&sample()); raw[90] = 1; assert!(decode(&raw).is_none());
         let mut raw = encode(&sample()); raw[19] = 1; assert!(decode(&raw).is_none());
         let mut raw = encode(&sample()); raw[84] = 1; assert!(decode(&raw).is_none());
@@ -236,9 +241,29 @@ mod tests {
     fn debit_with_nonzero_pad_still_refused_and_unknown_kind_is_mac_checkable() {
         let mut e = sample(); e.pad[0] = 1; let raw = attest(&key(), &mut e);
         assert!(decode(&raw).is_none() && !verify(&key(), &raw));
-        let mut e = sample(); e.kind = 0x05; let raw = attest(&key(), &mut e);
+        let mut e = sample(); e.kind = 0x06; let raw = attest(&key(), &mut e);
         assert!(!is_known_kind(raw[1]) && decode(&raw).is_none());
         assert!(mac_ok(&key(), &raw), "MAC is kind-independent");
         let mut k2 = key(); k2[0] ^= 1; assert!(!mac_ok(&k2, &raw));
+    }
+
+    fn lockout() -> JournalEntry {
+        let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0xC0, 0xFF, 0xEE, 1, 2, 3, 4, 5]); pad[8..10].copy_from_slice(&7u16.to_le_bytes());
+        JournalEntry { version: VERSION_DEMO, kind: KIND_STAFF_LOCKOUT, terminal_id: 3, merchant_id: [0x11; 8], uid: [4, 9, 9, 9, 9, 9, 9],
+            reserve_id: [0; 32], tmc: 0, amount_units: 3, balance_after: 0, ts: 5, tmv: [0; 8], sale_ref: [0; 8], pad }
+    }
+    #[test] fn lockout_is_a_known_kind_that_round_trips_with_pin_ver_in_the_pad() {
+        assert!(is_known_kind(KIND_STAFF_LOCKOUT)); assert!(!is_known_kind(0x06));
+        let mut e = lockout(); let raw = attest(&key(), &mut e);
+        assert!(verify(&key(), &raw)); let d = decode(&raw).unwrap();
+        assert_eq!(d, e); assert_eq!(u16::from_le_bytes([d.pad[8], d.pad[9]]), 7); assert_eq!(raw[1], 0x05);
+    }
+    #[test] fn lockout_shape_rules() {
+        fn ok(f: impl FnOnce(&mut JournalEntry)) -> bool { let mut e = lockout(); f(&mut e); decode(&encode(&e)).is_some() }
+        assert!(ok(|_| {}));
+        assert!(!ok(|e| e.reserve_id[0] = 1)); assert!(!ok(|e| e.tmc = 1)); assert!(!ok(|e| e.balance_after = 1));
+        assert!(!ok(|e| e.amount_units = 0)); assert!(!ok(|e| e.pad[..8].fill(0))); assert!(!ok(|e| e.pad[10] = 1)); assert!(!ok(|e| e.pad[11] = 1));
+        assert!(ok(|e| e.pad[8..10].copy_from_slice(&0u16.to_le_bytes())), "pin_ver is reported, not validated");
+        assert!(ok(|e| e.sale_ref = [1; 8]), "a sale may have been open");
     }
 }

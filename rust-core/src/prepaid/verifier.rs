@@ -3,7 +3,7 @@
 //! tmc above settled → tmc above this batch's running max for the card → cumulative net within balance.
 //! Redeems: MAC → merchant → known voucher → settled counter (same hash = duplicate, else double_redeem; answered even for a void voucher) → not void → batch counter → uses left. Overrides: MAC → merchant.
 
-use super::journal::{self, ENTRY_SIZE, KIND_PRICE_OVERRIDE, KIND_VOUCHER_REDEEM};
+use super::journal::{self, ENTRY_SIZE, KIND_PRICE_OVERRIDE, KIND_STAFF_LOCKOUT, KIND_VOUCHER_REDEEM};
 use super::reserve::ckb_blake2b;
 use std::collections::HashMap;
 
@@ -26,7 +26,12 @@ pub struct OverrideOut { pub index: u32, pub terminal_id: u16, pub product_hash:
     pub currency: [u8; 3], pub key_id: [u8; 8], pub entry_hash: [u8; 32] }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BatchResult { pub verdicts: Vec<Verdict>, pub nets: Vec<CardNet>, pub redeems: Vec<RedeemOut>, pub overrides: Vec<OverrideOut> }
+pub struct LockoutOut { pub index: u32, pub terminal_id: u16, pub uid: [u8; 7], pub key_id: [u8; 8], pub pin_ver: u16,
+    pub attempts: i32, pub entry_hash: [u8; 32] }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BatchResult { pub verdicts: Vec<Verdict>, pub nets: Vec<CardNet>, pub redeems: Vec<RedeemOut>, pub overrides: Vec<OverrideOut>,
+    pub lockouts: Vec<LockoutOut> }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BatchError { BadLength }
@@ -35,7 +40,7 @@ struct Running { net: i64, max_tmc: Option<u32>, accepted: u32 }
 #[derive(Default)]
 struct VoucherRun { max_counter: Option<u32>, accepted: u32, seen: HashMap<u32, [u8; 32]> }
 
-/// `merchant` = this Vault's merchant_id: a voucher redeem (0x03) or price override (0x04) carrying any other merchant_id
+/// `merchant` = this Vault's merchant_id: a voucher redeem (0x03), price override (0x04) or staff lockout (0x05) carrying any other merchant_id
 /// answers `bad_mac` (vouchers spec §8.3). Card entries (0x01/0x02) are not merchant-checked here, as in D3.
 pub fn verify_batch(key: &[u8; 16], merchant: &[u8; 8], entries: &[u8], cards: &[CardState], vouchers: &[VoucherState]) -> Result<BatchResult, BatchError> {
     if entries.len() % ENTRY_SIZE != 0 { return Err(BatchError::BadLength); }
@@ -45,7 +50,7 @@ pub fn verify_batch(key: &[u8; 16], merchant: &[u8; 8], entries: &[u8], cards: &
     let mut vrun: HashMap<[u8; 16], VoucherRun> = HashMap::new();
     let mut order: Vec<[u8; 32]> = Vec::new();
     let mut verdicts = Vec::with_capacity(entries.len() / ENTRY_SIZE);
-    let (mut redeems, mut overrides) = (Vec::new(), Vec::new());
+    let (mut redeems, mut overrides, mut lockouts) = (Vec::new(), Vec::new(), Vec::new());
 
     for (i, chunk) in entries.chunks_exact(ENTRY_SIZE).enumerate() {
         let raw: &[u8; ENTRY_SIZE] = chunk.try_into().unwrap();
@@ -56,8 +61,8 @@ pub fn verify_batch(key: &[u8; 16], merchant: &[u8; 8], entries: &[u8], cards: &
         }
         let e = journal::decode(raw).expect("verify implies decode");
         let hash = ckb_blake2b(raw);
-        // Spec §8.3: a voucher or override entry must carry this Vault's merchant_id.
-        if (e.kind == KIND_VOUCHER_REDEEM || e.kind == KIND_PRICE_OVERRIDE) && e.merchant_id != *merchant {
+        // Spec §8.3: a voucher, override or lockout entry must carry this Vault's merchant_id.
+        if (e.kind == KIND_VOUCHER_REDEEM || e.kind == KIND_PRICE_OVERRIDE || e.kind == KIND_STAFF_LOCKOUT) && e.merchant_id != *merchant {
             verdicts.push(Verdict::BadMac); continue;
         }
         match e.kind {
@@ -85,6 +90,11 @@ pub fn verify_batch(key: &[u8; 16], merchant: &[u8; 8], entries: &[u8], cards: &
                     key_id: e.pad[..8].try_into().unwrap(), entry_hash: hash });
                 verdicts.push(Verdict::Accepted);
             }
+            KIND_STAFF_LOCKOUT => {
+                lockouts.push(LockoutOut { index: i as u32, terminal_id: e.terminal_id, uid: e.uid, key_id: e.pad[..8].try_into().unwrap(),
+                    pin_ver: u16::from_le_bytes([e.pad[8], e.pad[9]]), attempts: e.amount_units, entry_hash: hash });
+                verdicts.push(Verdict::Accepted);
+            }
             _ => {
                 let card = match index.get(&e.reserve_id) {
                     Some(c) if !c.revoked => *c,
@@ -108,14 +118,14 @@ pub fn verify_batch(key: &[u8; 16], merchant: &[u8; 8], entries: &[u8], cards: &
         let r = &running[&rid];
         (r.accepted > 0).then(|| CardNet { reserve_id: rid, net_units: r.net, max_tmc: r.max_tmc.unwrap(), accepted: r.accepted })
     }).collect();
-    Ok(BatchResult { verdicts, nets, redeems, overrides })
+    Ok(BatchResult { verdicts, nets, redeems, overrides, lockouts })
 }
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prepaid::journal::{attest, JournalEntry, KIND_DEBIT, KIND_REFUND};
+    use crate::prepaid::journal::{attest, JournalEntry, KIND_DEBIT, KIND_REFUND, KIND_STAFF_LOCKOUT};
 
     fn key() -> [u8; 16] { core::array::from_fn(|i| i as u8) }
     /// The merchant every test entry carries.
@@ -350,5 +360,29 @@ mod tests {
         assert_eq!(r.verdicts, vec![Verdict::BadMac, Verdict::BadMac, Verdict::Accepted, Verdict::Accepted]);
         assert_eq!((r.redeems.len(), r.redeems[0].index), (1, 2));
         assert_eq!((r.overrides.len(), r.overrides[0].index), (1, 3));
+    }
+
+    fn lockout_raw(merchant: [u8; 8], pin_ver: u16) -> Vec<u8> {
+        let mut pad = [0u8; 12]; pad[..8].copy_from_slice(&[0xC0, 0xFF, 0xEE, 1, 2, 3, 4, 5]); pad[8..10].copy_from_slice(&pin_ver.to_le_bytes());
+        let mut e = JournalEntry { version: 0x02, kind: KIND_STAFF_LOCKOUT, terminal_id: 9, merchant_id: merchant, uid: [4, 1, 2, 3, 4, 5, 6],
+            reserve_id: [0; 32], tmc: 0, amount_units: 3, balance_after: 0, ts: 0, tmv: [0; 8], sale_ref: [0; 8], pad };
+        attest(&key(), &mut e).to_vec()
+    }
+    #[test] fn lockout_is_accepted_and_reported_with_key_id_pin_ver_and_terminal() {
+        let raw = lockout_raw(M, 7);
+        let r = verify_batch(&key(), &M, &raw, &[], &[]).unwrap();
+        assert_eq!(r.verdicts, vec![Verdict::Accepted]); assert!(r.nets.is_empty() && r.redeems.is_empty() && r.overrides.is_empty());
+        let l = &r.lockouts[0];
+        assert_eq!((l.index, l.terminal_id, l.pin_ver, l.attempts), (0, 9, 7, 3));
+        assert_eq!(l.key_id, [0xC0, 0xFF, 0xEE, 1, 2, 3, 4, 5]); assert_eq!(l.uid, [4, 1, 2, 3, 4, 5, 6]);
+        assert_eq!(l.entry_hash, ckb_blake2b(&raw));
+    }
+    #[test] fn lockout_from_another_merchant_is_bad_mac() {
+        assert_eq!(verify_batch(&key(), &M, &lockout_raw([0x22; 8], 1), &[], &[]).unwrap().verdicts, vec![Verdict::BadMac]);
+    }
+    #[test] fn two_identical_lockouts_in_one_batch_are_both_accepted_here() {
+        // dedupe by entry hash is the Vault's job (prepaid_journal_seen), as for 0x04
+        let mut two = lockout_raw(M, 1); two.extend(lockout_raw(M, 1));
+        assert_eq!(verify_batch(&key(), &M, &two, &[], &[]).unwrap().verdicts, vec![Verdict::Accepted, Verdict::Accepted]);
     }
 }
