@@ -73,6 +73,8 @@ class StaffKeyService(
 
 /** Final review LOW-5: an enrol arm (label chosen, biometric passed) lasts [TTL_MS]; a tag presented later is not enrolled. */
 data class EnrolArm(val label: String, val pin: String, val armedAtMs: Long) {
+    // The arm is the only holder of the PIN and lives 60 s. copy()/componentN() expose it by design; toString must not.
+    override fun toString() = "EnrolArm(label=\"$label\", pin=****, armedAtMs=$armedAtMs)"
     fun liveAt(nowMs: Long): Boolean = nowMs - armedAtMs < TTL_MS
     companion object {
         const val TTL_MS = 60_000L

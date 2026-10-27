@@ -117,7 +117,7 @@ class StaffKeyServiceTest {
         val pin = "97315084"
         svc.enrol(FakeTag("04958caa5c5e80"), "ring", pin); svc.setPin(svc.active().single().keyId, pin); svc.revoke(svc.active().single().keyId)
         assertTrue(store.events.size >= 4)
-        for (e in store.events) for (s in listOf(e.detail, e.uid, e.reserveId ?: "", e.kind, e.txHash ?: "")) assertFalse("$e", s.contains(pin))
+        for (e in store.events) for (s in listOf(e.detail, e.uid, e.reserveId ?: "", e.kind, e.txHash ?: "", e.phase)) assertFalse("$e", s.contains(pin))
         assertFalse(vstore.keys.values.any { it.label.contains(pin) || it.sigHex.contains(pin) })
     }
 }

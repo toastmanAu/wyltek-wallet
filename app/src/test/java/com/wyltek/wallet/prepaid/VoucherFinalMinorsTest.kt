@@ -104,4 +104,9 @@ class VoucherFinalMinorsTest {
         assertFalse(a.liveAt(61_000)); assertFalse(a.liveAt(500_000))
         assertEquals(60_000L, EnrolArm.TTL_MS)
     }
+
+    @Test fun an_enrol_arm_never_prints_its_pin() {
+        val a = EnrolArm("ring", "73105", 1_000)
+        assertFalse(a.toString().contains("73105")); assertTrue(a.toString().contains("ring"))
+    }
 }
