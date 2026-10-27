@@ -74,7 +74,8 @@ class StaffKeysViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(busy = true) }
         viewModelScope.launch {
             val out = try { s.enrol(MifareTagPort(raw), label, a.pin) } catch (e: CancellationException) { _ui.update { it.copy(busy = false) }; throw e }
-                catch (e: Exception) { ActionOutcome.Failed("enrol failed: ${e.message}") }
+                // Fixed copy, never e.message: this path carries the PIN, and nothing about the PIN may reach an exception message (spec); the screen enforces it itself.
+                catch (e: Exception) { ActionOutcome.Failed("enrol failed; try again") }
             val keep = out is ActionOutcome.NeedsTag && a.liveAt(System.currentTimeMillis())
             if (!keep) arm = null
             _ui.update { it.copy(busy = false, outcome = out, armedLabel = if (keep) label else null) }
@@ -87,7 +88,8 @@ class StaffKeysViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun setPin(k: StaffKeyEntity, pin: String) = viewModelScope.launch {
         val s = svc ?: return@launch
-        val out = try { s.setPin(k.keyId, pin) } catch (e: CancellationException) { throw e } catch (e: Exception) { ActionOutcome.Failed("set PIN failed: ${e.message}") }
+        // Fixed copy, never e.message: this path carries the PIN, and nothing about the PIN may reach an exception message (spec); the screen enforces it itself.
+        val out = try { s.setPin(k.keyId, pin) } catch (e: CancellationException) { throw e } catch (e: Exception) { ActionOutcome.Failed("could not set PIN; try again") }
         _ui.update { it.copy(outcome = out) }
     }
 }
