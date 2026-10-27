@@ -138,6 +138,7 @@ mod tests {
         assert_eq!(&e.pad[..8], &[0x77u8; 8]);
         assert_eq!(u16::from_le_bytes([e.pad[8], e.pad[9]]), 258);
         assert_eq!(&e.pad[10..], &[0, 0]);
+        assert_eq!((e.reserve_id, e.tmc, e.balance_after), ([0u8; 32], 0, 0));
     }
     #[test] fn lockout_refuses_a_zero_key_id() {
         assert!(build(&v(&format!("{K} lockout 3 0000000000000000 1"))).is_err());
