@@ -99,7 +99,7 @@ class VoucherFinalMinorsTest {
     // ---------------------------------------------------------------- LOW-5: the enrol arm expires
 
     @Test fun an_enrol_arm_lasts_sixty_seconds() {
-        val a = EnrolArm("ring", armedAtMs = 1_000)
+        val a = EnrolArm("ring", "1234", armedAtMs = 1_000)
         assertTrue(a.liveAt(1_000)); assertTrue(a.liveAt(60_999))
         assertFalse(a.liveAt(61_000)); assertFalse(a.liveAt(500_000))
         assertEquals(60_000L, EnrolArm.TTL_MS)

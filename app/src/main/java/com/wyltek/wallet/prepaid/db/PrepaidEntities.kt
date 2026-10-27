@@ -68,3 +68,4 @@ data class PrepaidEventEntity(
 const val KIND_VOUCHER_ISSUE = "voucher_issue"; const val KIND_VOUCHER_VOID = "voucher_void"; const val KIND_VOUCHER_REDEEM = "voucher_redeem"
 const val KIND_VOUCHER_CLOSE = "voucher_close"; const val KIND_PRICE_OVERRIDE = "price_override"
 const val KIND_STAFF_ENROL = "staff_enrol"; const val KIND_STAFF_REVOKE = "staff_revoke"
+const val KIND_STAFF_PIN_SET = "staff_pin_set"; const val KIND_STAFF_LOCKOUT = "staff_lockout"

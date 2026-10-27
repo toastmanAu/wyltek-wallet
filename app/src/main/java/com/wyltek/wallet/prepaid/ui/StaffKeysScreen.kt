@@ -42,7 +42,7 @@ class StaffKeysViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var arm: EnrolArm? = null
     private var expiry: Job? = null
     fun arm(label: String) {
-        val a = EnrolArm(label, System.currentTimeMillis()); arm = a
+        val a = EnrolArm(label, "", System.currentTimeMillis()); arm = a
         _ui.update { it.copy(armedLabel = label, outcome = null) }
         expiry?.cancel()
         expiry = viewModelScope.launch { delay(EnrolArm.TTL_MS); if (arm === a && !_ui.value.busy) expire() }
@@ -58,7 +58,7 @@ class StaffKeysViewModel(app: Application) : AndroidViewModel(app) {
         if (!MifareTagPort.accepts(raw)) { _ui.update { it.copy(outcome = ActionOutcome.Failed("not an NTAG21x tag")) }; return }
         _ui.update { it.copy(busy = true) }
         viewModelScope.launch {
-            val out = try { s.enrol(MifareTagPort(raw), label) } catch (e: CancellationException) { _ui.update { it.copy(busy = false) }; throw e }
+            val out = try { s.enrol(MifareTagPort(raw), label, a.pin) } catch (e: CancellationException) { _ui.update { it.copy(busy = false) }; throw e }
                 catch (e: Exception) { ActionOutcome.Failed("enrol failed: ${e.message}") }
             val keep = out is ActionOutcome.NeedsTag && a.liveAt(System.currentTimeMillis())
             if (!keep) arm = null

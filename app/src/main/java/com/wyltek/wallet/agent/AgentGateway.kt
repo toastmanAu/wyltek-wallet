@@ -341,7 +341,7 @@ class AgentGateway(context: Context) : AgentDispatchPort {
     val vouchers: VoucherService?
         get() { prepaid; return voucherHolder }
     val staffKeys: StaffKeyService?
-        get() = prepaid?.let { StaffKeyService(prepaidStore(), voucherStore(), NativeProtocol()) }
+        get() = prepaid?.let { StaffKeyService(prepaidStore(), voucherStore(), NativeProtocol(), { it.kHex }) }
 
     suspend fun prepaidLiveCell(outpoint: String): com.wyltek.wallet.core.model.Utxo? =
         prepaid?.let { svc -> RpcChainPort(repository.getChainManager()).also { it.cachedLock = svc.lock } }?.cellAt(outpoint)
