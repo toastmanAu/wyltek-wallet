@@ -1,5 +1,6 @@
 package com.wyltek.wallet.prepaid.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -43,6 +44,9 @@ data class StaffKeyEntity(
     val label: String,
     val enrolledAt: Long,
     val revokedAt: Long? = null,
+    @ColumnInfo(defaultValue = "0") val pinVer: Int = 0,
+    val pinCheckHex: String? = null,
+    val pinSetAt: Long? = null,
 )
 
 /** Every settled voucher-redeem and price-override entry, by blake2b of its 96 bytes: the settled set the verifier

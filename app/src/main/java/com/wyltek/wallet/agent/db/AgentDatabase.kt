@@ -69,13 +69,23 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) { MIGRATION_5_6_SQL.forEach(db::execSQL) }
 }
 
+/** v6 → v7: staff PIN columns (vouchers spec §5.4). Pinned to Room's own SQL by MigrationSqlMatchesRoomTest. */
+val MIGRATION_6_7_SQL = listOf(
+    "ALTER TABLE `prepaid_staff_keys` ADD COLUMN `pinVer` INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE `prepaid_staff_keys` ADD COLUMN `pinCheckHex` TEXT",
+    "ALTER TABLE `prepaid_staff_keys` ADD COLUMN `pinSetAt` INTEGER",
+)
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) { MIGRATION_6_7_SQL.forEach(db::execSQL) }
+}
+
 @Database(
     entities = [
         SpendRecordEntity::class, TokenRegistryEntity::class, PendingIntentEntity::class,
         PrepaidCardEntity::class, PrepaidEventEntity::class,
         VoucherEntity::class, StaffKeyEntity::class, JournalSeenEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AgentDatabase : RoomDatabase() {
@@ -90,7 +100,7 @@ object AgentDatabaseFactory {
         val factory = SupportFactory(passphrase.copyOf(), null, false)
         return Room.databaseBuilder(context.applicationContext, AgentDatabase::class.java, "agent_gateway.db")
             .openHelperFactory(factory)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
     }
 }
